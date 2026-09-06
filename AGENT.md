@@ -24,9 +24,9 @@ Guidance for AI agents (and humans) working in this repository.
 
 ### Scope boundary
 
-This repo contains **only** the backend. The React frontend lives in its own repository
-in the `Neue-Konzepte-BaaS` GitHub org. Do not add frontend code, build tooling, or
-assets here. The contract between the two is the HTTP API — if you change it in a
+This repo contains **only** the backend. The React frontend lives in its own repository:
+<https://github.com/Neue-Konzepte-BaaS/frontend>. Do not add frontend code, build
+tooling, or assets here. The contract between the two is the HTTP API — if you change it in a
 breaking way, say so explicitly in your summary so the frontend can be updated.
 
 ## Layout
