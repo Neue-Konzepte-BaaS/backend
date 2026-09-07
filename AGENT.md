@@ -31,18 +31,7 @@ breaking way, say so explicitly in your summary so the frontend can be updated.
 
 ## Layout
 
-```
-.
-├── main.go       # entrypoint
-├── go.mod
-└── AGENT.md
-```
-
-Planned structure (adopt as the code grows, don't create empty dirs up front):
-
-- `cmd/` — entrypoints, if more than one binary is ever needed
-- `internal/` — application code; not importable from outside the module
-- `migrations/` — SQL schema migrations, checked in and ordered
+The project is using the three-layer-architecture, and has seperate folders like sql/ for sql queries and schemas.
 
 ## Commands
 
@@ -67,8 +56,6 @@ document the variables in a table here.
 
 ## Conventions
 
-- Standard Go style: `gofmt`, and follow [Effective Go](https://go.dev/doc/effective_go).
-  Keep the code idiomatic rather than importing patterns from other languages.
 - Return errors, don't panic in request paths. Wrap with context:
   `fmt.Errorf("loading user %d: %w", id, err)`.
 - Prefer the standard library. Add a dependency only when it clearly pays for itself,
@@ -79,34 +66,22 @@ document the variables in a table here.
 
 ## Database
 
-PostgreSQL. **TBD:** driver/access layer (`database/sql` + `pgx`, `sqlc`, an ORM, …),
-migration tool, and local setup (Docker Compose vs. a local server).
-
-Once decided, document here: how to start a local DB, how to run and create migrations,
-and how tests get a database.
-
-Until then: schema changes belong in checked-in migration files, never applied by hand
-to a shared database.
+PostgreSQL is used. We use sqlc to query the database and dbmate for migrations. A local db for testing can be started via the compose.yml file.
 
 ## API
 
-**TBD:** router/framework, URL and versioning scheme (e.g. `/api/v1/...`), auth,
-request/response and error JSON shapes.
-
-Whatever is chosen, keep it consistent across endpoints and document it here — this
-section is what the frontend developers will read.
+We will use chi as http router in this project.
 
 ## Testing
 
 Standard `go test`. Tests live next to the code they cover, as `*_test.go`. Prefer
 table-driven tests.
 
-**TBD:** integration test strategy against a real Postgres.
+For integration tests, we use the library testcontainers to spin up postgres instances.
 
 ## Working in this repo
 
 - Small, focused commits with imperative messages ("add user endpoint").
-- Run `go build ./...`, `go test ./...` and `gofmt -l .` before you call a change done.
 - If tests fail or something is left unfinished, say so plainly instead of glossing over it.
 - Ask before adding infrastructure (CI, Docker, deployment) — that is a project-wide
   decision, not an implementation detail.
