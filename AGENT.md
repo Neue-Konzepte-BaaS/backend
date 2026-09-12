@@ -72,6 +72,8 @@ PostgreSQL is used. We use sqlc to query the database and dbmate for migrations.
 
 We will use chi as http router in this project.
 
+Document all API routes in the projects openapi.yml
+
 ## Testing
 
 Standard `go test`. Tests live next to the code they cover, as `*_test.go`. Prefer

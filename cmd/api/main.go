@@ -1,12 +1,20 @@
 package main
 
 import (
+	"context"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/config"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/credentials"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/handlers"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
+	database "github.com/Neue-Konzepte-BaaS/backend/internal/repositories/db"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/amacneil/dbmate/v2/pkg/dbmate"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func migrateDB(dbUrl string) {
@@ -25,8 +33,6 @@ func migrateDB(dbUrl string) {
 }
 
 func main() {
-	println("Hello World!")
-
 	// Structured logger
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -42,4 +48,34 @@ func main() {
 
 	// db migrations
 	migrateDB(c.DatabaseURL)
+
+	// setup db connection pool
+	ctx := context.Background()
+
+	pool, poolErr := pgxpool.New(ctx, c.DatabaseURL)
+	if poolErr != nil {
+		panic("Could not connect to database: " + poolErr.Error())
+	}
+	defer pool.Close()
+
+	if pingErr := pool.Ping(ctx); pingErr != nil {
+		panic("Could not reach database: " + pingErr.Error())
+	}
+
+	// wiring: queries -> repositories -> services -> handlers -> routes
+	queries := database.New(pool)
+
+	accountRepo := repositories.NewAccountRepository(queries)
+
+	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
+
+	authHandler := handlers.NewAuthHandler(authService, c)
+
+	router := handlers.NewRouter(authHandler, authService)
+
+	slog.Info("listening", "addr", ":8080")
+	if err := http.ListenAndServe(":8080", router); err != nil {
+		slog.Error("server stopped", "error", err)
+		os.Exit(1)
+	}
 }

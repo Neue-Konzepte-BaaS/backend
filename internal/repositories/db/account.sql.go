@@ -12,7 +12,24 @@ import (
 )
 
 const getAccountByEmail = `-- name: GetAccountByEmail :one
-SELECT id, first_name, last_name, password_hash, salt FROM account WHERE email = $1 LIMIT 1
+SELECT
+    a.id,
+    a.first_name,
+    a.last_name,
+    a.password_hash,
+    a.email,
+    CASE
+        WHEN ad.account_id IS NOT NULL THEN 'admin'
+        WHEN f.account_id IS NOT NULL THEN 'farmer'
+        WHEN c.account_id IS NOT NULL THEN 'customer'
+        ELSE ''
+    END AS role
+FROM account a
+LEFT JOIN admin ad ON ad.account_id = a.id
+LEFT JOIN farmer f ON f.account_id = a.id
+LEFT JOIN customer c ON c.account_id = a.id
+WHERE a.email = $1
+LIMIT 1
 `
 
 type GetAccountByEmailRow struct {
@@ -20,9 +37,12 @@ type GetAccountByEmailRow struct {
 	FirstName    string
 	LastName     string
 	PasswordHash string
-	Salt         string
+	Email        string
+	Role         string
 }
 
+// Role is not stored on account; it is implied by which subtype table the
+// account joins to. admin.role is an admin-internal tier, not the account role.
 func (q *Queries) GetAccountByEmail(ctx context.Context, email string) (GetAccountByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getAccountByEmail, email)
 	var i GetAccountByEmailRow
@@ -31,13 +51,55 @@ func (q *Queries) GetAccountByEmail(ctx context.Context, email string) (GetAccou
 		&i.FirstName,
 		&i.LastName,
 		&i.PasswordHash,
-		&i.Salt,
+		&i.Email,
+		&i.Role,
+	)
+	return i, err
+}
+
+const getAccountByID = `-- name: GetAccountByID :one
+SELECT
+    a.id,
+    a.first_name,
+    a.last_name,
+    a.email,
+    CASE
+        WHEN ad.account_id IS NOT NULL THEN 'admin'
+        WHEN f.account_id IS NOT NULL THEN 'farmer'
+        WHEN c.account_id IS NOT NULL THEN 'customer'
+        ELSE ''
+    END AS role
+FROM account a
+LEFT JOIN admin ad ON ad.account_id = a.id
+LEFT JOIN farmer f ON f.account_id = a.id
+LEFT JOIN customer c ON c.account_id = a.id
+WHERE a.id = $1
+LIMIT 1
+`
+
+type GetAccountByIDRow struct {
+	ID        uuid.UUID
+	FirstName string
+	LastName  string
+	Email     string
+	Role      string
+}
+
+func (q *Queries) GetAccountByID(ctx context.Context, id uuid.UUID) (GetAccountByIDRow, error) {
+	row := q.db.QueryRow(ctx, getAccountByID, id)
+	var i GetAccountByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.FirstName,
+		&i.LastName,
+		&i.Email,
+		&i.Role,
 	)
 	return i, err
 }
 
 const insertAccount = `-- name: InsertAccount :one
-INSERT INTO account (first_name, last_name, email, password_hash, salt) VALUES ($1, $2, $3, $4, $5) RETURNING id
+INSERT INTO account (first_name, last_name, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id
 `
 
 type InsertAccountParams struct {
@@ -45,7 +107,6 @@ type InsertAccountParams struct {
 	LastName     string
 	Email        string
 	PasswordHash string
-	Salt         string
 }
 
 func (q *Queries) InsertAccount(ctx context.Context, arg InsertAccountParams) (uuid.UUID, error) {
@@ -54,7 +115,6 @@ func (q *Queries) InsertAccount(ctx context.Context, arg InsertAccountParams) (u
 		arg.LastName,
 		arg.Email,
 		arg.PasswordHash,
-		arg.Salt,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)

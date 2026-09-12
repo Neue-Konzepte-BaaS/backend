@@ -15,6 +15,7 @@ type Config struct {
 	JWTSecret string
 
 	SameSiteStrict bool
+	CookieSecure   bool
 	CORSEnabled    bool
 	FrontendURL    string
 }
@@ -32,6 +33,12 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	// Defaults to true so a misconfigured production deploy fails closed;
+	// set COOKIE_SECURE=false for local http development.
+	cookieSecure, err := parseBoolEnv("COOKIE_SECURE", true)
+	if err != nil {
+		return Config{}, err
+	}
 
 	c := Config{
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
@@ -40,6 +47,7 @@ func Load() (Config, error) {
 		JWTSecret: os.Getenv("JWT_SECRET"),
 
 		SameSiteStrict: sameSiteStrict,
+		CookieSecure:   cookieSecure,
 		CORSEnabled:    corsEnabled,
 		FrontendURL:    os.Getenv("FRONTEND_URL"),
 	}

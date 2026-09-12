@@ -15,7 +15,6 @@ type Account struct {
 	LastName     string
 	Email        string
 	PasswordHash string
-	Salt         string
 	CreatedAt    pgtype.Timestamptz
 }
 
