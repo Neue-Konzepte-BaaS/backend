@@ -14,6 +14,7 @@ import (
 	database "github.com/Neue-Konzepte-BaaS/backend/internal/repositories/db"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/amacneil/dbmate/v2/pkg/dbmate"
+	_ "github.com/amacneil/dbmate/v2/pkg/driver/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
