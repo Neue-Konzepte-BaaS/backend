@@ -52,7 +52,7 @@ func (i *Issuer) Issue(userID uuid.UUID, role models.Role, tokenType string, ttl
 		},
 	}
 
-	signed, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(i.secret)
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(i.secret)
 	if err != nil {
 		return "", fmt.Errorf("signing %s token: %w", tokenType, err)
 	}
@@ -68,7 +68,7 @@ func (i *Issuer) Parse(raw, expectedType string) (Claims, error) {
 			return nil, fmt.Errorf("unexpected signing method %v", t.Header["alg"])
 		}
 		return i.secret, nil
-	}, jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}))
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
 		return Claims{}, ErrInvalidToken
 	}
