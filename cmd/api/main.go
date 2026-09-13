@@ -66,13 +66,13 @@ func main() {
 	// wiring: queries -> repositories -> services -> handlers -> routes
 	queries := database.New(pool)
 
-	accountRepo := repositories.NewAccountRepository(queries)
+	accountRepo := repositories.NewAccountRepository(pool, queries)
 
 	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
 
 	authHandler := handlers.NewAuthHandler(authService, c)
 
-	router := handlers.NewRouter(authHandler, authService)
+	router := handlers.NewRouter(authHandler, authService, c)
 
 	slog.Info("listening", "addr", ":8080")
 	if err := http.ListenAndServe(":8080", router); err != nil {

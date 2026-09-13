@@ -15,6 +15,74 @@ tags:
     description: Authentication and the current account
 
 paths:
+  /api/auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new farmer or customer account
+      description: |
+        Creates an account and its role-specific record in one transaction, then
+        signs the new user in by setting the same `access_token` and
+        `refresh_token` cookies as `POST /api/auth/login`.
+
+        The role is chosen by the client: `farmer` or `customer`. Admins are
+        seeded directly in the database and cannot be registered here. A farmer
+        must supply `farm_name`; both roles must supply `postal_code`.
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account created; auth cookies set.
+          headers:
+            Set-Cookie:
+              description: |
+                Two cookies are set:
+                `access_token=<jwt>; Path=/; Max-Age=900; HttpOnly` and
+                `refresh_token=<jwt>; Path=/api/auth/refresh; Max-Age=604800; HttpOnly`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionAccount'
+        '400':
+          description: Malformed body, a missing required field, or an unsupported role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingFields:
+                  value:
+                    error: first name, last name, email and password are required
+                missingFarmName:
+                  value:
+                    error: farm name is required for farmers
+                badRole:
+                  value:
+                    error: role must be farmer or customer
+        '409':
+          description: An account with this email already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: email already registered
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
   /api/auth/login:
     post:
       tags: [auth]
@@ -45,7 +113,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Account'
+                $ref: '#/components/schemas/SessionAccount'
         '400':
           description: Malformed body, or a missing email or password.
           content:
@@ -80,7 +148,7 @@ paths:
     get:
       tags: [auth]
       summary: Get the authenticated account
-      description: Returns the account resolved from the `access_token` cookie.
+      description: Returns the id and role resolved from the `access_token` cookie.
       operationId: getCurrentAccount
       responses:
         '200':
@@ -88,7 +156,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Account'
+                $ref: '#/components/schemas/SessionAccount'
         '401':
           description: Missing, expired, or invalid access token.
           content:
@@ -121,20 +189,52 @@ components:
           format: password
           example: correct-horse-battery-staple
 
-    Account:
+    RegisterRequest:
       type: object
-      required: [id, first_name, last_name, role]
+      required: [first_name, last_name, email, password, role, postal_code]
+      description: |
+        Fields are role-dependent. A `farmer` must also supply `farm_name`; a
+        `customer` supplies only the shared fields plus `postal_code`. `role`
+        must be `farmer` or `customer` — `admin` is rejected.
       properties:
-        id:
-          type: string
-          format: uuid
-          example: 6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8
         first_name:
           type: string
           example: Ada
         last_name:
           type: string
           example: Lovelace
+        email:
+          type: string
+          format: email
+          description: Surrounding whitespace is trimmed; must be unique.
+          example: ada@example.com
+        password:
+          type: string
+          format: password
+          example: correct-horse-battery-staple
+        role:
+          type: string
+          enum: [farmer, customer]
+          example: customer
+        postal_code:
+          type: integer
+          format: int32
+          description: The account's postal code; required for both roles.
+          example: 76133
+        farm_name:
+          type: string
+          description: Required when `role` is `farmer`; ignored otherwise.
+          example: Green Acres
+
+    SessionAccount:
+      type: object
+      description: The minimal identity returned after authenticating.
+      required: [id, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8
         role:
           $ref: '#/components/schemas/Role'
 

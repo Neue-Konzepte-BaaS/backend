@@ -1,6 +1,15 @@
 -- name: InsertAccount :one
 INSERT INTO account (first_name, last_name, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id;
 
+-- name: InsertFarmer :exec
+-- Links an account to the farmer subtype table. The account's role is derived
+-- from this membership; see GetAccountByEmail.
+INSERT INTO farmer (account_id, farm_name, postal_code) VALUES ($1, $2, $3);
+
+-- name: InsertCustomer :exec
+-- Links an account to the customer subtype table.
+INSERT INTO customer (account_id, postal_code) VALUES ($1, $2);
+
 -- name: GetAccountByEmail :one
 -- Role is not stored on account; it is implied by which subtype table the
 -- account joins to. admin.role is an admin-internal tier, not the account role.
