@@ -18,8 +18,14 @@ CREATE TABLE field_crop (
         REFERENCES crop(id)
 );
 
-ALTER TABLE rental ADD COLUMN crop UUID NOT NULL
+INSERT INTO crop (name, duration_months) VALUES ('unknown', 1);
+
+ALTER TABLE rental ADD COLUMN crop UUID
     CONSTRAINT fk_rental_crop REFERENCES crop(id);
+
+UPDATE rental SET crop = (SELECT id FROM crop WHERE name = 'unknown');
+
+ALTER TABLE rental ALTER COLUMN crop SET NOT NULL;
 
 -- migrate:down
 ALTER TABLE rental DROP COLUMN crop;
