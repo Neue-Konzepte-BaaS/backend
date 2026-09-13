@@ -21,6 +21,8 @@ tags:
     description: The crop catalog, and which crops a field offers
   - name: rentals
     description: Renting plots
+  - name: statistics
+    description: Aggregate statistics for farmers and admins
 
 paths:
   /api/auth/register:
@@ -801,6 +803,76 @@ paths:
               example:
                 error: internal error
 
+  /api/statistics:
+    get:
+      tags: [statistics]
+      summary: Get the authenticated account's statistics
+      description: |
+        Returns a dashboard of aggregate figures. What the response covers is
+        derived entirely from the caller's role — it cannot be requested or
+        overridden:
+
+        * A **farmer** gets `scope: farm`: totals for their own fields, plots
+          and rentals only.
+        * An **admin** gets `scope: platform`: the same figures across every
+          farmer, plus an `accounts` group that a farmer never sees.
+
+        `occupancyRate` is a ratio in `[0, 1]`, not a percentage. Areas are
+        reported in square meters. `last30Days` / `registeredLast30Days`
+        count rows created in the 30 days up to `generatedAt`.
+
+        Customers and any other role receive 403.
+      operationId: getStatistics
+      responses:
+        '200':
+          description: The statistics the account is entitled to see.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Statistics'
+              examples:
+                farm:
+                  summary: A farmer's own holdings
+                  value:
+                    scope: farm
+                    generatedAt: '2026-09-13T16:21:04Z'
+                    fields: { total: 3, areaSquareMeters: 128394.5 }
+                    plots: { total: 42, rented: 17, available: 25, areaSquareMeters: 91002.1, occupancyRate: 0.4047619 }
+                    rentals: { total: 58, active: 17, last30Days: 6 }
+                platform:
+                  summary: Platform-wide totals for an admin
+                  value:
+                    scope: platform
+                    generatedAt: '2026-09-13T16:21:04Z'
+                    fields: { total: 120, areaSquareMeters: 4128394.5 }
+                    plots: { total: 640, rented: 301, available: 339, areaSquareMeters: 2091002.1, occupancyRate: 0.4703125 }
+                    rentals: { total: 812, active: 301, last30Days: 44 }
+                    accounts: { total: 205, farmers: 40, customers: 164, registeredLast30Days: 12 }
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is neither a farmer nor an admin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
 components:
   securitySchemes:
     accessTokenCookie:
@@ -1120,6 +1192,118 @@ components:
               $ref: '#/components/schemas/Plot'
             crop:
               $ref: '#/components/schemas/Crop'
+
+    StatisticsScope:
+      type: string
+      description: >-
+        What a Statistics payload covers. Derived from the caller's role; it
+        cannot be requested.
+      enum: [farm, platform]
+
+    FieldStatistics:
+      type: object
+      required: [total, areaSquareMeters]
+      properties:
+        total:
+          type: integer
+          format: int64
+          example: 3
+        areaSquareMeters:
+          type: number
+          format: double
+          example: 128394.5
+
+    PlotStatistics:
+      type: object
+      required: [total, rented, available, areaSquareMeters, occupancyRate]
+      properties:
+        total:
+          type: integer
+          format: int64
+          example: 42
+        rented:
+          type: integer
+          format: int64
+          description: Plots with a rental covering the present moment.
+          example: 17
+        available:
+          type: integer
+          format: int64
+          example: 25
+        areaSquareMeters:
+          type: number
+          format: double
+          example: 91002.1
+        occupancyRate:
+          type: number
+          format: double
+          description: '`rented / total` as a ratio in `[0, 1]`; `0` when `total` is `0`.'
+          minimum: 0
+          maximum: 1
+          example: 0.4047619
+
+    RentalStatistics:
+      type: object
+      required: [total, active, last30Days]
+      properties:
+        total:
+          type: integer
+          format: int64
+          example: 58
+        active:
+          type: integer
+          format: int64
+          description: Rentals whose period covers the present moment.
+          example: 17
+        last30Days:
+          type: integer
+          format: int64
+          description: Rentals created in the 30 days up to `generatedAt`.
+          example: 6
+
+    AccountStatistics:
+      type: object
+      description: Platform scope only.
+      required: [total, farmers, customers, registeredLast30Days]
+      properties:
+        total:
+          type: integer
+          format: int64
+          example: 205
+        farmers:
+          type: integer
+          format: int64
+          example: 40
+        customers:
+          type: integer
+          format: int64
+          example: 164
+        registeredLast30Days:
+          type: integer
+          format: int64
+          description: Accounts created in the 30 days up to `generatedAt`.
+          example: 12
+
+    Statistics:
+      type: object
+      required: [scope, generatedAt, fields, plots, rentals]
+      properties:
+        scope:
+          $ref: '#/components/schemas/StatisticsScope'
+        generatedAt:
+          type: string
+          format: date-time
+          example: '2026-09-13T16:21:04Z'
+        fields:
+          $ref: '#/components/schemas/FieldStatistics'
+        plots:
+          $ref: '#/components/schemas/PlotStatistics'
+        rentals:
+          $ref: '#/components/schemas/RentalStatistics'
+        accounts:
+          allOf:
+            - $ref: '#/components/schemas/AccountStatistics'
+          description: Present only when `scope` is `platform`.
 
 security:
   - accessTokenCookie: []

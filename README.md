@@ -75,6 +75,13 @@ Login/register set two HttpOnly cookies: `access_token` (`Path=/`, 15 min) and
 `refresh_token` (`Path=/api/auth/refresh`, 7 days). A `/api/auth/refresh` endpoint
 is not implemented yet.
 
+## Statistics
+
+- `GET /api/statistics` — returns aggregate figures for the authenticated account.
+  A **farmer** gets `scope: farm` (their own fields/plots/rentals); an **admin** gets
+  `scope: platform` (the same, platform-wide, plus an `accounts` group). The scope is
+  derived from the caller's role and cannot be requested. Customers get `403`.
+
 ## Tests
 
 ```sh
