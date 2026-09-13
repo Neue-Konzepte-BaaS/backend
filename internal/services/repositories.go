@@ -30,6 +30,17 @@ type PlotRepository interface {
 	GetNearestPlots(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error)
 }
 
+type RentalRepository interface {
+	// CreateRental books the plot for the customer, starting at the database's
+	// current time and running for durationMonths. Returns ErrPlotUnavailable
+	// if an existing rental overlaps that period, and ErrNotFound if the plot
+	// or the customer does not exist.
+	CreateRental(ctx context.Context, plot, customer uuid.UUID, durationMonths int32) (models.Rental, error)
+	// GetRentalsByCustomer returns the customer's rentals, newest first,
+	// each with the plot it books.
+	GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error)
+}
+
 type PostalCodeRepository interface {
 	// FindCoordinates resolves a German postal code or city name to a
 	// lon/lat point. Exactly one of postalCode/city should be set. Returns

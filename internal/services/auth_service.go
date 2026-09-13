@@ -22,6 +22,9 @@ var (
 	// ErrForbidden covers an authenticated account acting on a resource it
 	// does not own, e.g. a farmer creating a plot on another farmer's field.
 	ErrForbidden = errors.New("forbidden")
+	// ErrPlotUnavailable is returned when a plot is already rented for the
+	// requested period.
+	ErrPlotUnavailable = errors.New("plot unavailable")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

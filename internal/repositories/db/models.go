@@ -55,3 +55,11 @@ type PostalCode struct {
 	Name        string
 	Coordinates *geom.Point
 }
+
+type Rental struct {
+	ID        uuid.UUID
+	Plot      uuid.UUID
+	Customer  uuid.UUID
+	Period    pgtype.Range[pgtype.Timestamptz]
+	CreatedAt pgtype.Timestamptz
+}

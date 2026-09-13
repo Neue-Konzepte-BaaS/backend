@@ -85,17 +85,20 @@ func main() {
 	fieldRepo := repositories.NewFieldRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
 	postalCodeRepo := repositories.NewPostalCodeRepository(queries)
+	rentalRepo := repositories.NewRentalRepository(queries)
 
 	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
 	fieldService := services.NewFieldService(fieldRepo, plotRepo)
 	plotService := services.NewPlotService(fieldRepo, plotRepo)
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo)
+	rentalService := services.NewRentalService(rentalRepo)
 
 	authHandler := handlers.NewAuthHandler(authService, c)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
 	plotSearchHandler := handlers.NewPlotSearchHandler(plotSearchService)
+	rentalHandler := handlers.NewRentalHandler(rentalService)
 
-	router := handlers.NewRouter(authHandler, fieldHandler, plotSearchHandler, authService, c)
+	router := handlers.NewRouter(authHandler, fieldHandler, plotSearchHandler, rentalHandler, authService, c)
 
 	slog.Info("listening", "addr", ":8080")
 	if err := http.ListenAndServe(":8080", router); err != nil {

@@ -24,5 +24,11 @@ SELECT
         ST_SetSRID(ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8), 4326)::geography
     )::float8 AS distance_meters
 FROM plot
+-- Only plots that are free right now; a rental that has run out stops
+-- hiding its plot.
+WHERE NOT EXISTS (
+    SELECT 1 FROM rental r
+    WHERE r.plot = plot.id AND r.period @> CURRENT_TIMESTAMP
+)
 ORDER BY coordinates <-> ST_SetSRID(ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8), 4326)
 LIMIT sqlc.arg(result_limit);
