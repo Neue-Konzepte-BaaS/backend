@@ -236,7 +236,8 @@ paths:
       summary: Create a field
       description: |
         Creates a field owned by the authenticated farmer. The coordinates
-        must describe a rectangle. Requires the `farmer` role.
+        may describe any simple polygon — there is no rectangle requirement.
+        Requires the `farmer` role.
       operationId: createField
       requestBody:
         required: true
@@ -252,7 +253,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Field'
         '400':
-          description: Malformed body, missing name, or coordinates are not a valid rectangular GeoJSON Polygon.
+          description: Malformed body, missing name, or coordinates are not a valid GeoJSON Polygon.
           content:
             application/json:
               schema:
@@ -267,9 +268,6 @@ paths:
                 invalidCoordinates:
                   value:
                     error: coordinates must be a valid GeoJSON Polygon
-                notRectangle:
-                  value:
-                    error: field must be a rectangle
         '401':
           description: Missing, expired, or invalid access token.
           content:
@@ -301,8 +299,9 @@ paths:
       summary: Create a plot on a field
       description: |
         Creates a plot on the given field. The field must be owned by the
-        authenticated farmer, and the plot's coordinates must describe a
-        rectangle within the field's boundaries. Requires the `farmer` role.
+        authenticated farmer, and the plot's coordinates must lie within the
+        field's boundaries — there is no rectangle requirement. Requires the
+        `farmer` role.
       operationId: createPlot
       parameters:
         - name: fieldID
@@ -325,7 +324,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Plot'
         '400':
-          description: Malformed body, missing name, or coordinates are not a valid rectangular GeoJSON Polygon within the field.
+          description: Malformed body, missing name, or coordinates are not a valid GeoJSON Polygon within the field.
           content:
             application/json:
               schema:
@@ -343,9 +342,9 @@ paths:
                 invalidCoordinates:
                   value:
                     error: coordinates must be a valid GeoJSON Polygon
-                notRectangle:
+                notWithinField:
                   value:
-                    error: plot must be a rectangle within the field's boundaries
+                    error: plot must be within the field's boundaries
         '401':
           description: Missing, expired, or invalid access token.
           content:
@@ -731,7 +730,7 @@ components:
         coordinates:
           allOf:
             - $ref: '#/components/schemas/GeoJSONPolygon'
-          description: Must describe a rectangle.
+          description: Any simple polygon — there is no rectangle requirement.
 
     CreatePlotRequest:
       type: object
@@ -744,7 +743,7 @@ components:
         coordinates:
           allOf:
             - $ref: '#/components/schemas/GeoJSONPolygon'
-          description: Must describe a rectangle within the field's boundaries.
+          description: Any simple polygon that lies within the field's boundaries.
 
     Field:
       type: object
