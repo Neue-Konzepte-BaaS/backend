@@ -2,9 +2,11 @@
 
 Guidance for AI agents (and humans) working in this repository.
 
-> **Status: early / greenfield.** Right now this repo is little more than a Go module
-> and a `main.go`. Sections marked **TBD** are decisions that have not been made yet —
-> when you make one, update this file in the same change.
+> **Status: active.** The core API is in place — accounts and auth, fields and plots,
+> spatial plot search, rentals, and statistics. Known gaps are catalogued in
+> [ARCHITECTURE.md §13](ARCHITECTURE.md#13-known-gaps-and-rough-edges). Sections marked
+> **TBD** are decisions that have not been made yet — when you make one, update this
+> file in the same change.
 
 ## Project
 
@@ -19,7 +21,7 @@ Guidance for AI agents (and humans) working in this repository.
 | Layer    | Choice                        |
 | -------- | ----------------------------- |
 | Backend  | Go (see `go.mod` for version) |
-| Database | PostgreSQL                    |
+| Database | PostgreSQL + PostGIS          |
 | Frontend | React — **separate repo**     |
 
 ### Scope boundary
@@ -33,6 +35,12 @@ breaking way, say so explicitly in your summary so the frontend can be updated.
 
 The project is using the three-layer-architecture, and has seperate folders like sql/ for sql queries and schemas.
 
+**[ARCHITECTURE.md](ARCHITECTURE.md) is the detailed reference**: layering and the
+dependency inversion between `services` and `repositories`, request flows, where each
+business rule is enforced, the SQLSTATE-to-HTTP error table, and a step-by-step
+checklist for adding a feature (§14). Read it before adding a new endpoint. This file
+stays the short version — keep the two consistent.
+
 ## Commands
 
 ```sh
@@ -43,7 +51,11 @@ go vet ./...      # static checks
 gofmt -l .        # list unformatted files (should print nothing)
 ```
 
-There is no Makefile, task runner, or CI pipeline yet — **TBD**.
+`make` wraps the common flows: `make db-up` (podman compose), `make up`, `make build`,
+and `make migrate` / `migrate-up` / `migrate-down` (dbmate, reading `.env`).
+
+CI is `.github/workflows/ci.yml`: build, lint (`gofmt -l` must be empty, plus
+golangci-lint), unit tests (`go vet` and `go test -short -race`), and integration tests.
 
 ## Configuration
 
@@ -51,8 +63,21 @@ Config comes from environment variables. `.env` is gitignored and must never be
 committed; neither may connection strings, passwords, or API keys — not in code, not in
 tests, not in this file.
 
-There is no `.env.example` yet. When the first env var is introduced, create one and
-document the variables in a table here.
+`.env.example` lists every variable; copy it to `.env` to run locally. `config.Load()`
+parses and validates them at startup and fails fast.
+
+| Variable | Default | Notes |
+| ----------------- | ------- | ------------------------------------------------------- |
+| `DATABASE_URL`    | —       | Required; must parse as a URL with a scheme. |
+| `DB_AUTO_MIGRATE` | `false` | Parsed and validated but **not read** — `main.go` migrates unconditionally. |
+| `JWT_SECRET`      | —       | Required; at least 32 characters. |
+| `COOKIE_SECURE`   | `true`  | Set `false` only for local http development. |
+| `SAME_SITE_STRICT`| `true`  | |
+| `CORS_ENABLED`    | `false` | |
+| `FRONTEND_URL`    | —       | Required when `CORS_ENABLED` is true; must be an absolute URL. |
+
+`POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` are read by `compose.yml` and the
+`Makefile`'s dbmate targets, not by the Go application.
 
 ## Conventions
 
@@ -66,11 +91,14 @@ document the variables in a table here.
 
 ## Database
 
-PostgreSQL is used. We use sqlc to query the database and dbmate for migrations. A local db for testing can be started via the compose.yml file.
+PostgreSQL with the **PostGIS** and **btree_gist** extensions — both are required, not
+optional: geometry columns and the rental no-overlap exclusion constraint depend on
+them. We use sqlc to query the database and dbmate for migrations. A local db for
+testing can be started via the compose.yml file.
 
 ## API
 
-We will use chi as http router in this project.
+chi is the http router.
 
 Document all API routes in the projects openapi.yml
 
@@ -80,11 +108,14 @@ Standard `go test`. Tests live next to the code they cover, as `*_test.go`. Pref
 table-driven tests.
 
 For integration tests, we use the library testcontainers to spin up postgres instances.
+They live in `*_integration_test.go` and skip under `go test -short`, which is how CI
+separates the unit and integration jobs — there is no build tag.
 
 ## Working in this repo
 
 - Small, focused commits with imperative messages ("add user endpoint").
 - If tests fail or something is left unfinished, say so plainly instead of glossing over it.
-- Ask before adding infrastructure (CI, Docker, deployment) — that is a project-wide
-  decision, not an implementation detail.
+- Ask before adding or changing infrastructure (CI, containers, deployment) — that is a
+  project-wide decision, not an implementation detail. CI and a `Containerfile` now
+  exist; extending them still counts.
 - Keep this file current: it is the shared context for everyone working here.

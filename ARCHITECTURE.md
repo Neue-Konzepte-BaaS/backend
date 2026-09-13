@@ -18,9 +18,10 @@ A **farmer** registers, draws one or more **fields** on a map, and subdivides ea
 field into **plots**. A **customer** searches for free plots near a location —
 given either raw coordinates or a German postal code / city name — and **rents**
 one for a fixed period (6 months). The system's two interesting invariants are
-geometric (a plot must be a rectangle lying inside its parent field) and temporal
-(a plot cannot be rented twice for overlapping periods). Both are enforced *in the
-database*, not in Go — see [§7](#7-where-the-business-rules-actually-live).
+geometric (a plot must lie inside its parent field — there is no longer any
+rectangle requirement) and temporal (a plot cannot be rented twice for
+overlapping periods). Both are enforced *in the database*, not in Go — see
+[§7](#7-where-the-business-rules-actually-live).
 
 ```mermaid
 graph LR
@@ -509,7 +510,7 @@ The full path from a Postgres error code to an HTTP status:
 | SQLSTATE | Raised by | Mapped in | Sentinel | HTTP |
 | --- | --- | --- | --- | --- |
 | `23505` unique_violation | `account.email` | [account_repository.go:133](internal/repositories/account_repository.go#L133) | `ErrEmailTaken` | 409 |
-| `23514` check_violation | rectangle CHECKs | [geometry.go:30](internal/repositories/geometry.go#L30) | `ErrInvalidGeometry` | 400 |
+| `23514` check_violation | nothing today — no CHECK constraint remains (see §7); branch kept defensively | [geometry.go:30](internal/repositories/geometry.go#L30) | `ErrInvalidGeometry` | 400 |
 | `P0001` raise_exception | within-field trigger | [geometry.go:30](internal/repositories/geometry.go#L30) | `ErrInvalidGeometry` | 400 |
 | `23P01` exclusion_violation | `rental_no_overlap` | [rental_repository.go:72](internal/repositories/rental_repository.go#L72) | `ErrPlotUnavailable` | 409 |
 | `23503` foreign_key_violation | rental FKs | [rental_repository.go:72](internal/repositories/rental_repository.go#L72) | `ErrNotFound` | 404 |
