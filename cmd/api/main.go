@@ -102,7 +102,7 @@ func main() {
 	plotSearchHandler := handlers.NewPlotSearchHandler(plotSearchService)
 	rentalHandler := handlers.NewRentalHandler(rentalService)
 	cropHandler := handlers.NewCropHandler(cropService)
-  statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
+	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
 
 	router := handlers.NewRouter(authHandler, fieldHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
 
