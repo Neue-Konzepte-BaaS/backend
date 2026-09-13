@@ -15,7 +15,9 @@ import (
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/amacneil/dbmate/v2/pkg/dbmate"
 	_ "github.com/amacneil/dbmate/v2/pkg/driver/postgres"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgxgeom "github.com/twpayne/pgx-geom"
 )
 
 func migrateDB(dbUrl string) {
@@ -48,12 +50,25 @@ func main() {
 	}
 
 	// db migrations
+	// Must run before the pool below: registering the PostGIS types needs the
+	// postgis extension to already exist, which the field migration creates.
 	migrateDB(c.DatabaseURL)
 
 	// setup db connection pool
 	ctx := context.Background()
 
-	pool, poolErr := pgxpool.New(ctx, c.DatabaseURL)
+	poolConfig, poolConfigErr := pgxpool.ParseConfig(c.DatabaseURL)
+	if poolConfigErr != nil {
+		panic("Could not parse database config: " + poolConfigErr.Error())
+	}
+
+	// register PostGIS geometry types on every new connection so that
+	// geometry columns encode/decode as *geom.Polygon
+	poolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		return pgxgeom.Register(ctx, conn)
+	}
+
+	pool, poolErr := pgxpool.NewWithConfig(ctx, poolConfig)
 	if poolErr != nil {
 		panic("Could not connect to database: " + poolErr.Error())
 	}
@@ -67,12 +82,17 @@ func main() {
 	queries := database.New(pool)
 
 	accountRepo := repositories.NewAccountRepository(queries)
+	fieldRepo := repositories.NewFieldRepository(queries)
+	plotRepo := repositories.NewPlotRepository(queries)
 
 	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
+	fieldService := services.NewFieldService(fieldRepo)
+	plotService := services.NewPlotService(fieldRepo, plotRepo)
 
 	authHandler := handlers.NewAuthHandler(authService, c)
+	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
 
-	router := handlers.NewRouter(authHandler, authService)
+	router := handlers.NewRouter(authHandler, fieldHandler, authService)
 
 	slog.Info("listening", "addr", ":8080")
 	if err := http.ListenAndServe(":8080", router); err != nil {
