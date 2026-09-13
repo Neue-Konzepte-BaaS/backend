@@ -11,3 +11,12 @@ type AccountRepository interface {
 	GetAccountByEmail(ctx context.Context, email string) (models.Account, error)
 	GetAccountByID(ctx context.Context, id uuid.UUID) (models.Account, error)
 }
+
+type FieldRepository interface {
+	CreateField(ctx context.Context, field models.Field) (uuid.UUID, error)
+	GetFieldOwner(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+}
+
+type PlotRepository interface {
+	CreatePlot(ctx context.Context, plot models.Plot) (uuid.UUID, error)
+}

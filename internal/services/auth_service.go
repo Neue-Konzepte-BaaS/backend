@@ -13,6 +13,12 @@ var (
 	// ErrInvalidCredentials covers both an unknown email and a wrong password.
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrNotFound           = errors.New("account not found")
+	// ErrInvalidGeometry covers rejected field/plot coordinates: not a
+	// rectangle, or (for plots) not contained within the parent field.
+	ErrInvalidGeometry = errors.New("invalid geometry")
+	// ErrForbidden covers an authenticated account acting on a resource it
+	// does not own, e.g. a farmer creating a plot on another farmer's field.
+	ErrForbidden = errors.New("forbidden")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

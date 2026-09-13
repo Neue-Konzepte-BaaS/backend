@@ -13,6 +13,8 @@ servers:
 tags:
   - name: auth
     description: Authentication and the current account
+  - name: fields
+    description: Fields and plots owned by a farmer
 
 paths:
   /api/auth/login:
@@ -98,6 +100,160 @@ paths:
               example:
                 error: not authenticated
 
+  /api/fields:
+    post:
+      tags: [fields]
+      summary: Create a field
+      description: |
+        Creates a field owned by the authenticated farmer. The coordinates
+        must describe a rectangle. Requires the `farmer` role.
+      operationId: createField
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFieldRequest'
+      responses:
+        '201':
+          description: Field created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Field'
+        '400':
+          description: Malformed body, missing name, or coordinates are not a valid rectangular GeoJSON Polygon.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                missingName:
+                  value:
+                    error: name is required
+                invalidCoordinates:
+                  value:
+                    error: coordinates must be a valid GeoJSON Polygon
+                notRectangle:
+                  value:
+                    error: field must be a rectangle
+        '401':
+          description: Missing, expired, or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/fields/{fieldID}/plots:
+    post:
+      tags: [fields]
+      summary: Create a plot on a field
+      description: |
+        Creates a plot on the given field. The field must be owned by the
+        authenticated farmer, and the plot's coordinates must describe a
+        rectangle within the field's boundaries. Requires the `farmer` role.
+      operationId: createPlot
+      parameters:
+        - name: fieldID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlotRequest'
+      responses:
+        '201':
+          description: Plot created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Plot'
+        '400':
+          description: Malformed body, missing name, or coordinates are not a valid rectangular GeoJSON Polygon within the field.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidFieldId:
+                  value:
+                    error: invalid field id
+                invalidBody:
+                  value:
+                    error: invalid request body
+                missingName:
+                  value:
+                    error: name is required
+                invalidCoordinates:
+                  value:
+                    error: coordinates must be a valid GeoJSON Polygon
+                notRectangle:
+                  value:
+                    error: plot must be a rectangle within the field's boundaries
+        '401':
+          description: Missing, expired, or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer, or the field is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                insufficientPermissions:
+                  value:
+                    error: insufficient permissions
+                notOwner:
+                  value:
+                    error: field is not owned by this farmer
+        '404':
+          description: Field not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: field not found
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
 components:
   securitySchemes:
     accessTokenCookie:
@@ -150,6 +306,94 @@ components:
         error:
           type: string
           description: Human-readable error message.
+
+    GeoJSONPolygon:
+      type: object
+      description: A GeoJSON Polygon geometry.
+      required: [type, coordinates]
+      properties:
+        type:
+          type: string
+          enum: [Polygon]
+        coordinates:
+          type: array
+          description: An array of linear rings; the first is the exterior boundary.
+          items:
+            type: array
+            items:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+      example:
+        type: Polygon
+        coordinates:
+          - - [9.1798, 48.7758]
+            - [9.1808, 48.7758]
+            - [9.1808, 48.7768]
+            - [9.1798, 48.7768]
+            - [9.1798, 48.7758]
+
+    CreateFieldRequest:
+      type: object
+      required: [name, coordinates]
+      properties:
+        name:
+          type: string
+          description: Surrounding whitespace is trimmed.
+          example: North Field
+        coordinates:
+          allOf:
+            - $ref: '#/components/schemas/GeoJSONPolygon'
+          description: Must describe a rectangle.
+
+    CreatePlotRequest:
+      type: object
+      required: [name, coordinates]
+      properties:
+        name:
+          type: string
+          description: Surrounding whitespace is trimmed.
+          example: Plot A
+        coordinates:
+          allOf:
+            - $ref: '#/components/schemas/GeoJSONPolygon'
+          description: Must describe a rectangle within the field's boundaries.
+
+    Field:
+      type: object
+      required: [id, name, farmer, coordinates]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: North Field
+        farmer:
+          type: string
+          format: uuid
+          description: ID of the account that owns this field.
+        coordinates:
+          $ref: '#/components/schemas/GeoJSONPolygon'
+
+    Plot:
+      type: object
+      required: [id, name, field, coordinates]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Plot A
+        field:
+          type: string
+          format: uuid
+          description: ID of the field this plot belongs to.
+        coordinates:
+          $ref: '#/components/schemas/GeoJSONPolygon'
 
 security:
   - accessTokenCookie: []
