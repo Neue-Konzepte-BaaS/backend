@@ -81,7 +81,7 @@ func main() {
 	// wiring: queries -> repositories -> services -> handlers -> routes
 	queries := database.New(pool)
 
-	accountRepo := repositories.NewAccountRepository(queries)
+	accountRepo := repositories.NewAccountRepository(pool, queries)
 	fieldRepo := repositories.NewFieldRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
 
@@ -92,7 +92,7 @@ func main() {
 	authHandler := handlers.NewAuthHandler(authService, c)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
 
-	router := handlers.NewRouter(authHandler, fieldHandler, authService)
+	router := handlers.NewRouter(authHandler, fieldHandler, authService, c)
 
 	slog.Info("listening", "addr", ":8080")
 	if err := http.ListenAndServe(":8080", router); err != nil {

@@ -11,6 +11,7 @@ import (
 	"github.com/Neue-Konzepte-BaaS/backend/internal/config"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/credentials"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/middleware"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/webutils"
 )
@@ -27,6 +28,16 @@ func NewAuthHandler(authService services.AuthService, cfg config.Config) *AuthHa
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type registerRequest struct {
+	FirstName  string `json:"first_name"`
+	LastName   string `json:"last_name"`
+	Email      string `json:"email"`
+	Password   string `json:"password"`
+	Role       string `json:"role"`
+	FarmName   string `json:"farm_name"`
+	PostalCode int32  `json:"postal_code"`
 }
 
 type meResponse struct {
@@ -67,14 +78,65 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Register creates a farmer or customer account and, on success, signs the new
+// user in by setting the same auth cookies as Login.
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var req registerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	account, pair, err := h.authService.Register(r.Context(), services.RegisterInput{
+		FirstName:  req.FirstName,
+		LastName:   req.LastName,
+		Email:      req.Email,
+		Password:   req.Password,
+		Role:       models.Role(strings.TrimSpace(req.Role)),
+		FarmName:   req.FarmName,
+		PostalCode: req.PostalCode,
+	})
+	if errors.Is(err, services.ErrInvalidRegistration) {
+		// Strip the sentinel prefix so the client sees only the human-readable detail.
+		msg := strings.TrimPrefix(err.Error(), services.ErrInvalidRegistration.Error()+": ")
+		webutils.WriteError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if errors.Is(err, services.ErrEmailTaken) {
+		webutils.WriteError(w, http.StatusConflict, "email already registered")
+		return
+	}
+	if err != nil {
+		slog.Error("registration failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	h.setCookie(w, middleware.AccessCookieName, pair.Access, "/", credentials.AccessTTL)
+	h.setCookie(w, middleware.RefreshCookieName, pair.Refresh, "/api/auth/refresh", credentials.RefreshTTL)
+
+	webutils.WriteJSON(w, http.StatusCreated, meResponse{
+		ID:   account.ID.String(),
+		Role: string(account.Role),
+	})
+}
+
 // Me reports the authenticated account. It must be mounted behind RequireAuth.
-func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	accountClaims := middleware.MustClaimsFromContext(r.Context())
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {	accountClaims := middleware.MustClaimsFromContext(r.Context())
 
 	webutils.WriteJSON(w, http.StatusOK, meResponse{
 		ID:   accountClaims.UserID.String(),
 		Role: string(accountClaims.Role),
 	})
+}
+
+// Logout clears the auth cookies. The tokens are HttpOnly, so the browser can't
+// clear them itself; expiring them here is the only way to actually end the
+// session. Safe to call when not logged in (it just re-clears empty cookies).
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	h.clearCookie(w, middleware.AccessCookieName, "/")
+	h.clearCookie(w, middleware.RefreshCookieName, "/api/auth/refresh")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *AuthHandler) setCookie(w http.ResponseWriter, name, value, path string, ttl time.Duration) {
@@ -88,6 +150,25 @@ func (h *AuthHandler) setCookie(w http.ResponseWriter, name, value, path string,
 		Value:    value,
 		Path:     path,
 		MaxAge:   int(ttl.Seconds()),
+		HttpOnly: true,
+		Secure:   h.cfg.CookieSecure,
+		SameSite: sameSite,
+	})
+}
+
+// clearCookie overwrites a cookie with an expired one. The attributes (Path,
+// Secure, SameSite) must match the original for the browser to replace it.
+func (h *AuthHandler) clearCookie(w http.ResponseWriter, name, path string) {
+	sameSite := http.SameSiteLaxMode
+	if h.cfg.SameSiteStrict {
+		sameSite = http.SameSiteStrictMode
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    "",
+		Path:     path,
+		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   h.cfg.CookieSecure,
 		SameSite: sameSite,
