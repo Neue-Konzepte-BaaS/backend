@@ -130,6 +130,15 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {	accountClaims
 	})
 }
 
+// Logout clears the auth cookies. The tokens are HttpOnly, so the browser can't
+// clear them itself; expiring them here is the only way to actually end the
+// session. Safe to call when not logged in (it just re-clears empty cookies).
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	h.clearCookie(w, middleware.AccessCookieName, "/")
+	h.clearCookie(w, middleware.RefreshCookieName, "/api/auth/refresh")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *AuthHandler) setCookie(w http.ResponseWriter, name, value, path string, ttl time.Duration) {
 	sameSite := http.SameSiteLaxMode
 	if h.cfg.SameSiteStrict {
@@ -141,6 +150,25 @@ func (h *AuthHandler) setCookie(w http.ResponseWriter, name, value, path string,
 		Value:    value,
 		Path:     path,
 		MaxAge:   int(ttl.Seconds()),
+		HttpOnly: true,
+		Secure:   h.cfg.CookieSecure,
+		SameSite: sameSite,
+	})
+}
+
+// clearCookie overwrites a cookie with an expired one. The attributes (Path,
+// Secure, SameSite) must match the original for the browser to replace it.
+func (h *AuthHandler) clearCookie(w http.ResponseWriter, name, path string) {
+	sameSite := http.SameSiteLaxMode
+	if h.cfg.SameSiteStrict {
+		sameSite = http.SameSiteStrictMode
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    "",
+		Path:     path,
+		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   h.cfg.CookieSecure,
 		SameSite: sameSite,

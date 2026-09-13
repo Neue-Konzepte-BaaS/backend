@@ -68,6 +68,8 @@ go run ./cmd/api
   registered here.
 - `POST /api/auth/login` — sets the auth cookies and returns `{id, role}`.
 - `GET /api/auth/me` — returns `{id, role}` for the authenticated cookie.
+- `POST /api/auth/logout` — expires both auth cookies (HttpOnly, so the browser
+  can't clear them itself); returns `204`.
 
 Login/register set two HttpOnly cookies: `access_token` (`Path=/`, 15 min) and
 `refresh_token` (`Path=/api/auth/refresh`, 7 days). A `/api/auth/refresh` endpoint

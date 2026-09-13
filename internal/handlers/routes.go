@@ -32,6 +32,7 @@ func NewRouter(authHandler *AuthHandler, authService services.AuthService, cfg c
 	r.Route("/api/auth", func(r chi.Router) {
 		r.Post("/login", authHandler.Login)
 		r.Post("/register", authHandler.Register)
+		r.Post("/logout", authHandler.Logout)
 
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireAuth(authService))

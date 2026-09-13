@@ -166,6 +166,26 @@ paths:
               example:
                 error: not authenticated
 
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: Log out
+      description: |
+        Expires the `access_token` and `refresh_token` cookies. Because the
+        cookies are HttpOnly the browser cannot clear them itself, so this
+        endpoint is how a session actually ends. Idempotent — safe to call when
+        not logged in.
+      operationId: logout
+      security: []
+      responses:
+        '204':
+          description: Cookies expired.
+          headers:
+            Set-Cookie:
+              description: Both auth cookies are re-sent with `Max-Age=0`.
+              schema:
+                type: string
+
 components:
   securitySchemes:
     accessTokenCookie:
