@@ -16,6 +16,12 @@ var (
 	ErrNotFound           = errors.New("account not found")
 	// ErrEmailTaken is returned when registering with an email that already exists.
 	ErrEmailTaken = errors.New("email already registered")
+	// ErrInvalidGeometry covers rejected field/plot coordinates: not a
+	// rectangle, or (for plots) not contained within the parent field.
+	ErrInvalidGeometry = errors.New("invalid geometry")
+	// ErrForbidden covers an authenticated account acting on a resource it
+	// does not own, e.g. a farmer creating a plot on another farmer's field.
+	ErrForbidden = errors.New("forbidden")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

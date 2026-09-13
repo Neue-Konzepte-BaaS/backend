@@ -7,6 +7,7 @@ package database
 import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	geom "github.com/twpayne/go-geom"
 )
 
 type Account struct {
@@ -32,4 +33,18 @@ type Farmer struct {
 	AccountID  uuid.UUID
 	FarmName   string
 	PostalCode int32
+}
+
+type Field struct {
+	ID          uuid.UUID
+	Name        string
+	Farmer      uuid.UUID
+	Coordinates *geom.Polygon
+}
+
+type Plot struct {
+	ID          uuid.UUID
+	Name        string
+	Field       uuid.UUID
+	Coordinates *geom.Polygon
 }

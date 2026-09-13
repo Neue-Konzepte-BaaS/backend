@@ -17,3 +17,6 @@ migrate:
 
 migrate-up:
 	dbmate -d ./sql/migrations/ -u "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@127.0.0.1:5432/$(POSTGRES_DB)?sslmode=disable" up
+
+migrate-down:
+	dbmate -d ./sql/migrations/ -u "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@127.0.0.1:5432/$(POSTGRES_DB)?sslmode=disable" down

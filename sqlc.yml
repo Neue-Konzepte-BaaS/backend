@@ -19,3 +19,17 @@ sql:
             go_type:
               import: "github.com/google/uuid"
               type: "UUID"
+          - db_type: "geometry"
+            nullable: true
+            go_type:
+              import: "github.com/twpayne/go-geom"
+              package: "geom"
+              type: "Polygon"
+              pointer: true
+          - db_type: "geometry"
+            nullable: false
+            go_type:
+              import: "github.com/twpayne/go-geom"
+              package: "geom"
+              type: "Polygon"
+              pointer: true

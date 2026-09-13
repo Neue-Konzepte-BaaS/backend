@@ -15,3 +15,12 @@ type AccountRepository interface {
 	// CreateCustomer atomically inserts the account and its customer subtype row.
 	CreateCustomer(ctx context.Context, account models.Account, postalCode int32) (models.Account, error)
 }
+
+type FieldRepository interface {
+	CreateField(ctx context.Context, field models.Field) (uuid.UUID, error)
+	GetFieldOwner(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+}
+
+type PlotRepository interface {
+	CreatePlot(ctx context.Context, plot models.Plot) (uuid.UUID, error)
+}
