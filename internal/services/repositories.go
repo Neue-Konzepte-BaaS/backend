@@ -47,3 +47,13 @@ type PostalCodeRepository interface {
 	// ErrNotFound if nothing matches.
 	FindCoordinates(ctx context.Context, postalCode, city string) (lon, lat float64, err error)
 }
+
+type StatisticsRepository interface {
+	// GetFarmStatistics aggregates one farmer's own fields, plots and
+	// rentals. A farmer who owns nothing gets zeros, never ErrNotFound: the
+	// query always returns exactly one row.
+	GetFarmStatistics(ctx context.Context, farmer uuid.UUID) (models.Statistics, error)
+	// GetPlatformStatistics aggregates every farmer's data and, unlike the
+	// farm variant, fills Accounts.
+	GetPlatformStatistics(ctx context.Context) (models.Statistics, error)
+}

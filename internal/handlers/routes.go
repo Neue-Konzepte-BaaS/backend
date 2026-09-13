@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, statisticsHandler *StatisticsHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -60,6 +60,13 @@ func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, plotSearchH
 
 		r.Post("/", rentalHandler.RentPlot)
 		r.Get("/", rentalHandler.GetRentals)
+	})
+
+	r.Route("/api/statistics", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+		r.Use(appmiddleware.RequireAnyRole(models.RoleFarmer, models.RoleAdmin))
+
+		r.Get("/", statisticsHandler.GetStatistics)
 	})
 
 	return r
