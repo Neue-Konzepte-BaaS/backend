@@ -122,7 +122,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 // Me reports the authenticated account. It must be mounted behind RequireAuth.
-func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {	accountClaims := middleware.MustClaimsFromContext(r.Context())
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	accountClaims := middleware.MustClaimsFromContext(r.Context())
 
 	webutils.WriteJSON(w, http.StatusOK, meResponse{
 		ID:   accountClaims.UserID.String(),
