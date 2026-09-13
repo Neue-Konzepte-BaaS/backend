@@ -49,6 +49,14 @@ type plotResponse struct {
 	Coordinates json.RawMessage `json:"coordinates"`
 }
 
+type fieldWithPlotsResponse struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Farmer      string          `json:"farmer"`
+	Coordinates json.RawMessage `json:"coordinates"`
+	Plots       []plotResponse  `json:"plots"`
+}
+
 // decodePolygon parses a GeoJSON Polygon geometry, e.g.
 // {"type":"Polygon","coordinates":[[[lon,lat],...]]}.
 func decodePolygon(raw json.RawMessage) (*geom.Polygon, error) {
@@ -112,6 +120,42 @@ func (h *FieldHandler) CreateField(w http.ResponseWriter, r *http.Request) {
 		Farmer:      field.Farmer.String(),
 		Coordinates: encodePolygon(field.Coordinates),
 	})
+}
+
+// GetFields returns all fields owned by the authenticated farmer, along with
+// their plots. It must be mounted behind RequireAuth and
+// RequireRole(models.RoleFarmer).
+func (h *FieldHandler) GetFields(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	fields, err := h.fieldService.GetFieldsWithPlots(r.Context(), claims.UserID)
+	if err != nil {
+		slog.Error("getting fields failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	res := make([]fieldWithPlotsResponse, len(fields))
+	for i, field := range fields {
+		plots := make([]plotResponse, len(field.Plots))
+		for j, plot := range field.Plots {
+			plots[j] = plotResponse{
+				ID:          plot.ID.String(),
+				Name:        plot.Name,
+				Field:       plot.Field.String(),
+				Coordinates: encodePolygon(plot.Coordinates),
+			}
+		}
+		res[i] = fieldWithPlotsResponse{
+			ID:          field.ID.String(),
+			Name:        field.Name,
+			Farmer:      field.Farmer.String(),
+			Coordinates: encodePolygon(field.Coordinates),
+			Plots:       plots,
+		}
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, res)
 }
 
 // CreatePlot creates a plot on a field owned by the authenticated farmer. It

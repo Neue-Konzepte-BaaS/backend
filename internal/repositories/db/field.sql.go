@@ -45,6 +45,38 @@ func (q *Queries) GetFieldOwner(ctx context.Context, id uuid.UUID) (uuid.UUID, e
 	return farmer, err
 }
 
+const getFieldsByFarmer = `-- name: GetFieldsByFarmer :many
+SELECT id, name, farmer, coordinates
+FROM field
+WHERE farmer = $1
+ORDER BY name
+`
+
+func (q *Queries) GetFieldsByFarmer(ctx context.Context, farmer uuid.UUID) ([]Field, error) {
+	rows, err := q.db.Query(ctx, getFieldsByFarmer, farmer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Field
+	for rows.Next() {
+		var i Field
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Farmer,
+			&i.Coordinates,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertField = `-- name: InsertField :one
 INSERT INTO field (name, farmer, coordinates) VALUES ($1, $2, $3) RETURNING id
 `

@@ -18,3 +18,8 @@ type Plot struct {
 	Field       uuid.UUID
 	Coordinates *geom.Polygon
 }
+
+type FieldWithPlots struct {
+	Field
+	Plots []Plot
+}

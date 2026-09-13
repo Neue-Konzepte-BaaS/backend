@@ -28,3 +28,21 @@ func (r *plotRepository) CreatePlot(ctx context.Context, plot models.Plot) (uuid
 	}
 	return id, nil
 }
+
+func (r *plotRepository) GetPlotsByFields(ctx context.Context, fields []uuid.UUID) ([]models.Plot, error) {
+	rows, err := r.queries.GetPlotsByFields(ctx, fields)
+	if err != nil {
+		return nil, err
+	}
+
+	plots := make([]models.Plot, len(rows))
+	for i, row := range rows {
+		plots[i] = models.Plot{
+			ID:          row.ID,
+			Name:        row.Name,
+			Field:       row.Field,
+			Coordinates: row.Coordinates,
+		}
+	}
+	return plots, nil
+}

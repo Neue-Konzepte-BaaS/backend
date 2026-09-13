@@ -46,6 +46,7 @@ func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, authService
 		r.Use(appmiddleware.RequireRole(models.RoleFarmer))
 
 		r.Post("/", fieldHandler.CreateField)
+		r.Get("/", fieldHandler.GetFields)
 		r.Post("/{fieldID}/plots", fieldHandler.CreatePlot)
 	})
 
