@@ -55,6 +55,7 @@ type fieldWithPlotsResponse struct {
 	Farmer      string          `json:"farmer"`
 	Coordinates json.RawMessage `json:"coordinates"`
 	Plots       []plotResponse  `json:"plots"`
+	Crops       []cropResponse  `json:"crops"`
 }
 
 // decodePolygon parses a GeoJSON Polygon geometry, e.g.
@@ -152,6 +153,7 @@ func (h *FieldHandler) GetFields(w http.ResponseWriter, r *http.Request) {
 			Farmer:      field.Farmer.String(),
 			Coordinates: encodePolygon(field.Coordinates),
 			Plots:       plots,
+			Crops:       toCropResponses(field.Crops),
 		}
 	}
 

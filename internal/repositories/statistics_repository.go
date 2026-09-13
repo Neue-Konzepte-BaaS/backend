@@ -13,10 +13,6 @@ type statisticsRepository struct {
 	queries *database.Queries
 }
 
-// NewStatisticsRepository has no error mapping to do, unlike its siblings:
-// both queries are single-row aggregates that touch no constraint and always
-// return exactly one row, so there is no SQLSTATE to translate and no
-// pgx.ErrNoRows case.
 func NewStatisticsRepository(queries *database.Queries) services.StatisticsRepository {
 	return &statisticsRepository{queries: queries}
 }

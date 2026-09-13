@@ -9,30 +9,53 @@ import (
 	"github.com/google/uuid"
 )
 
-// RentalDurationMonths is how long a plot is rented for. Fixed for now; the
-// rental period is stored as a range so making this caller-supplied later
-// needs no schema change.
-const RentalDurationMonths = 6
-
 type RentalService interface {
-	// RentPlot books the plot for the customer, starting now and running for
-	// RentalDurationMonths. Returns ErrPlotUnavailable if the plot is already
-	// rented for part of that period, and ErrNotFound if it does not exist.
-	RentPlot(ctx context.Context, customer, plot uuid.UUID) (models.Rental, error)
+	// RentPlot books the plot for the customer with the chosen crop, starting
+	// now and running for that crop's duration. Returns ErrCropNotOffered if
+	// the plot's field does not offer that crop, ErrPlotUnavailable if the
+	// plot is already rented for part of that period, and ErrNotFound if the
+	// plot or crop does not exist.
+	RentPlot(ctx context.Context, customer, plot, crop uuid.UUID) (models.Rental, error)
 	// GetRentals returns the customer's own rentals, newest first.
 	GetRentals(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error)
 }
 
 type rentalService struct {
 	rentalRepo RentalRepository
+	plotRepo   PlotRepository
+	cropRepo   CropRepository
 }
 
-func NewRentalService(rentalRepo RentalRepository) RentalService {
-	return &rentalService{rentalRepo: rentalRepo}
+func NewRentalService(rentalRepo RentalRepository, plotRepo PlotRepository, cropRepo CropRepository) RentalService {
+	return &rentalService{rentalRepo: rentalRepo, plotRepo: plotRepo, cropRepo: cropRepo}
 }
 
-func (s *rentalService) RentPlot(ctx context.Context, customer, plot uuid.UUID) (models.Rental, error) {
-	rental, err := s.rentalRepo.CreateRental(ctx, plot, customer, RentalDurationMonths)
+func (s *rentalService) RentPlot(ctx context.Context, customer, plot, crop uuid.UUID) (models.Rental, error) {
+	cropDetails, err := s.cropRepo.GetCropByID(ctx, crop)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return models.Rental{}, err
+		}
+		return models.Rental{}, fmt.Errorf("getting crop: %w", err)
+	}
+
+	field, err := s.plotRepo.GetPlotField(ctx, plot)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return models.Rental{}, err
+		}
+		return models.Rental{}, fmt.Errorf("getting plot field: %w", err)
+	}
+
+	offeredCrops, err := s.cropRepo.GetCropsByField(ctx, field)
+	if err != nil {
+		return models.Rental{}, fmt.Errorf("getting field crops: %w", err)
+	}
+	if !cropOffered(offeredCrops, crop) {
+		return models.Rental{}, ErrCropNotOffered
+	}
+
+	rental, err := s.rentalRepo.CreateRental(ctx, plot, customer, crop, cropDetails.DurationMonths)
 	if err != nil {
 		if errors.Is(err, ErrPlotUnavailable) || errors.Is(err, ErrNotFound) {
 			return models.Rental{}, err
@@ -40,6 +63,15 @@ func (s *rentalService) RentPlot(ctx context.Context, customer, plot uuid.UUID) 
 		return models.Rental{}, fmt.Errorf("creating rental: %w", err)
 	}
 	return rental, nil
+}
+
+func cropOffered(crops []models.Crop, crop uuid.UUID) bool {
+	for _, c := range crops {
+		if c.ID == crop {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *rentalService) GetRentals(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error) {

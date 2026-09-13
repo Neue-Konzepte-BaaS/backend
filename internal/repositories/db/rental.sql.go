@@ -18,26 +18,33 @@ SELECT
     r.id,
     r.plot,
     r.customer,
+    r.crop,
     lower(r.period)::timestamptz AS start_at,
     upper(r.period)::timestamptz AS end_at,
     p.name AS plot_name,
     p.field,
-    p.coordinates
+    p.coordinates,
+    c.name AS crop_name,
+    c.duration_months AS crop_duration_months
 FROM rental r
 JOIN plot p ON p.id = r.plot
+JOIN crop c ON c.id = r.crop
 WHERE r.customer = $1
 ORDER BY lower(r.period) DESC
 `
 
 type GetRentalsByCustomerRow struct {
-	ID          uuid.UUID
-	Plot        uuid.UUID
-	Customer    uuid.UUID
-	StartAt     pgtype.Timestamptz
-	EndAt       pgtype.Timestamptz
-	PlotName    string
-	Field       uuid.UUID
-	Coordinates *geom.Polygon
+	ID                 uuid.UUID
+	Plot               uuid.UUID
+	Customer           uuid.UUID
+	Crop               uuid.UUID
+	StartAt            pgtype.Timestamptz
+	EndAt              pgtype.Timestamptz
+	PlotName           string
+	Field              uuid.UUID
+	Coordinates        *geom.Polygon
+	CropName           string
+	CropDurationMonths int32
 }
 
 func (q *Queries) GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]GetRentalsByCustomerRow, error) {
@@ -53,11 +60,14 @@ func (q *Queries) GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) 
 			&i.ID,
 			&i.Plot,
 			&i.Customer,
+			&i.Crop,
 			&i.StartAt,
 			&i.EndAt,
 			&i.PlotName,
 			&i.Field,
 			&i.Coordinates,
+			&i.CropName,
+			&i.CropDurationMonths,
 		); err != nil {
 			return nil, err
 		}
@@ -72,13 +82,14 @@ func (q *Queries) GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) 
 const insertRental = `-- name: InsertRental :one
 
 
-INSERT INTO rental (plot, customer, period)
+INSERT INTO rental (plot, customer, crop, period)
 VALUES (
     $1,
     $2,
+    $3,
     tstzrange(
         CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP + make_interval(months => $3::int)
+        CURRENT_TIMESTAMP + make_interval(months => $4::int)
     )
 )
 RETURNING id, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at
@@ -87,6 +98,7 @@ RETURNING id, lower(period)::timestamptz AS start_at, upper(period)::timestamptz
 type InsertRentalParams struct {
 	Plot           uuid.UUID
 	Customer       uuid.UUID
+	Crop           uuid.UUID
 	DurationMonths int32
 }
 
@@ -103,7 +115,12 @@ type InsertRentalRow struct {
 // start time from a host whose clock runs ahead would leave the plot looking
 // available for the difference.
 func (q *Queries) InsertRental(ctx context.Context, arg InsertRentalParams) (InsertRentalRow, error) {
-	row := q.db.QueryRow(ctx, insertRental, arg.Plot, arg.Customer, arg.DurationMonths)
+	row := q.db.QueryRow(ctx, insertRental,
+		arg.Plot,
+		arg.Customer,
+		arg.Crop,
+		arg.DurationMonths,
+	)
 	var i InsertRentalRow
 	err := row.Scan(&i.ID, &i.StartAt, &i.EndAt)
 	return i, err

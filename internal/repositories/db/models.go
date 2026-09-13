@@ -24,6 +24,12 @@ type Admin struct {
 	Role      int32
 }
 
+type Crop struct {
+	ID             uuid.UUID
+	Name           string
+	DurationMonths int32
+}
+
 type Customer struct {
 	AccountID  uuid.UUID
 	PostalCode int32
@@ -40,6 +46,11 @@ type Field struct {
 	Name        string
 	Farmer      uuid.UUID
 	Coordinates *geom.Polygon
+}
+
+type FieldCrop struct {
+	Field uuid.UUID
+	Crop  uuid.UUID
 }
 
 type Plot struct {
@@ -62,4 +73,5 @@ type Rental struct {
 	Customer  uuid.UUID
 	Period    pgtype.Range[pgtype.Timestamptz]
 	CreatedAt pgtype.Timestamptz
+	Crop      uuid.UUID
 }

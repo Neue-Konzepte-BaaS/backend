@@ -22,6 +22,7 @@ type Plot struct {
 type FieldWithPlots struct {
 	Field
 	Plots []Plot
+	Crops []Crop
 }
 
 type NearbyPlot struct {

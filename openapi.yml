@@ -17,8 +17,10 @@ tags:
     description: Fields and plots owned by a farmer
   - name: plots
     description: Public plot search
+  - name: crops
+    description: The crop catalog, and which crops a field offers
   - name: rentals
-    description: A customer's own rentals
+    description: Renting plots
   - name: notifications
     description: Platform-wide notifications sent by an admin
   - name: statistics
@@ -201,7 +203,7 @@ paths:
       summary: List fields and plots
       description: |
         Returns all fields owned by the authenticated farmer, each including
-        its plots. Requires the `farmer` role.
+        its plots and the crops it offers. Requires the `farmer` role.
       operationId: getFields
       responses:
         '200':
@@ -389,6 +391,91 @@ paths:
               example:
                 error: internal error
 
+  /api/fields/{fieldID}/crops:
+    put:
+      tags: [fields, crops]
+      summary: Set the crops a field offers
+      description: |
+        Replaces the full set of crops offered by the given field with the
+        provided list. The field must be owned by the authenticated farmer.
+        Requires the `farmer` role.
+      operationId: setFieldCrops
+      parameters:
+        - name: fieldID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetFieldCropsRequest'
+      responses:
+        '200':
+          description: The field's crops after the update.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Crop'
+        '400':
+          description: Malformed body, invalid field id, or invalid crop id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidFieldId:
+                  value:
+                    error: invalid field id
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidCropId:
+                  value:
+                    error: invalid crop id
+        '401':
+          description: Missing, expired, or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer, or the field is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                insufficientPermissions:
+                  value:
+                    error: insufficient permissions
+                notOwner:
+                  value:
+                    error: field is not owned by this farmer
+        '404':
+          description: The field, or one of the given crop ids, does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: field or crop not found
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
   /api/plots/nearest:
     get:
       tags: [plots]
@@ -490,18 +577,116 @@ paths:
               example:
                 error: internal error
 
+  /api/crops:
+    get:
+      tags: [crops]
+      summary: List the crop catalog
+      description: |
+        Returns every crop in the catalog, ordered by name. Public endpoint —
+        no authentication required.
+      operationId: getAllCrops
+      security: []
+      responses:
+        '200':
+          description: The crop catalog.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Crop'
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+    post:
+      tags: [crops]
+      summary: Add a crop to the catalog
+      description: |
+        Creates a new crop with a fixed rental duration. Requires the `admin`
+        role.
+      operationId: createCrop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCropRequest'
+      responses:
+        '201':
+          description: Crop created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Crop'
+        '400':
+          description: Malformed body, missing name, or a non-positive duration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                missingName:
+                  value:
+                    error: name is required
+                invalidDuration:
+                  value:
+                    error: durationMonths must be positive
+        '401':
+          description: Missing, expired, or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not an admin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '409':
+          description: A crop with this name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: crop name already exists
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
   /api/rentals:
     post:
       tags: [rentals]
       summary: Rent a plot
       description: |
-        Books a plot for the authenticated customer. The rental starts
-        immediately and runs for a fixed six months; the duration is not yet
-        configurable. Customers only — a farmer or admin receives 403.
+        Books a plot for the authenticated customer with the chosen crop. The
+        rental starts immediately and runs for that crop's fixed duration.
+        Customers only — a farmer or admin receives 403.
 
-        A plot can only be booked once for any given moment: renting a plot
-        whose existing rental overlaps the new period fails with 409. Once a
-        rental's period has elapsed the plot can be rented again.
+        The chosen crop must be one the plot's field offers (see
+        `PUT /api/fields/{fieldID}/crops`); otherwise the request fails with
+        409. A plot can only be booked once for any given moment: renting a
+        plot whose existing rental overlaps the new period also fails with
+        409. Once a rental's period has elapsed the plot can be rented again.
       operationId: rentPlot
       requestBody:
         required: true
@@ -517,7 +702,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Rental'
         '400':
-          description: Malformed body or plot id.
+          description: Malformed body, plot id, or crop id.
           content:
             application/json:
               schema:
@@ -529,6 +714,9 @@ paths:
                 invalidPlotID:
                   value:
                     error: invalid plot id
+                invalidCropID:
+                  value:
+                    error: invalid crop id
         '401':
           description: Not authenticated.
           content:
@@ -546,21 +734,26 @@ paths:
               example:
                 error: insufficient permissions
         '404':
-          description: No plot with the given id exists.
+          description: No plot or crop with the given id exists.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                error: plot not found
+                error: plot or crop not found
         '409':
-          description: The plot is already rented for an overlapping period.
+          description: The crop is not offered by the plot's field, or the plot is already rented for an overlapping period.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                error: plot is already rented
+              examples:
+                cropNotOffered:
+                  value:
+                    error: crop is not offered by this plot's field
+                plotUnavailable:
+                  value:
+                    error: plot is already rented
         '500':
           description: Internal error.
           content:
@@ -575,8 +768,8 @@ paths:
       summary: List the authenticated customer's rentals
       description: |
         Returns every rental belonging to the authenticated customer, newest
-        first, each with the plot it books. Expired rentals are included.
-        Customers only — a farmer or admin receives 403.
+        first, each with the plot and crop it books. Expired rentals are
+        included. Customers only — a farmer or admin receives 403.
       operationId: getRentals
       responses:
         '200':
@@ -952,7 +1145,7 @@ components:
 
     FieldWithPlots:
       type: object
-      required: [id, name, farmer, coordinates, plots]
+      required: [id, name, farmer, coordinates, plots, crops]
       properties:
         id:
           type: string
@@ -970,20 +1163,72 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Plot'
+        crops:
+          type: array
+          description: The crops this field currently offers.
+          items:
+            $ref: '#/components/schemas/Crop'
+
+    Crop:
+      type: object
+      description: A crop in the catalog, with the fixed duration renting it books for.
+      required: [id, name, durationMonths]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Tomatoes
+        durationMonths:
+          type: integer
+          format: int32
+          description: How long renting this crop books a plot for.
+          example: 4
+
+    CreateCropRequest:
+      type: object
+      required: [name, durationMonths]
+      properties:
+        name:
+          type: string
+          description: Surrounding whitespace is trimmed; must be unique in the catalog.
+          example: Tomatoes
+        durationMonths:
+          type: integer
+          format: int32
+          minimum: 1
+          example: 4
+
+    SetFieldCropsRequest:
+      type: object
+      required: [cropIds]
+      properties:
+        cropIds:
+          type: array
+          description: The full set of crop ids the field should offer, replacing any previous set.
+          items:
+            type: string
+            format: uuid
 
     RentPlotRequest:
       type: object
-      required: [plotId]
+      required: [plotId, cropId]
       properties:
         plotId:
           type: string
           format: uuid
           description: ID of the plot to rent.
           example: ed453eb5-2abb-4fcb-9421-f9b69490fe37
+        cropId:
+          type: string
+          format: uuid
+          description: ID of the crop to plant. Must be offered by the plot's field.
+          example: 3fa1d9c4-6b2e-4e2a-9a3e-3f2b1c0d4e5f
 
     Rental:
       type: object
-      required: [id, plotId, startAt, endAt]
+      required: [id, plotId, cropId, startAt, endAt]
       properties:
         id:
           type: string
@@ -992,6 +1237,10 @@ components:
           type: string
           format: uuid
           description: ID of the rented plot.
+        cropId:
+          type: string
+          format: uuid
+          description: ID of the crop being planted.
         startAt:
           type: string
           format: date-time
@@ -1003,18 +1252,21 @@ components:
           type: string
           format: date-time
           description: |
-            When the rental ends, exclusive — six months after `startAt`. A
-            rental beginning exactly at another's `endAt` does not conflict.
-          example: '2027-03-13T14:49:56+01:00'
+            When the rental ends, exclusive — the crop's duration after
+            `startAt`. A rental beginning exactly at another's `endAt` does
+            not conflict.
+          example: '2027-01-13T14:49:56+01:00'
 
     RentalWithPlot:
       allOf:
         - $ref: '#/components/schemas/Rental'
         - type: object
-          required: [plot]
+          required: [plot, crop]
           properties:
             plot:
               $ref: '#/components/schemas/Plot'
+            crop:
+              $ref: '#/components/schemas/Crop'
 
     StatisticsScope:
       type: string
