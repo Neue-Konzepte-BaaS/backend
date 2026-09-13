@@ -99,7 +99,7 @@ func (r *accountRepository) createAccountWithSubtype(
 	if err != nil {
 		return models.Account{}, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) // no-op after a successful Commit
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
 
 	qtx := r.queries.WithTx(tx)
 
