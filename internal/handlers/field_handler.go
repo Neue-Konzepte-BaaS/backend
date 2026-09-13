@@ -197,7 +197,7 @@ func (h *FieldHandler) CreatePlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, services.ErrInvalidGeometry) {
-		webutils.WriteError(w, http.StatusBadRequest, "plot must be a rectangle within the field's boundaries")
+		webutils.WriteError(w, http.StatusBadRequest, "plot must be within the field's boundaries")
 		return
 	}
 	if err != nil {
