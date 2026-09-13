@@ -86,22 +86,25 @@ func main() {
 	plotRepo := repositories.NewPlotRepository(queries)
 	postalCodeRepo := repositories.NewPostalCodeRepository(queries)
 	rentalRepo := repositories.NewRentalRepository(queries)
+	cropRepo := repositories.NewCropRepository(pool, queries)
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
 
 	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
-	fieldService := services.NewFieldService(fieldRepo, plotRepo)
+	fieldService := services.NewFieldService(fieldRepo, plotRepo, cropRepo)
 	plotService := services.NewPlotService(fieldRepo, plotRepo)
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo)
-	rentalService := services.NewRentalService(rentalRepo)
+	rentalService := services.NewRentalService(rentalRepo, plotRepo, cropRepo)
+	cropService := services.NewCropService(fieldRepo, cropRepo)
 	statisticsService := services.NewStatisticsService(statisticsRepo)
 
 	authHandler := handlers.NewAuthHandler(authService, c)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
 	plotSearchHandler := handlers.NewPlotSearchHandler(plotSearchService)
 	rentalHandler := handlers.NewRentalHandler(rentalService)
+	cropHandler := handlers.NewCropHandler(cropService)
 	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
 
-	router := handlers.NewRouter(authHandler, fieldHandler, plotSearchHandler, rentalHandler, statisticsHandler, authService, c)
+	router := handlers.NewRouter(authHandler, fieldHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
 
 	slog.Info("listening", "addr", ":8080")
 	if err := http.ListenAndServe(":8080", router); err != nil {

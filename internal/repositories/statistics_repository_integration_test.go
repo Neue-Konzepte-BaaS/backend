@@ -13,15 +13,17 @@ import (
 )
 
 // seedFarmWithPlots creates a farmer with one field containing plotCount
-// plots (each a distinct rectangle, so their areas don't overlap), and
-// returns the farmer id and the created plot ids.
-func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plotCount int) (uuid.UUID, []uuid.UUID) {
+// plots (each a distinct rectangle, so their areas don't overlap), offers a
+// crop on that field, and returns the farmer id, the created plot ids, and
+// the crop id.
+func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plotCount int) (uuid.UUID, []uuid.UUID, uuid.UUID) {
 	t.Helper()
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
 	fieldRepo := repositories.NewFieldRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
+	cropRepo := repositories.NewCropRepository(pool, queries)
 
 	farmer, err := accountRepo.CreateFarmer(ctx, models.Account{
 		FirstName:    "Old",
@@ -42,6 +44,14 @@ func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pl
 		t.Fatalf("creating field: %v", err)
 	}
 
+	crop, err := cropRepo.CreateCrop(ctx, "Tomatoes-"+uuid.NewString(), 6)
+	if err != nil {
+		t.Fatalf("creating crop: %v", err)
+	}
+	if err := cropRepo.SetFieldCrops(ctx, fieldID, []uuid.UUID{crop.ID}); err != nil {
+		t.Fatalf("offering crop on field: %v", err)
+	}
+
 	plotIDs := make([]uuid.UUID, plotCount)
 	for i := range plotCount {
 		minX := float64(i * 10)
@@ -56,7 +66,7 @@ func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pl
 		plotIDs[i] = plotID
 	}
 
-	return farmer.ID, plotIDs
+	return farmer.ID, plotIDs, crop.ID
 }
 
 // TestStatisticsRepository_FarmAndPlatformScope walks through the scenarios
@@ -70,7 +80,7 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 	rentalRepo := repositories.NewRentalRepository(database.New(pool))
 
 	t.Run("fresh farmer with nothing gets all zeros, not an error", func(t *testing.T) {
-		farmer, _ := seedFarmWithPlots(t, ctx, pool, 0)
+		farmer, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
 
 		stats, err := statsRepo.GetFarmStatistics(ctx, farmer)
 		if err != nil {
@@ -94,10 +104,10 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 	})
 
 	t.Run("counts and areas for a farmer with plots, one rented", func(t *testing.T) {
-		farmer, plots := seedFarmWithPlots(t, ctx, pool, 2)
+		farmer, plots, crop := seedFarmWithPlots(t, ctx, pool, 2)
 		customer := seedCustomer(t, ctx, pool)
 
-		if _, err := rentalRepo.CreateRental(ctx, plots[0], customer, 6); err != nil {
+		if _, err := rentalRepo.CreateRental(ctx, plots[0], customer, crop, 6); err != nil {
 			t.Fatalf("renting plot: %v", err)
 		}
 
@@ -126,7 +136,7 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 	})
 
 	t.Run("isolation: a second farmer's data does not affect the first", func(t *testing.T) {
-		firstFarmer, _ := seedFarmWithPlots(t, ctx, pool, 3)
+		firstFarmer, _, _ := seedFarmWithPlots(t, ctx, pool, 3)
 
 		before, err := statsRepo.GetFarmStatistics(ctx, firstFarmer)
 		if err != nil {
@@ -134,9 +144,9 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 		}
 
 		// A second, unrelated farmer with its own field, plots and rental.
-		secondFarmer, secondPlots := seedFarmWithPlots(t, ctx, pool, 5)
+		secondFarmer, secondPlots, secondCrop := seedFarmWithPlots(t, ctx, pool, 5)
 		secondCustomer := seedCustomer(t, ctx, pool)
-		if _, err := rentalRepo.CreateRental(ctx, secondPlots[0], secondCustomer, 6); err != nil {
+		if _, err := rentalRepo.CreateRental(ctx, secondPlots[0], secondCustomer, secondCrop, 6); err != nil {
 			t.Fatalf("renting second farmer's plot: %v", err)
 		}
 
@@ -172,9 +182,9 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		farmer, plots := seedFarmWithPlots(t, ctx, pool, 1)
+		farmer, plots, crop := seedFarmWithPlots(t, ctx, pool, 1)
 		customer := seedCustomer(t, ctx, pool)
-		if _, err := rentalRepo.CreateRental(ctx, plots[0], customer, 6); err != nil {
+		if _, err := rentalRepo.CreateRental(ctx, plots[0], customer, crop, 6); err != nil {
 			t.Fatalf("renting plot: %v", err)
 		}
 

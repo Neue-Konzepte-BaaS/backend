@@ -12,6 +12,7 @@ import (
 type Rental struct {
 	ID       uuid.UUID
 	PlotID   uuid.UUID
+	CropID   uuid.UUID
 	Customer uuid.UUID
 	StartAt  time.Time
 	EndAt    time.Time
@@ -20,4 +21,5 @@ type Rental struct {
 type RentalWithPlot struct {
 	Rental
 	Plot Plot
+	Crop Crop
 }

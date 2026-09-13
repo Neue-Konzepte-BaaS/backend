@@ -7,6 +7,12 @@ FROM plot
 WHERE id = $1
 LIMIT 1;
 
+-- name: GetPlotField :one
+SELECT field
+FROM plot
+WHERE id = $1
+LIMIT 1;
+
 -- name: GetPlotsByFields :many
 SELECT id, name, field, coordinates
 FROM plot

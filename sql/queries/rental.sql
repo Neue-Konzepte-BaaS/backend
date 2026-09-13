@@ -7,10 +7,11 @@
 -- available for the difference.
 
 -- name: InsertRental :one
-INSERT INTO rental (plot, customer, period)
+INSERT INTO rental (plot, customer, crop, period)
 VALUES (
     sqlc.arg(plot),
     sqlc.arg(customer),
+    sqlc.arg(crop),
     tstzrange(
         CURRENT_TIMESTAMP,
         CURRENT_TIMESTAMP + make_interval(months => sqlc.arg(duration_months)::int)
@@ -23,12 +24,16 @@ SELECT
     r.id,
     r.plot,
     r.customer,
+    r.crop,
     lower(r.period)::timestamptz AS start_at,
     upper(r.period)::timestamptz AS end_at,
     p.name AS plot_name,
     p.field,
-    p.coordinates
+    p.coordinates,
+    c.name AS crop_name,
+    c.duration_months AS crop_duration_months
 FROM rental r
 JOIN plot p ON p.id = r.plot
+JOIN crop c ON c.id = r.crop
 WHERE r.customer = $1
 ORDER BY lower(r.period) DESC;

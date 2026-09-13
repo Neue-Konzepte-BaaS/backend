@@ -2,11 +2,14 @@ package repositories
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	database "github.com/Neue-Konzepte-BaaS/backend/internal/repositories/db"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type plotRepository struct {
@@ -45,6 +48,17 @@ func (r *plotRepository) GetPlotsByFields(ctx context.Context, fields []uuid.UUI
 		}
 	}
 	return plots, nil
+}
+
+func (r *plotRepository) GetPlotField(ctx context.Context, plot uuid.UUID) (uuid.UUID, error) {
+	field, err := r.queries.GetPlotField(ctx, plot)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.UUID{}, fmt.Errorf("db error: %w %w", err, services.ErrNotFound)
+		}
+		return uuid.UUID{}, err
+	}
+	return field, nil
 }
 
 func (r *plotRepository) GetNearestPlots(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error) {

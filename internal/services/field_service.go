@@ -26,10 +26,11 @@ type PlotService interface {
 type fieldService struct {
 	fieldRepo FieldRepository
 	plotRepo  PlotRepository
+	cropRepo  CropRepository
 }
 
-func NewFieldService(fieldRepo FieldRepository, plotRepo PlotRepository) FieldService {
-	return &fieldService{fieldRepo: fieldRepo, plotRepo: plotRepo}
+func NewFieldService(fieldRepo FieldRepository, plotRepo PlotRepository, cropRepo CropRepository) FieldService {
+	return &fieldService{fieldRepo: fieldRepo, plotRepo: plotRepo, cropRepo: cropRepo}
 }
 
 func (s *fieldService) CreateField(ctx context.Context, farmer uuid.UUID, name string, coordinates *geom.Polygon) (models.Field, error) {
@@ -72,11 +73,17 @@ func (s *fieldService) GetFieldsWithPlots(ctx context.Context, farmer uuid.UUID)
 		plotsByField[plot.Field] = append(plotsByField[plot.Field], plot)
 	}
 
+	cropsByField, err := s.cropRepo.GetCropsByFields(ctx, fieldIDs)
+	if err != nil {
+		return nil, fmt.Errorf("getting field crops: %w", err)
+	}
+
 	result := make([]models.FieldWithPlots, len(fields))
 	for i, field := range fields {
 		result[i] = models.FieldWithPlots{
 			Field: field,
 			Plots: plotsByField[field.ID],
+			Crops: cropsByField[field.ID],
 		}
 	}
 	return result, nil

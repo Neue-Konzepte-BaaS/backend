@@ -24,11 +24,13 @@ func NewRentalHandler(rentalService services.RentalService) *RentalHandler {
 
 type rentPlotRequest struct {
 	PlotID string `json:"plotId"`
+	CropID string `json:"cropId"`
 }
 
 type rentalResponse struct {
 	ID      string `json:"id"`
 	PlotID  string `json:"plotId"`
+	CropID  string `json:"cropId"`
 	StartAt string `json:"startAt"`
 	EndAt   string `json:"endAt"`
 }
@@ -36,6 +38,7 @@ type rentalResponse struct {
 type rentalWithPlotResponse struct {
 	rentalResponse
 	Plot plotResponse `json:"plot"`
+	Crop cropResponse `json:"crop"`
 }
 
 // RentPlot books a plot for the authenticated customer. It must be mounted
@@ -53,11 +56,21 @@ func (h *RentalHandler) RentPlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cropID, err := uuid.Parse(req.CropID)
+	if err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid crop id")
+		return
+	}
+
 	claims := middleware.MustClaimsFromContext(r.Context())
 
-	rental, err := h.rentalService.RentPlot(r.Context(), claims.UserID, plotID)
+	rental, err := h.rentalService.RentPlot(r.Context(), claims.UserID, plotID, cropID)
 	if errors.Is(err, services.ErrNotFound) {
-		webutils.WriteError(w, http.StatusNotFound, "plot not found")
+		webutils.WriteError(w, http.StatusNotFound, "plot or crop not found")
+		return
+	}
+	if errors.Is(err, services.ErrCropNotOffered) {
+		webutils.WriteError(w, http.StatusConflict, "crop is not offered by this plot's field")
 		return
 	}
 	if errors.Is(err, services.ErrPlotUnavailable) {
@@ -95,6 +108,7 @@ func (h *RentalHandler) GetRentals(w http.ResponseWriter, r *http.Request) {
 				Field:       rental.Plot.Field.String(),
 				Coordinates: encodePolygon(rental.Plot.Coordinates),
 			},
+			Crop: toCropResponse(rental.Crop),
 		}
 	}
 
@@ -105,6 +119,7 @@ func toRentalResponse(rental models.Rental) rentalResponse {
 	return rentalResponse{
 		ID:      rental.ID.String(),
 		PlotID:  rental.PlotID.String(),
+		CropID:  rental.CropID.String(),
 		StartAt: rental.StartAt.Format(time.RFC3339),
 		EndAt:   rental.EndAt.Format(time.RFC3339),
 	}

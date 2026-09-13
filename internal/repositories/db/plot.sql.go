@@ -92,6 +92,20 @@ func (q *Queries) GetPlotByID(ctx context.Context, id uuid.UUID) (Plot, error) {
 	return i, err
 }
 
+const getPlotField = `-- name: GetPlotField :one
+SELECT field
+FROM plot
+WHERE id = $1
+LIMIT 1
+`
+
+func (q *Queries) GetPlotField(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getPlotField, id)
+	var field uuid.UUID
+	err := row.Scan(&field)
+	return field, err
+}
+
 const getPlotsByFields = `-- name: GetPlotsByFields :many
 SELECT id, name, field, coordinates
 FROM plot
