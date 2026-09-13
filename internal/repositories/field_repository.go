@@ -42,3 +42,21 @@ func (r *fieldRepository) GetFieldOwner(ctx context.Context, id uuid.UUID) (uuid
 	}
 	return owner, nil
 }
+
+func (r *fieldRepository) GetFieldsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.Field, error) {
+	rows, err := r.queries.GetFieldsByFarmer(ctx, farmer)
+	if err != nil {
+		return nil, err
+	}
+
+	fields := make([]models.Field, len(rows))
+	for i, row := range rows {
+		fields[i] = models.Field{
+			ID:          row.ID,
+			Name:        row.Name,
+			Farmer:      row.Farmer,
+			Coordinates: row.Coordinates,
+		}
+	}
+	return fields, nil
+}

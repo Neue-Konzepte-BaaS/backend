@@ -101,6 +101,47 @@ paths:
                 error: not authenticated
 
   /api/fields:
+    get:
+      tags: [fields]
+      summary: List fields and plots
+      description: |
+        Returns all fields owned by the authenticated farmer, each including
+        its plots. Requires the `farmer` role.
+      operationId: getFields
+      responses:
+        '200':
+          description: The farmer's fields, with their plots.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FieldWithPlots'
+        '401':
+          description: Missing, expired, or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
     post:
       tags: [fields]
       summary: Create a field
@@ -394,6 +435,27 @@ components:
           description: ID of the field this plot belongs to.
         coordinates:
           $ref: '#/components/schemas/GeoJSONPolygon'
+
+    FieldWithPlots:
+      type: object
+      required: [id, name, farmer, coordinates, plots]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: North Field
+        farmer:
+          type: string
+          format: uuid
+          description: ID of the account that owns this field.
+        coordinates:
+          $ref: '#/components/schemas/GeoJSONPolygon'
+        plots:
+          type: array
+          items:
+            $ref: '#/components/schemas/Plot'
 
 security:
   - accessTokenCookie: []

@@ -86,7 +86,7 @@ func main() {
 	plotRepo := repositories.NewPlotRepository(queries)
 
 	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
-	fieldService := services.NewFieldService(fieldRepo)
+	fieldService := services.NewFieldService(fieldRepo, plotRepo)
 	plotService := services.NewPlotService(fieldRepo, plotRepo)
 
 	authHandler := handlers.NewAuthHandler(authService, c)

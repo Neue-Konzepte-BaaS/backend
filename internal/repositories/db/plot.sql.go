@@ -31,6 +31,38 @@ func (q *Queries) GetPlotByID(ctx context.Context, id uuid.UUID) (Plot, error) {
 	return i, err
 }
 
+const getPlotsByFields = `-- name: GetPlotsByFields :many
+SELECT id, name, field, coordinates
+FROM plot
+WHERE field = ANY($1::uuid[])
+ORDER BY name
+`
+
+func (q *Queries) GetPlotsByFields(ctx context.Context, dollar_1 []uuid.UUID) ([]Plot, error) {
+	rows, err := q.db.Query(ctx, getPlotsByFields, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Plot
+	for rows.Next() {
+		var i Plot
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Field,
+			&i.Coordinates,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertPlot = `-- name: InsertPlot :one
 INSERT INTO plot (name, field, coordinates) VALUES ($1, $2, $3) RETURNING id
 `

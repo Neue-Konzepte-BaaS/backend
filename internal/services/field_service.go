@@ -12,6 +12,9 @@ import (
 
 type FieldService interface {
 	CreateField(ctx context.Context, farmer uuid.UUID, name string, coordinates *geom.Polygon) (models.Field, error)
+	// GetFieldsWithPlots returns all fields owned by the farmer, along with
+	// the plots belonging to each of those fields.
+	GetFieldsWithPlots(ctx context.Context, farmer uuid.UUID) ([]models.FieldWithPlots, error)
 }
 
 type PlotService interface {
@@ -22,10 +25,11 @@ type PlotService interface {
 
 type fieldService struct {
 	fieldRepo FieldRepository
+	plotRepo  PlotRepository
 }
 
-func NewFieldService(fieldRepo FieldRepository) FieldService {
-	return &fieldService{fieldRepo: fieldRepo}
+func NewFieldService(fieldRepo FieldRepository, plotRepo PlotRepository) FieldService {
+	return &fieldService{fieldRepo: fieldRepo, plotRepo: plotRepo}
 }
 
 func (s *fieldService) CreateField(ctx context.Context, farmer uuid.UUID, name string, coordinates *geom.Polygon) (models.Field, error) {
@@ -45,6 +49,37 @@ func (s *fieldService) CreateField(ctx context.Context, farmer uuid.UUID, name s
 
 	field.ID = id
 	return field, nil
+}
+
+func (s *fieldService) GetFieldsWithPlots(ctx context.Context, farmer uuid.UUID) ([]models.FieldWithPlots, error) {
+	fields, err := s.fieldRepo.GetFieldsByFarmer(ctx, farmer)
+	if err != nil {
+		return nil, fmt.Errorf("getting fields: %w", err)
+	}
+
+	fieldIDs := make([]uuid.UUID, len(fields))
+	for i, field := range fields {
+		fieldIDs[i] = field.ID
+	}
+
+	plots, err := s.plotRepo.GetPlotsByFields(ctx, fieldIDs)
+	if err != nil {
+		return nil, fmt.Errorf("getting plots: %w", err)
+	}
+
+	plotsByField := make(map[uuid.UUID][]models.Plot, len(fields))
+	for _, plot := range plots {
+		plotsByField[plot.Field] = append(plotsByField[plot.Field], plot)
+	}
+
+	result := make([]models.FieldWithPlots, len(fields))
+	for i, field := range fields {
+		result[i] = models.FieldWithPlots{
+			Field: field,
+			Plots: plotsByField[field.ID],
+		}
+	}
+	return result, nil
 }
 
 type plotService struct {
