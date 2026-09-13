@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"strconv"
 )
 
 type Config struct {
@@ -13,8 +15,60 @@ type Config struct {
 	JWTSecret string
 
 	SameSiteStrict bool
+	CookieSecure   bool
 	CORSEnabled    bool
 	FrontendURL    string
+}
+
+func Load() (Config, error) {
+	dbAutoMigrate, err := parseBoolEnv("DB_AUTO_MIGRATE", false)
+	if err != nil {
+		return Config{}, err
+	}
+	sameSiteStrict, err := parseBoolEnv("SAME_SITE_STRICT", true)
+	if err != nil {
+		return Config{}, err
+	}
+	corsEnabled, err := parseBoolEnv("CORS_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	// Defaults to true so a misconfigured production deploy fails closed;
+	// set COOKIE_SECURE=false for local http development.
+	cookieSecure, err := parseBoolEnv("COOKIE_SECURE", true)
+	if err != nil {
+		return Config{}, err
+	}
+
+	c := Config{
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		DBAutoMigrate: dbAutoMigrate,
+
+		JWTSecret: os.Getenv("JWT_SECRET"),
+
+		SameSiteStrict: sameSiteStrict,
+		CookieSecure:   cookieSecure,
+		CORSEnabled:    corsEnabled,
+		FrontendURL:    os.Getenv("FRONTEND_URL"),
+	}
+
+	if err := c.Validate(); err != nil {
+		return Config{}, err
+	}
+
+	return c, nil
+}
+
+func parseBoolEnv(key string, fallback bool) (bool, error) {
+	raw, ok := os.LookupEnv(key)
+	if !ok || raw == "" {
+		return fallback, nil
+	}
+	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", key, err)
+	}
+	return v, nil
 }
 
 func (c Config) Validate() error {

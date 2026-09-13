@@ -1,0 +1,155 @@
+openapi: 3.1.0
+
+info:
+  title: Neue Konzepte BaaS Backend API
+  version: 0.1.0
+  description: |
+    Backend API for the Neue Konzepte BaaS project.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: auth
+    description: Authentication and the current account
+
+paths:
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Log in with email and password
+      description: |
+        Verifies the credentials and, on success, sets the `access_token` and
+        `refresh_token` cookies. Both cookies are HttpOnly; `Secure` and the
+        `SameSite` mode depend on the server configuration.
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Credentials accepted; auth cookies set.
+          headers:
+            Set-Cookie:
+              description: |
+                Two cookies are set:
+                `access_token=<jwt>; Path=/; Max-Age=900; HttpOnly` and
+                `refresh_token=<jwt>; Path=/api/auth/refresh; Max-Age=604800; HttpOnly`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          description: Malformed body, or a missing email or password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                missingFields:
+                  value:
+                    error: email and password are required
+        '401':
+          description: Invalid credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid credentials
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      summary: Get the authenticated account
+      description: Returns the account resolved from the `access_token` cookie.
+      operationId: getCurrentAccount
+      responses:
+        '200':
+          description: The authenticated account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          description: Missing, expired, or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+
+components:
+  securitySchemes:
+    accessTokenCookie:
+      type: apiKey
+      in: cookie
+      name: access_token
+      description: HttpOnly JWT cookie set by `POST /api/auth/login`. Valid for 15 minutes.
+
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Surrounding whitespace is trimmed before lookup.
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          example: correct-horse-battery-staple
+
+    Account:
+      type: object
+      required: [id, first_name, last_name, role]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8
+        first_name:
+          type: string
+          example: Ada
+        last_name:
+          type: string
+          example: Lovelace
+        role:
+          $ref: '#/components/schemas/Role'
+
+    Role:
+      type: string
+      description: Implied by which subtype table the account joins to.
+      enum: [admin, farmer, customer]
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+
+security:
+  - accessTokenCookie: []
