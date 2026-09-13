@@ -16,6 +16,14 @@ const checkViolation = "23514"
 // which is how the plot-within-field boundary is enforced.
 const raiseException = "P0001"
 
+// exclusionViolation is the SQLSTATE for an EXCLUDE constraint breach; on the
+// rental table that means the plot is already rented for an overlapping period.
+const exclusionViolation = "23P01"
+
+// foreignKeyViolation is the SQLSTATE for a missing referenced row, e.g.
+// renting a plot id that does not exist.
+const foreignKeyViolation = "23503"
+
 // mapGeometryError turns the Postgres errors produced by the field/plot
 // geometry constraints into services.ErrInvalidGeometry, so handlers can
 // report them as a 400 instead of leaking a raw SQL error as a 500.

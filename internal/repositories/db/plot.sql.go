@@ -23,6 +23,10 @@ SELECT
         ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography
     )::float8 AS distance_meters
 FROM plot
+WHERE NOT EXISTS (
+    SELECT 1 FROM rental r
+    WHERE r.plot = plot.id AND r.period @> CURRENT_TIMESTAMP
+)
 ORDER BY coordinates <-> ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)
 LIMIT $3
 `
@@ -41,6 +45,8 @@ type GetNearestPlotsRow struct {
 	DistanceMeters float64
 }
 
+// Only plots that are free right now; a rental that has run out stops
+// hiding its plot.
 func (q *Queries) GetNearestPlots(ctx context.Context, arg GetNearestPlotsParams) ([]GetNearestPlotsRow, error) {
 	rows, err := q.db.Query(ctx, getNearestPlots, arg.Lon, arg.Lat, arg.ResultLimit)
 	if err != nil {

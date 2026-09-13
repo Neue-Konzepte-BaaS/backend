@@ -393,6 +393,10 @@ paths:
         search point, nearest first. Public endpoint — no authentication
         required.
 
+        Only plots that are currently available are returned: a plot with a
+        rental covering the present moment is omitted, and reappears once that
+        rental's period has elapsed.
+
         The search point is given either as coordinates (`lat` and `lon`
         together) or as a German location (`postalCode` or `city`). Exactly
         one of these two approaches must be used; `lat`/`lon` take
@@ -472,6 +476,128 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: no location found for the given postal code or city
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/rentals:
+    post:
+      tags: [rentals]
+      summary: Rent a plot
+      description: |
+        Books a plot for the authenticated customer. The rental starts
+        immediately and runs for a fixed six months; the duration is not yet
+        configurable. Customers only — a farmer or admin receives 403.
+
+        A plot can only be booked once for any given moment: renting a plot
+        whose existing rental overlaps the new period fails with 409. Once a
+        rental's period has elapsed the plot can be rented again.
+      operationId: rentPlot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RentPlotRequest'
+      responses:
+        '201':
+          description: The plot was rented.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rental'
+        '400':
+          description: Malformed body or plot id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidPlotID:
+                  value:
+                    error: invalid plot id
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: No plot with the given id exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: plot not found
+        '409':
+          description: The plot is already rented for an overlapping period.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: plot is already rented
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+    get:
+      tags: [rentals]
+      summary: List the authenticated customer's rentals
+      description: |
+        Returns every rental belonging to the authenticated customer, newest
+        first, each with the plot it books. Expired rentals are included.
+        Customers only — a farmer or admin receives 403.
+      operationId: getRentals
+      responses:
+        '200':
+          description: The customer's rentals.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RentalWithPlot'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
         '500':
           description: Internal error.
           content:
@@ -696,6 +822,51 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Plot'
+
+    RentPlotRequest:
+      type: object
+      required: [plotId]
+      properties:
+        plotId:
+          type: string
+          format: uuid
+          description: ID of the plot to rent.
+          example: ed453eb5-2abb-4fcb-9421-f9b69490fe37
+
+    Rental:
+      type: object
+      required: [id, plotId, startAt, endAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        plotId:
+          type: string
+          format: uuid
+          description: ID of the rented plot.
+        startAt:
+          type: string
+          format: date-time
+          description: |
+            When the rental begins, set from the database clock at booking
+            time.
+          example: '2026-09-13T14:49:56+02:00'
+        endAt:
+          type: string
+          format: date-time
+          description: |
+            When the rental ends, exclusive — six months after `startAt`. A
+            rental beginning exactly at another's `endAt` does not conflict.
+          example: '2027-03-13T14:49:56+01:00'
+
+    RentalWithPlot:
+      allOf:
+        - $ref: '#/components/schemas/Rental'
+        - type: object
+          required: [plot]
+          properties:
+            plot:
+              $ref: '#/components/schemas/Plot'
 
 security:
   - accessTokenCookie: []

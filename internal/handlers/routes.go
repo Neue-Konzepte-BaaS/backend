@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, plotSearchHandler *PlotSearchHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -52,6 +52,14 @@ func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, plotSearchH
 
 	r.Route("/api/plots", func(r chi.Router) {
 		r.Get("/nearest", plotSearchHandler.FindNearestPlots)
+	})
+
+	r.Route("/api/rentals", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+		r.Use(appmiddleware.RequireRole(models.RoleCustomer))
+
+		r.Post("/", rentalHandler.RentPlot)
+		r.Get("/", rentalHandler.GetRentals)
 	})
 
 	return r
