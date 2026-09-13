@@ -46,3 +46,28 @@ func (r *plotRepository) GetPlotsByFields(ctx context.Context, fields []uuid.UUI
 	}
 	return plots, nil
 }
+
+func (r *plotRepository) GetNearestPlots(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error) {
+	rows, err := r.queries.GetNearestPlots(ctx, database.GetNearestPlotsParams{
+		Lon:         lon,
+		Lat:         lat,
+		ResultLimit: limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	plots := make([]models.NearbyPlot, len(rows))
+	for i, row := range rows {
+		plots[i] = models.NearbyPlot{
+			Plot: models.Plot{
+				ID:          row.ID,
+				Name:        row.Name,
+				Field:       row.Field,
+				Coordinates: row.Coordinates,
+			},
+			DistanceMeters: row.DistanceMeters,
+		}
+	}
+	return plots, nil
+}

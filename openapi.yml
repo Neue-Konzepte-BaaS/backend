@@ -15,6 +15,8 @@ tags:
     description: Authentication and the current account
   - name: fields
     description: Fields and plots owned by a farmer
+  - name: plots
+    description: Public plot search
 
 paths:
   /api/auth/register:
@@ -382,6 +384,103 @@ paths:
               example:
                 error: internal error
 
+  /api/plots/nearest:
+    get:
+      tags: [plots]
+      summary: Find the nearest plots
+      description: |
+        Searches across all farmers' plots and returns the nearest ones to a
+        search point, nearest first. Public endpoint — no authentication
+        required.
+
+        The search point is given either as coordinates (`lat` and `lon`
+        together) or as a German location (`postalCode` or `city`). Exactly
+        one of these two approaches must be used; `lat`/`lon` take
+        precedence if both are somehow provided. `postalCode` is matched
+        exactly; `city` is matched as a case-insensitive substring against
+        the location dataset and only the first match (alphabetically) is
+        used to resolve coordinates.
+      operationId: findNearestPlots
+      security: []
+      parameters:
+        - name: lat
+          in: query
+          description: Latitude of the search point. Must be provided together with `lon`.
+          schema:
+            type: number
+            format: double
+          example: 48.7758
+        - name: lon
+          in: query
+          description: Longitude of the search point. Must be provided together with `lat`.
+          schema:
+            type: number
+            format: double
+          example: 9.1829
+        - name: postalCode
+          in: query
+          description: A German postal code, matched exactly against the location dataset.
+          schema:
+            type: string
+          example: '70173'
+        - name: city
+          in: query
+          description: A German city or locality name, matched as a case-insensitive substring.
+          schema:
+            type: string
+          example: Stuttgart
+        - name: limit
+          in: query
+          description: Maximum number of plots to return.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
+          example: 10
+      responses:
+        '200':
+          description: The nearest plots, ordered by ascending distance.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NearbyPlot'
+        '400':
+          description: Malformed input, or neither coordinates nor a postal code/city were given.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingLocation:
+                  value:
+                    error: provide lat and lon, or postalCode or city
+                invalidCoordinates:
+                  value:
+                    error: lat and lon must be numbers
+                invalidLimit:
+                  value:
+                    error: limit must be a number between 1 and 100
+        '404':
+          description: No location matches the given postal code or city.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: no location found for the given postal code or city
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
 components:
   securitySchemes:
     accessTokenCookie:
@@ -554,6 +653,28 @@ components:
           description: ID of the field this plot belongs to.
         coordinates:
           $ref: '#/components/schemas/GeoJSONPolygon'
+
+    NearbyPlot:
+      type: object
+      required: [id, name, field, coordinates, distanceMeters]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Plot A
+        field:
+          type: string
+          format: uuid
+          description: ID of the field this plot belongs to.
+        coordinates:
+          $ref: '#/components/schemas/GeoJSONPolygon'
+        distanceMeters:
+          type: number
+          format: double
+          description: Distance from the search point to the plot's centroid, in meters.
+          example: 1523.42
 
     FieldWithPlots:
       type: object

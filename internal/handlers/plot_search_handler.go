@@ -1,0 +1,104 @@
+package handlers
+
+import (
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/webutils"
+)
+
+const (
+	defaultNearestPlotsLimit = 20
+	maxNearestPlotsLimit     = 100
+)
+
+type PlotSearchHandler struct {
+	plotSearchService services.PlotSearchService
+}
+
+func NewPlotSearchHandler(plotSearchService services.PlotSearchService) *PlotSearchHandler {
+	return &PlotSearchHandler{plotSearchService: plotSearchService}
+}
+
+type nearbyPlotResponse struct {
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Field          string          `json:"field"`
+	Coordinates    json.RawMessage `json:"coordinates"`
+	DistanceMeters float64         `json:"distanceMeters"`
+}
+
+// FindNearestPlots returns the plots nearest to a search point, given
+// either lat/lon query params or a postalCode/city query param. It is a
+// public endpoint (no auth required).
+func (h *PlotSearchHandler) FindNearestPlots(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+
+	limit, err := parseNearestPlotsLimit(query.Get("limit"))
+	if err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "limit must be a number between 1 and 100")
+		return
+	}
+
+	latStr := query.Get("lat")
+	lonStr := query.Get("lon")
+	postalCode := strings.TrimSpace(query.Get("postalCode"))
+	city := strings.TrimSpace(query.Get("city"))
+
+	var plots []models.NearbyPlot
+	switch {
+	case latStr != "" && lonStr != "":
+		lat, latErr := strconv.ParseFloat(latStr, 64)
+		lon, lonErr := strconv.ParseFloat(lonStr, 64)
+		if latErr != nil || lonErr != nil {
+			webutils.WriteError(w, http.StatusBadRequest, "lat and lon must be numbers")
+			return
+		}
+		plots, err = h.plotSearchService.FindNearestByCoordinates(r.Context(), lon, lat, limit)
+	case postalCode != "" || city != "":
+		plots, err = h.plotSearchService.FindNearestByLocation(r.Context(), postalCode, city, limit)
+	default:
+		webutils.WriteError(w, http.StatusBadRequest, "provide lat and lon, or postalCode or city")
+		return
+	}
+
+	if errors.Is(err, services.ErrNotFound) {
+		webutils.WriteError(w, http.StatusNotFound, "no location found for the given postal code or city")
+		return
+	}
+	if err != nil {
+		slog.Error("finding nearest plots failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	res := make([]nearbyPlotResponse, len(plots))
+	for i, plot := range plots {
+		res[i] = nearbyPlotResponse{
+			ID:             plot.ID.String(),
+			Name:           plot.Name,
+			Field:          plot.Field.String(),
+			Coordinates:    encodePolygon(plot.Coordinates),
+			DistanceMeters: plot.DistanceMeters,
+		}
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, res)
+}
+
+func parseNearestPlotsLimit(raw string) (int32, error) {
+	if raw == "" {
+		return defaultNearestPlotsLimit, nil
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 || limit > maxNearestPlotsLimit {
+		return 0, errors.New("invalid limit")
+	}
+	return int32(limit), nil
+}
