@@ -20,10 +20,11 @@ func NewRentalRepository(queries *database.Queries) services.RentalRepository {
 	return &rentalRepository{queries: queries}
 }
 
-func (r *rentalRepository) CreateRental(ctx context.Context, plot, customer uuid.UUID, durationMonths int32) (models.Rental, error) {
+func (r *rentalRepository) CreateRental(ctx context.Context, plot, customer, crop uuid.UUID, durationMonths int32) (models.Rental, error) {
 	row, err := r.queries.InsertRental(ctx, database.InsertRentalParams{
 		Plot:           plot,
 		Customer:       customer,
+		Crop:           crop,
 		DurationMonths: durationMonths,
 	})
 	if err != nil {
@@ -33,6 +34,7 @@ func (r *rentalRepository) CreateRental(ctx context.Context, plot, customer uuid
 	return models.Rental{
 		ID:       row.ID,
 		PlotID:   plot,
+		CropID:   crop,
 		Customer: customer,
 		StartAt:  row.StartAt.Time,
 		EndAt:    row.EndAt.Time,
@@ -51,6 +53,7 @@ func (r *rentalRepository) GetRentalsByCustomer(ctx context.Context, customer uu
 			Rental: models.Rental{
 				ID:       row.ID,
 				PlotID:   row.Plot,
+				CropID:   row.Crop,
 				Customer: row.Customer,
 				StartAt:  row.StartAt.Time,
 				EndAt:    row.EndAt.Time,
@@ -60,6 +63,11 @@ func (r *rentalRepository) GetRentalsByCustomer(ctx context.Context, customer uu
 				Name:        row.PlotName,
 				Field:       row.Field,
 				Coordinates: row.Coordinates,
+			},
+			Crop: models.Crop{
+				ID:             row.Crop,
+				Name:           row.CropName,
+				DurationMonths: row.CropDurationMonths,
 			},
 		}
 	}

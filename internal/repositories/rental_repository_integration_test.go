@@ -97,15 +97,17 @@ func rectangle(minX, minY, maxX, maxY float64) *geom.Polygon {
 	}, []int{10})
 }
 
-// seedPlot creates a farmer with one field containing one plot, and returns
-// the plot id.
-func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.UUID {
+// seedPlot creates a farmer with one field containing one plot, offers the
+// first crop in the catalog on that field, and returns the plot id and that
+// crop's id.
+func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
 	fieldRepo := repositories.NewFieldRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
+	cropRepo := repositories.NewCropRepository(pool, queries)
 
 	farmer, err := accountRepo.CreateFarmer(ctx, models.Account{
 		FirstName:    "Old",
@@ -135,7 +137,17 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.UUID {
 		t.Fatalf("creating plot: %v", err)
 	}
 
-	return plotID
+	crop, err := cropRepo.CreateCrop(ctx, "Tomatoes-"+uuid.NewString(), 6)
+	if err != nil {
+		t.Fatalf("creating crop: %v", err)
+	}
+	cropID := crop.ID
+
+	if err := cropRepo.SetFieldCrops(ctx, fieldID, []uuid.UUID{cropID}); err != nil {
+		t.Fatalf("offering crop on field: %v", err)
+	}
+
+	return plotID, cropID
 }
 
 // seedCustomer creates a bare customer account and returns its id.
@@ -165,13 +177,13 @@ func TestCreateRental_RejectsOverlappingBooking(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 
-	plotID := seedPlot(t, ctx, pool)
+	plotID, cropID := seedPlot(t, ctx, pool)
 	firstCustomer := seedCustomer(t, ctx, pool)
 	secondCustomer := seedCustomer(t, ctx, pool)
 
 	rentalRepo := repositories.NewRentalRepository(database.New(pool))
 
-	first, err := rentalRepo.CreateRental(ctx, plotID, firstCustomer, 6)
+	first, err := rentalRepo.CreateRental(ctx, plotID, firstCustomer, cropID, 6)
 	if err != nil {
 		t.Fatalf("first booking: unexpected error: %v", err)
 	}
@@ -179,7 +191,7 @@ func TestCreateRental_RejectsOverlappingBooking(t *testing.T) {
 		t.Fatalf("expected a positive rental period, got start=%v end=%v", first.StartAt, first.EndAt)
 	}
 
-	_, err = rentalRepo.CreateRental(ctx, plotID, secondCustomer, 6)
+	_, err = rentalRepo.CreateRental(ctx, plotID, secondCustomer, cropID, 6)
 	if !errors.Is(err, services.ErrPlotUnavailable) {
 		t.Fatalf("second (overlapping) booking: error = %v, want ErrPlotUnavailable", err)
 	}

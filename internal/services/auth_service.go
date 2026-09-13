@@ -25,6 +25,12 @@ var (
 	// ErrPlotUnavailable is returned when a plot is already rented for the
 	// requested period.
 	ErrPlotUnavailable = errors.New("plot unavailable")
+	// ErrCropNotOffered is returned when renting a plot with a crop that its
+	// field does not offer.
+	ErrCropNotOffered = errors.New("crop not offered by this field")
+	// ErrCropNameTaken is returned when creating a crop whose name is already
+	// in the catalog.
+	ErrCropNameTaken = errors.New("crop name already exists")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

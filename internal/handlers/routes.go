@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -48,10 +48,21 @@ func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, plotSearchH
 		r.Post("/", fieldHandler.CreateField)
 		r.Get("/", fieldHandler.GetFields)
 		r.Post("/{fieldID}/plots", fieldHandler.CreatePlot)
+		r.Put("/{fieldID}/crops", cropHandler.SetFieldCrops)
 	})
 
 	r.Route("/api/plots", func(r chi.Router) {
 		r.Get("/nearest", plotSearchHandler.FindNearestPlots)
+	})
+
+	r.Route("/api/crops", func(r chi.Router) {
+		r.Get("/", cropHandler.GetAllCrops)
+
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireAuth(authService))
+			r.Use(appmiddleware.RequireRole(models.RoleAdmin))
+			r.Post("/", cropHandler.CreateCrop)
+		})
 	})
 
 	r.Route("/api/rentals", func(r chi.Router) {
