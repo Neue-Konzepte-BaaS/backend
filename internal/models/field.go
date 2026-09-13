@@ -23,3 +23,8 @@ type FieldWithPlots struct {
 	Field
 	Plots []Plot
 }
+
+type NearbyPlot struct {
+	Plot
+	DistanceMeters float64
+}

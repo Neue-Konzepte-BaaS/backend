@@ -48,3 +48,10 @@ type Plot struct {
 	Field       uuid.UUID
 	Coordinates *geom.Polygon
 }
+
+type PostalCode struct {
+	ID          int32
+	Zipcode     string
+	Name        string
+	Coordinates *geom.Point
+}

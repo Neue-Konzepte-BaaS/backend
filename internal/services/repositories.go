@@ -25,4 +25,14 @@ type FieldRepository interface {
 type PlotRepository interface {
 	CreatePlot(ctx context.Context, plot models.Plot) (uuid.UUID, error)
 	GetPlotsByFields(ctx context.Context, fields []uuid.UUID) ([]models.Plot, error)
+	// GetNearestPlots returns up to limit plots ordered by distance from the
+	// given point (lon, lat), nearest first.
+	GetNearestPlots(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error)
+}
+
+type PostalCodeRepository interface {
+	// FindCoordinates resolves a German postal code or city name to a
+	// lon/lat point. Exactly one of postalCode/city should be set. Returns
+	// ErrNotFound if nothing matches.
+	FindCoordinates(ctx context.Context, postalCode, city string) (lon, lat float64, err error)
 }

@@ -12,6 +12,61 @@ import (
 	geom "github.com/twpayne/go-geom"
 )
 
+const getNearestPlots = `-- name: GetNearestPlots :many
+SELECT
+    id,
+    name,
+    field,
+    coordinates,
+    ST_Distance(
+        ST_Centroid(coordinates)::geography,
+        ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography
+    )::float8 AS distance_meters
+FROM plot
+ORDER BY coordinates <-> ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)
+LIMIT $3
+`
+
+type GetNearestPlotsParams struct {
+	Lon         float64
+	Lat         float64
+	ResultLimit int32
+}
+
+type GetNearestPlotsRow struct {
+	ID             uuid.UUID
+	Name           string
+	Field          uuid.UUID
+	Coordinates    *geom.Polygon
+	DistanceMeters float64
+}
+
+func (q *Queries) GetNearestPlots(ctx context.Context, arg GetNearestPlotsParams) ([]GetNearestPlotsRow, error) {
+	rows, err := q.db.Query(ctx, getNearestPlots, arg.Lon, arg.Lat, arg.ResultLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetNearestPlotsRow
+	for rows.Next() {
+		var i GetNearestPlotsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Field,
+			&i.Coordinates,
+			&i.DistanceMeters,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPlotByID = `-- name: GetPlotByID :one
 SELECT id, name, field, coordinates
 FROM plot

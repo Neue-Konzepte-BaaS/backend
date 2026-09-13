@@ -33,3 +33,9 @@ sql:
               package: "geom"
               type: "Polygon"
               pointer: true
+          - column: "postal_code.coordinates"
+            go_type:
+              import: "github.com/twpayne/go-geom"
+              package: "geom"
+              type: "Point"
+              pointer: true

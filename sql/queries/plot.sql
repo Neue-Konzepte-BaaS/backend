@@ -12,3 +12,17 @@ SELECT id, name, field, coordinates
 FROM plot
 WHERE field = ANY($1::uuid[])
 ORDER BY name;
+
+-- name: GetNearestPlots :many
+SELECT
+    id,
+    name,
+    field,
+    coordinates,
+    ST_Distance(
+        ST_Centroid(coordinates)::geography,
+        ST_SetSRID(ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8), 4326)::geography
+    )::float8 AS distance_meters
+FROM plot
+ORDER BY coordinates <-> ST_SetSRID(ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8), 4326)
+LIMIT sqlc.arg(result_limit);
