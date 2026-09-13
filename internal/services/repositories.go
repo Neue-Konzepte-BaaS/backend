@@ -7,6 +7,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// EmailSender delivers one message to one recipient. It is a repository in
+// the dependency-inversion sense rather than a database one: an outbound port,
+// backed by SMTP in production and by a console logger in development.
+type EmailSender interface {
+	SendMail(email string, displayName string, subject string, message string, isHTML bool, attachments map[string][]byte) error
+}
+
 type AccountRepository interface {
 	GetAccountByEmail(ctx context.Context, email string) (models.Account, error)
 	GetAccountByID(ctx context.Context, id uuid.UUID) (models.Account, error)
@@ -14,6 +21,10 @@ type AccountRepository interface {
 	CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32) (models.Account, error)
 	// CreateCustomer atomically inserts the account and its customer subtype row.
 	CreateCustomer(ctx context.Context, account models.Account, postalCode int32) (models.Account, error)
+	// GetAllRecipients returns every farmer and customer as a notification
+	// recipient. Admins are not included: a platform-wide notice is addressed
+	// to users, not to the operators sending it.
+	GetAllRecipients(ctx context.Context) ([]models.Recipient, error)
 }
 
 type FieldRepository interface {

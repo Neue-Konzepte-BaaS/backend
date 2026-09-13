@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"os"
 	"strconv"
@@ -18,6 +19,14 @@ type Config struct {
 	CookieSecure   bool
 	CORSEnabled    bool
 	FrontendURL    string
+
+	SMTPEnabled     bool
+	SMTPHost        string
+	SMTPPort        int
+	SMTPUsername    string
+	SMTPPassword    string
+	SMTPSenderName  string
+	SMTPSenderEmail string
 }
 
 func Load() (Config, error) {
@@ -40,6 +49,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	// Off by default so a developer who has not configured a relay still gets
+	// a working server: main.go then logs notifications instead of sending.
+	smtpEnabled, err := parseBoolEnv("SMTP_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	smtpPort, err := parseIntEnv("SMTP_PORT", 587)
+	if err != nil {
+		return Config{}, err
+	}
+
 	c := Config{
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		DBAutoMigrate: dbAutoMigrate,
@@ -50,6 +70,14 @@ func Load() (Config, error) {
 		CookieSecure:   cookieSecure,
 		CORSEnabled:    corsEnabled,
 		FrontendURL:    os.Getenv("FRONTEND_URL"),
+
+		SMTPEnabled:     smtpEnabled,
+		SMTPHost:        os.Getenv("SMTP_HOST"),
+		SMTPPort:        smtpPort,
+		SMTPUsername:    os.Getenv("SMTP_USERNAME"),
+		SMTPPassword:    os.Getenv("SMTP_PASSWORD"),
+		SMTPSenderName:  os.Getenv("SMTP_SENDER_NAME"),
+		SMTPSenderEmail: os.Getenv("SMTP_SENDER_EMAIL"),
 	}
 
 	if err := c.Validate(); err != nil {
@@ -71,6 +99,18 @@ func parseBoolEnv(key string, fallback bool) (bool, error) {
 	return v, nil
 }
 
+func parseIntEnv(key string, fallback int) (int, error) {
+	raw, ok := os.LookupEnv(key)
+	if !ok || raw == "" {
+		return fallback, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	return v, nil
+}
+
 func (c Config) Validate() error {
 	var errs []error
 
@@ -83,6 +123,7 @@ func (c Config) Validate() error {
 	if err := validateFrontendURL(c.FrontendURL, c.CORSEnabled); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, validateSMTP(c)...)
 
 	return errors.Join(errs...)
 }
@@ -124,4 +165,35 @@ func validateFrontendURL(raw string, corsEnabled bool) error {
 		return errors.New("FrontendURL: must be an absolute URL")
 	}
 	return nil
+}
+
+// validateSMTP checks the mail settings. They are only required once
+// SMTPEnabled is set: with it off the server wires a console sender, so an
+// unconfigured relay must not stop the process from starting. The port is
+// checked either way, because a nonsense value is a mistake worth reporting
+// even when it is currently unused.
+func validateSMTP(c Config) []error {
+	var errs []error
+
+	if c.SMTPPort < 1 || c.SMTPPort > 65535 {
+		errs = append(errs, fmt.Errorf("SMTPPort: must be between 1 and 65535, got %d", c.SMTPPort))
+	}
+
+	if !c.SMTPEnabled {
+		return errs
+	}
+
+	if c.SMTPHost == "" {
+		errs = append(errs, errors.New("SMTPHost: must not be empty when SMTPEnabled is true"))
+	}
+	if c.SMTPSenderName == "" {
+		errs = append(errs, errors.New("SMTPSenderName: must not be empty when SMTPEnabled is true"))
+	}
+	if c.SMTPSenderEmail == "" {
+		errs = append(errs, errors.New("SMTPSenderEmail: must not be empty when SMTPEnabled is true"))
+	} else if _, err := mail.ParseAddress(c.SMTPSenderEmail); err != nil {
+		errs = append(errs, fmt.Errorf("SMTPSenderEmail: %w", err))
+	}
+
+	return errs
 }

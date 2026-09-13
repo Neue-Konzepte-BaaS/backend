@@ -3,7 +3,7 @@
 Guidance for AI agents (and humans) working in this repository.
 
 > **Status: active.** The core API is in place — accounts and auth, fields and plots,
-> spatial plot search, rentals, and statistics. Known gaps are catalogued in
+> spatial plot search, rentals, statistics, and outbound notifications. Known gaps are catalogued in
 > [ARCHITECTURE.md §13](ARCHITECTURE.md#13-known-gaps-and-rough-edges). Sections marked
 > **TBD** are decisions that have not been made yet — when you make one, update this
 > file in the same change.
@@ -75,6 +75,13 @@ parses and validates them at startup and fails fast.
 | `SAME_SITE_STRICT`| `true`  | |
 | `CORS_ENABLED`    | `false` | |
 | `FRONTEND_URL`    | —       | Required when `CORS_ENABLED` is true; must be an absolute URL. |
+| `SMTP_ENABLED`    | `false` | Off means notifications are logged, not sent. |
+| `SMTP_HOST`       | —       | Required when `SMTP_ENABLED` is true. |
+| `SMTP_PORT`       | `587`   | STARTTLS; implicit TLS on 465 is not supported. |
+| `SMTP_USERNAME`   | —       | Empty means the sender authenticates with nothing. |
+| `SMTP_PASSWORD`   | —       | |
+| `SMTP_SENDER_NAME`  | —     | Required when `SMTP_ENABLED` is true. |
+| `SMTP_SENDER_EMAIL` | —     | Required when `SMTP_ENABLED` is true; must parse as an address. |
 
 `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` are read by `compose.yml` and the
 `Makefile`'s dbmate targets, not by the Go application.
@@ -88,6 +95,18 @@ parses and validates them at startup and fails fast.
 - Keep packages small and named after what they provide, not what they contain
   (`user`, not `models`/`utils`).
 - Comments explain *why*, not *what*. Match the density of the surrounding code.
+
+## Notifications
+
+Outbound mail goes through `services.NotificationService`, backed by an
+`EmailSender` (`internal/repositories/email_sender.go`) that is SMTP in production
+and a console logger when `SMTP_ENABLED` is false. Templates are `html/template`
+files embedded from `internal/emailtemplates` — do not read them from disk, the
+runtime image ships only the binary and the migrations.
+
+Fan-out runs on `services.Dispatcher` after the response is written, so delivery
+is best-effort: nothing is retried, and failures are logged rather than returned.
+`main.go` shuts down gracefully so those sends are not killed mid-flight.
 
 ## Database
 

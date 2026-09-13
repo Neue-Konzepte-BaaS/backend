@@ -28,6 +28,10 @@ func (f *fakeAccountRepo) GetAccountByID(context.Context, uuid.UUID) (models.Acc
 	return models.Account{}, ErrNotFound
 }
 
+func (f *fakeAccountRepo) GetAllRecipients(context.Context) ([]models.Recipient, error) {
+	panic("auth service does not send notifications")
+}
+
 func (f *fakeAccountRepo) CreateFarmer(_ context.Context, account models.Account, farmName string, postalCode int32) (models.Account, error) {
 	if f.createFarmerErr != nil {
 		return models.Account{}, f.createFarmerErr
