@@ -14,13 +14,7 @@ CREATE TABLE plot_crop (
 
 DROP TABLE field_crop;
 
--- Was only ever a placeholder default for rentals backfilled before crops
--- existed; nothing references it any more.
-DELETE FROM crop WHERE name = 'unknown';
-
 -- migrate:down
-INSERT INTO crop (name, duration_months) VALUES ('unknown', 1);
-
 CREATE TABLE field_crop (
     field UUID NOT NULL,
     crop UUID NOT NULL,
