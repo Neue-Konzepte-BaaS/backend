@@ -195,5 +195,12 @@ func validateSMTP(c Config) []error {
 		errs = append(errs, fmt.Errorf("SMTPSenderEmail: %w", err))
 	}
 
+	// Credentials are optional — a relay that wants none gets none — but half a
+	// pair is always a mistake. Without this it starts cleanly and fails at the
+	// first send instead, which is the worst place to find out.
+	if (c.SMTPUsername == "") != (c.SMTPPassword == "") {
+		errs = append(errs, errors.New("SMTPUsername and SMTPPassword: set both or neither"))
+	}
+
 	return errs
 }
