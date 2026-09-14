@@ -48,6 +48,13 @@ const notificationConcurrency = 4
 // shutdownTimeout bounds both draining in-flight requests and waiting for
 // background notification sends. smtp.SendMail has no timeout of its own, so
 // without a deadline here a hung relay would keep the process alive.
+//
+// Note what this does and does not guarantee. A fan-out still in flight when
+// the deadline passes is abandoned, and at one fresh SMTP connection per
+// message a broadcast only finishes inside 15s for a small audience. Shutting
+// down gracefully narrows the window in which queued mail is lost; it does not
+// close it. Closing it needs delivery that survives the process — see the
+// outbox note in ARCHITECTURE.md §9a.
 const shutdownTimeout = 15 * time.Second
 
 // newEmailSender picks the delivery backend. With SMTP disabled the console

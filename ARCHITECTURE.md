@@ -658,6 +658,12 @@ Three decisions worth knowing before extending it:
   server and then waits on the `Dispatcher`, both under one deadline. The
   deadline is not optional: `smtp.SendMail` takes no context and has no timeout
   of its own, so a hung relay would otherwise keep the process alive forever.
+  It is also a limit, not a fix: a fan-out that has not finished when the
+  deadline passes is abandoned, and since each message costs a fresh connection,
+  only a small audience is reached within it. Queued mail is therefore still
+  lost on a deploy mid-broadcast — less of it than before, but the guarantee is
+  narrower than "graceful shutdown" suggests. The outbox table above is what
+  actually closes it.
 
 Recipients are resolved *before* the handler returns, so a database failure is a
 500 rather than a silently empty send. Admins are excluded from a platform
