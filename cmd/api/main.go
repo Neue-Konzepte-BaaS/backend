@@ -93,7 +93,9 @@ func main() {
 	// db migrations
 	// Must run before the pool below: registering the PostGIS types needs the
 	// postgis extension to already exist, which the field migration creates.
-	migrateDB(c.DatabaseURL)
+	if c.DBAutoMigrate {
+		migrateDB(c.DatabaseURL)
+	}
 
 	// setup db connection pool
 	ctx := context.Background()
