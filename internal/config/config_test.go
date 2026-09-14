@@ -132,6 +132,46 @@ func TestValidateSMTP_EnabledRequiresHostAndSender(t *testing.T) {
 	}
 }
 
+func TestValidateSMTP_CredentialsMustBeSetInPairs(t *testing.T) {
+	base := Config{
+		SMTPEnabled:     true,
+		SMTPPort:        587,
+		SMTPHost:        "smtp.example.com",
+		SMTPSenderName:  "BaaS",
+		SMTPSenderEmail: "noreply@example.com",
+	}
+
+	tests := []struct {
+		name               string
+		username, password string
+		wantErr            bool
+	}{
+		{name: "both set", username: "mailer", password: "secret"},
+		{name: "neither set"},
+		{name: "username without password", username: "mailer", wantErr: true},
+		{name: "password without username", password: "secret", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := base
+			c.SMTPUsername = tt.username
+			c.SMTPPassword = tt.password
+
+			errs := validateSMTP(c)
+			if tt.wantErr && len(errs) == 0 {
+				t.Fatal("expected an error for half a credential pair")
+			}
+			if !tt.wantErr && len(errs) != 0 {
+				t.Fatalf("unexpected errors: %v", errs)
+			}
+			if tt.wantErr && !strings.Contains(errs[0].Error(), "SMTPUsername and SMTPPassword") {
+				t.Errorf("error = %v, want it to name both variables", errs[0])
+			}
+		})
+	}
+}
+
 func TestValidateSMTP_ReportsEveryMissingFieldAtOnce(t *testing.T) {
 	// Validate collects rather than short-circuits, so a misconfigured deploy
 	// learns about all of its problems in one startup attempt.
