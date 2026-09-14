@@ -12,7 +12,7 @@ import (
 )
 
 // seedFarmerWithPlots creates a farmer owning one field with plotCount plots,
-// offering one crop, and returns the farmer, the plots and that crop.
+// each offering one crop, and returns the farmer, the plots and that crop.
 func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plotCount int) (uuid.UUID, []uuid.UUID, uuid.UUID) {
 	t.Helper()
 
@@ -41,6 +41,11 @@ func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 		t.Fatalf("creating field: %v", err)
 	}
 
+	crop, err := cropRepo.CreateCrop(ctx, "Tomatoes-"+uuid.NewString(), 6)
+	if err != nil {
+		t.Fatalf("creating crop: %v", err)
+	}
+
 	plots := make([]uuid.UUID, plotCount)
 	for i := range plots {
 		// Side by side inside the field, so no two plots overlap.
@@ -53,15 +58,10 @@ func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 		if err != nil {
 			t.Fatalf("creating plot %d: %v", i, err)
 		}
+		if err := cropRepo.SetPlotCrops(ctx, plotID, []uuid.UUID{crop.ID}); err != nil {
+			t.Fatalf("offering crop on plot %d: %v", i, err)
+		}
 		plots[i] = plotID
-	}
-
-	crop, err := cropRepo.CreateCrop(ctx, "Tomatoes-"+uuid.NewString(), 6)
-	if err != nil {
-		t.Fatalf("creating crop: %v", err)
-	}
-	if err := cropRepo.SetFieldCrops(ctx, fieldID, []uuid.UUID{crop.ID}); err != nil {
-		t.Fatalf("offering crop on field: %v", err)
 	}
 
 	return farmer.ID, plots, crop.ID

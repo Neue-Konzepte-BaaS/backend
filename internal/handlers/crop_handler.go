@@ -29,7 +29,7 @@ type cropResponse struct {
 	DurationMonths int32  `json:"durationMonths"`
 }
 
-type setFieldCropsRequest struct {
+type setPlotCropsRequest struct {
 	CropIDs []string `json:"cropIds"`
 }
 
@@ -99,17 +99,17 @@ func (h *CropHandler) GetAllCrops(w http.ResponseWriter, r *http.Request) {
 	webutils.WriteJSON(w, http.StatusOK, toCropResponses(crops))
 }
 
-// SetFieldCrops replaces the crops offered by a field owned by the
+// SetPlotCrops replaces the crops offered by a plot on a field owned by the
 // authenticated farmer. It must be mounted behind RequireAuth and
 // RequireRole(models.RoleFarmer).
-func (h *CropHandler) SetFieldCrops(w http.ResponseWriter, r *http.Request) {
-	fieldID, err := uuid.Parse(chi.URLParam(r, "fieldID"))
+func (h *CropHandler) SetPlotCrops(w http.ResponseWriter, r *http.Request) {
+	plotID, err := uuid.Parse(chi.URLParam(r, "plotID"))
 	if err != nil {
-		webutils.WriteError(w, http.StatusBadRequest, "invalid field id")
+		webutils.WriteError(w, http.StatusBadRequest, "invalid plot id")
 		return
 	}
 
-	var req setFieldCropsRequest
+	var req setPlotCropsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		webutils.WriteError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -127,9 +127,9 @@ func (h *CropHandler) SetFieldCrops(w http.ResponseWriter, r *http.Request) {
 
 	claims := middleware.MustClaimsFromContext(r.Context())
 
-	crops, err := h.cropService.SetFieldCrops(r.Context(), claims.UserID, fieldID, cropIDs)
+	crops, err := h.cropService.SetPlotCrops(r.Context(), claims.UserID, plotID, cropIDs)
 	if errors.Is(err, services.ErrNotFound) {
-		webutils.WriteError(w, http.StatusNotFound, "field or crop not found")
+		webutils.WriteError(w, http.StatusNotFound, "plot or crop not found")
 		return
 	}
 	if errors.Is(err, services.ErrForbidden) {
@@ -137,7 +137,7 @@ func (h *CropHandler) SetFieldCrops(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		slog.Error("setting field crops failed", "error", err)
+		slog.Error("setting plot crops failed", "error", err)
 		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

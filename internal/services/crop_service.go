@@ -14,18 +14,19 @@ type CropService interface {
 	CreateCrop(ctx context.Context, name string, durationMonths int32) (models.Crop, error)
 	// GetAllCrops returns the full crop catalog.
 	GetAllCrops(ctx context.Context) ([]models.Crop, error)
-	// SetFieldCrops replaces the crops a field offers, after checking the
-	// farmer owns that field.
-	SetFieldCrops(ctx context.Context, farmer, field uuid.UUID, cropIDs []uuid.UUID) ([]models.Crop, error)
+	// SetPlotCrops replaces the crops a plot offers, after checking the
+	// farmer owns the field that plot belongs to.
+	SetPlotCrops(ctx context.Context, farmer, plot uuid.UUID, cropIDs []uuid.UUID) ([]models.Crop, error)
 }
 
 type cropService struct {
 	fieldRepo FieldRepository
+	plotRepo  PlotRepository
 	cropRepo  CropRepository
 }
 
-func NewCropService(fieldRepo FieldRepository, cropRepo CropRepository) CropService {
-	return &cropService{fieldRepo: fieldRepo, cropRepo: cropRepo}
+func NewCropService(fieldRepo FieldRepository, plotRepo PlotRepository, cropRepo CropRepository) CropService {
+	return &cropService{fieldRepo: fieldRepo, plotRepo: plotRepo, cropRepo: cropRepo}
 }
 
 func (s *cropService) CreateCrop(ctx context.Context, name string, durationMonths int32) (models.Crop, error) {
@@ -47,7 +48,15 @@ func (s *cropService) GetAllCrops(ctx context.Context) ([]models.Crop, error) {
 	return crops, nil
 }
 
-func (s *cropService) SetFieldCrops(ctx context.Context, farmer, field uuid.UUID, cropIDs []uuid.UUID) ([]models.Crop, error) {
+func (s *cropService) SetPlotCrops(ctx context.Context, farmer, plot uuid.UUID, cropIDs []uuid.UUID) ([]models.Crop, error) {
+	field, err := s.plotRepo.GetPlotField(ctx, plot)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("looking up plot field: %w", err)
+	}
+
 	owner, err := s.fieldRepo.GetFieldOwner(ctx, field)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -59,16 +68,16 @@ func (s *cropService) SetFieldCrops(ctx context.Context, farmer, field uuid.UUID
 		return nil, ErrForbidden
 	}
 
-	if err := s.cropRepo.SetFieldCrops(ctx, field, cropIDs); err != nil {
+	if err := s.cropRepo.SetPlotCrops(ctx, plot, cropIDs); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("setting field crops: %w", err)
+		return nil, fmt.Errorf("setting plot crops: %w", err)
 	}
 
-	crops, err := s.cropRepo.GetCropsByField(ctx, field)
+	crops, err := s.cropRepo.GetCropsByPlot(ctx, plot)
 	if err != nil {
-		return nil, fmt.Errorf("getting field crops: %w", err)
+		return nil, fmt.Errorf("getting plot crops: %w", err)
 	}
 	return crops, nil
 }

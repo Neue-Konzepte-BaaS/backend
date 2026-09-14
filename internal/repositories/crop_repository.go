@@ -56,9 +56,9 @@ func (r *cropRepository) GetCropByID(ctx context.Context, id uuid.UUID) (models.
 	return models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}, nil
 }
 
-// SetFieldCrops replaces the field's offered crops in a single transaction,
-// so a caller never observes a partially-updated set.
-func (r *cropRepository) SetFieldCrops(ctx context.Context, field uuid.UUID, crops []uuid.UUID) error {
+// SetPlotCrops replaces the plot's offered crops in a single transaction, so
+// a caller never observes a partially-updated set.
+func (r *cropRepository) SetPlotCrops(ctx context.Context, plot uuid.UUID, crops []uuid.UUID) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -67,12 +67,12 @@ func (r *cropRepository) SetFieldCrops(ctx context.Context, field uuid.UUID, cro
 
 	qtx := r.queries.WithTx(tx)
 
-	if err := qtx.DeleteFieldCrops(ctx, field); err != nil {
-		return fmt.Errorf("clearing field crops: %w", err)
+	if err := qtx.DeletePlotCrops(ctx, plot); err != nil {
+		return fmt.Errorf("clearing plot crops: %w", err)
 	}
 
 	for _, crop := range crops {
-		if err := qtx.InsertFieldCrop(ctx, database.InsertFieldCropParams{Field: field, Crop: crop}); err != nil {
+		if err := qtx.InsertPlotCrop(ctx, database.InsertPlotCropParams{Plot: plot, Crop: crop}); err != nil {
 			return mapCropError(err)
 		}
 	}
@@ -83,33 +83,33 @@ func (r *cropRepository) SetFieldCrops(ctx context.Context, field uuid.UUID, cro
 	return nil
 }
 
-func (r *cropRepository) GetCropsByField(ctx context.Context, field uuid.UUID) ([]models.Crop, error) {
-	rows, err := r.queries.GetCropsByField(ctx, field)
+func (r *cropRepository) GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]models.Crop, error) {
+	rows, err := r.queries.GetCropsByPlot(ctx, plot)
 	if err != nil {
 		return nil, err
 	}
 	return toCrops(rows), nil
 }
 
-func (r *cropRepository) GetCropsByFields(ctx context.Context, fields []uuid.UUID) (map[uuid.UUID][]models.Crop, error) {
-	rows, err := r.queries.GetCropsByFields(ctx, fields)
+func (r *cropRepository) GetCropsByPlots(ctx context.Context, plots []uuid.UUID) (map[uuid.UUID][]models.Crop, error) {
+	rows, err := r.queries.GetCropsByPlots(ctx, plots)
 	if err != nil {
 		return nil, err
 	}
 
-	cropsByField := make(map[uuid.UUID][]models.Crop, len(fields))
+	cropsByPlot := make(map[uuid.UUID][]models.Crop, len(plots))
 	for _, row := range rows {
-		cropsByField[row.Field] = append(cropsByField[row.Field], models.Crop{
+		cropsByPlot[row.Plot] = append(cropsByPlot[row.Plot], models.Crop{
 			ID:             row.ID,
 			Name:           row.Name,
 			DurationMonths: row.DurationMonths,
 		})
 	}
-	return cropsByField, nil
+	return cropsByPlot, nil
 }
 
 // mapCropError turns the foreign key violation raised by inserting an
-// unknown crop id (or a field id that no longer exists) into ErrNotFound, so
+// unknown crop id (or a plot id that no longer exists) into ErrNotFound, so
 // handlers can report it as a 404 instead of leaking a raw SQL error as a 500.
 func mapCropError(err error) error {
 	var pgErr *pgconn.PgError

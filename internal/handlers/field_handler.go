@@ -49,13 +49,20 @@ type plotResponse struct {
 	Coordinates json.RawMessage `json:"coordinates"`
 }
 
-type fieldWithPlotsResponse struct {
+type plotWithCropsResponse struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
-	Farmer      string          `json:"farmer"`
+	Field       string          `json:"field"`
 	Coordinates json.RawMessage `json:"coordinates"`
-	Plots       []plotResponse  `json:"plots"`
 	Crops       []cropResponse  `json:"crops"`
+}
+
+type fieldWithPlotsResponse struct {
+	ID          string                  `json:"id"`
+	Name        string                  `json:"name"`
+	Farmer      string                  `json:"farmer"`
+	Coordinates json.RawMessage         `json:"coordinates"`
+	Plots       []plotWithCropsResponse `json:"plots"`
 }
 
 // decodePolygon parses a GeoJSON Polygon geometry, e.g.
@@ -138,13 +145,14 @@ func (h *FieldHandler) GetFields(w http.ResponseWriter, r *http.Request) {
 
 	res := make([]fieldWithPlotsResponse, len(fields))
 	for i, field := range fields {
-		plots := make([]plotResponse, len(field.Plots))
+		plots := make([]plotWithCropsResponse, len(field.Plots))
 		for j, plot := range field.Plots {
-			plots[j] = plotResponse{
+			plots[j] = plotWithCropsResponse{
 				ID:          plot.ID.String(),
 				Name:        plot.Name,
 				Field:       plot.Field.String(),
 				Coordinates: encodePolygon(plot.Coordinates),
+				Crops:       toCropResponses(plot.Crops),
 			}
 		}
 		res[i] = fieldWithPlotsResponse{
@@ -153,7 +161,6 @@ func (h *FieldHandler) GetFields(w http.ResponseWriter, r *http.Request) {
 			Farmer:      field.Farmer.String(),
 			Coordinates: encodePolygon(field.Coordinates),
 			Plots:       plots,
-			Crops:       toCropResponses(field.Crops),
 		}
 	}
 

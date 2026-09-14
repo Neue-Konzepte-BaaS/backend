@@ -98,7 +98,7 @@ func rectangle(minX, minY, maxX, maxY float64) *geom.Polygon {
 }
 
 // seedPlot creates a farmer with one field containing one plot, offers the
-// first crop in the catalog on that field, and returns the plot id and that
+// first crop in the catalog on that plot, and returns the plot id and that
 // crop's id.
 func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, uuid.UUID) {
 	t.Helper()
@@ -143,8 +143,8 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 	}
 	cropID := crop.ID
 
-	if err := cropRepo.SetFieldCrops(ctx, fieldID, []uuid.UUID{cropID}); err != nil {
-		t.Fatalf("offering crop on field: %v", err)
+	if err := cropRepo.SetPlotCrops(ctx, plotID, []uuid.UUID{cropID}); err != nil {
+		t.Fatalf("offering crop on plot: %v", err)
 	}
 
 	return plotID, cropID

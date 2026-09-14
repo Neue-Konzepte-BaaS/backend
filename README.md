@@ -24,7 +24,7 @@ The backend listens on `:8080` and needs a Postgres database.
 ### 1. Start the database
 
 ```sh
-docker compose up -d db
+make db-up
 ```
 
 The database credentials come from a `.env` file (git-ignored) next to
@@ -52,13 +52,8 @@ Do **not** commit real secrets. Keep them in `.env` (git-ignored) or your shell.
 Example:
 
 ```sh
-CORS_ENABLED=true \
-FRONTEND_URL=http://localhost:5173 \
-COOKIE_SECURE=false \
-SAME_SITE_STRICT=false \
-DATABASE_URL="postgres://baas_user:supersecret@localhost:5432/baas?sslmode=disable" \
-JWT_SECRET="dev-secret-dev-secret-dev-secret-32" \
-go run ./cmd/api
+make migrate-up
+make up
 ```
 
 ## Auth endpoints

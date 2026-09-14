@@ -68,14 +68,22 @@ func (s *fieldService) GetFieldsWithPlots(ctx context.Context, farmer uuid.UUID)
 		return nil, fmt.Errorf("getting plots: %w", err)
 	}
 
-	plotsByField := make(map[uuid.UUID][]models.Plot, len(fields))
-	for _, plot := range plots {
-		plotsByField[plot.Field] = append(plotsByField[plot.Field], plot)
+	plotIDs := make([]uuid.UUID, len(plots))
+	for i, plot := range plots {
+		plotIDs[i] = plot.ID
 	}
 
-	cropsByField, err := s.cropRepo.GetCropsByFields(ctx, fieldIDs)
+	cropsByPlot, err := s.cropRepo.GetCropsByPlots(ctx, plotIDs)
 	if err != nil {
-		return nil, fmt.Errorf("getting field crops: %w", err)
+		return nil, fmt.Errorf("getting plot crops: %w", err)
+	}
+
+	plotsByField := make(map[uuid.UUID][]models.PlotWithCrops, len(fields))
+	for _, plot := range plots {
+		plotsByField[plot.Field] = append(plotsByField[plot.Field], models.PlotWithCrops{
+			Plot:  plot,
+			Crops: cropsByPlot[plot.ID],
+		})
 	}
 
 	result := make([]models.FieldWithPlots, len(fields))
@@ -83,7 +91,6 @@ func (s *fieldService) GetFieldsWithPlots(ctx context.Context, farmer uuid.UUID)
 		result[i] = models.FieldWithPlots{
 			Field: field,
 			Plots: plotsByField[field.ID],
-			Crops: cropsByField[field.ID],
 		}
 	}
 	return result, nil
