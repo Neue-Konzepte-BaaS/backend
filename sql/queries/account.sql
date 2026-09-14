@@ -50,3 +50,17 @@ LEFT JOIN farmer f ON f.account_id = a.id
 LEFT JOIN customer c ON c.account_id = a.id
 WHERE a.id = $1
 LIMIT 1;
+
+-- name: GetAllRecipients :many
+-- Every farmer and customer, for a platform-wide notification. Membership is
+-- tested positively rather than by excluding admins, so an account with no
+-- subtype row at all, and therefore an empty derived role, is never mailed.
+SELECT
+    a.id,
+    a.email,
+    a.first_name,
+    a.last_name
+FROM account a
+WHERE EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
+   OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
+ORDER BY a.email;

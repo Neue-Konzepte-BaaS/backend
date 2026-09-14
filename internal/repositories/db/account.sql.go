@@ -98,6 +98,53 @@ func (q *Queries) GetAccountByID(ctx context.Context, id uuid.UUID) (GetAccountB
 	return i, err
 }
 
+const getAllRecipients = `-- name: GetAllRecipients :many
+SELECT
+    a.id,
+    a.email,
+    a.first_name,
+    a.last_name
+FROM account a
+WHERE EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
+   OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
+ORDER BY a.email
+`
+
+type GetAllRecipientsRow struct {
+	ID        uuid.UUID
+	Email     string
+	FirstName string
+	LastName  string
+}
+
+// Every farmer and customer, for a platform-wide notification. Membership is
+// tested positively rather than by excluding admins, so an account with no
+// subtype row at all, and therefore an empty derived role, is never mailed.
+func (q *Queries) GetAllRecipients(ctx context.Context) ([]GetAllRecipientsRow, error) {
+	rows, err := q.db.Query(ctx, getAllRecipients)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAllRecipientsRow
+	for rows.Next() {
+		var i GetAllRecipientsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.FirstName,
+			&i.LastName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertAccount = `-- name: InsertAccount :one
 INSERT INTO account (first_name, last_name, email, password_hash) VALUES ($1, $2, $3, $4) RETURNING id
 `

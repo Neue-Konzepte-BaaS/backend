@@ -57,6 +57,7 @@ graph LR
 | Password hashing | argon2id (`golang.org/x/crypto/argon2`) | [password.go](internal/credentials/password.go) |
 | Tokens | JWT HS256 (`golang-jwt/jwt/v5`) | [token.go](internal/credentials/token.go) |
 | Logging | stdlib `log/slog`, JSON handler | [main.go:40-43](cmd/api/main.go#L40-L43) |
+| Outgoing mail | stdlib `net/smtp` + `html/template`, templates embedded | [email_sender.go](internal/repositories/email_sender.go), [emailtemplates](internal/emailtemplates/) |
 | Integration tests | `testcontainers-go` (real Postgres+PostGIS) | [rental_repository_integration_test.go](internal/repositories/rental_repository_integration_test.go) |
 
 Two deliberate consequences of the sqlc + dbmate pairing:
@@ -137,6 +138,7 @@ against a hand-written fake repository with no database in sight.
 | `internal/services` | Business logic + repository interfaces + sentinel errors | `models`, `credentials` |
 | `internal/repositories` | sqlc ↔ model mapping; SQLSTATE translation | `services`, `models`, `db` |
 | `internal/repositories/db` | **Generated.** Do not edit. | `pgx`, `uuid`, `go-geom` |
+| `internal/emailtemplates` | Embedded HTML mail bodies (`embed.FS`) | stdlib |
 | `internal/webutils` | `WriteJSON` / `WriteError` | stdlib |
 
 ---
@@ -199,14 +201,27 @@ graph LR
     PSS --> SH[PlotSearchHandler]
     RS --> RH[RentalHandler]
     STS --> STH[StatisticsHandler]
+    ES[EmailSender<br/>SMTP or console] --> NS[notificationService]
+    AR --> NS
+    TPL[emailtemplates.FS] --> NS
+    DISP[Dispatcher] --> NS
+    NS --> NH[NotificationHandler]
 
     AH --> RT[chi Router]
     FH --> RT
     SH --> RT
     RH --> RT
     STH --> RT
+    NH --> RT
     AS --> RT
 ```
+
+`notificationService` is the one service whose dependencies are not all
+database-backed: `EmailSender` is an *outbound port* that happens to live in the
+`repositories` package, because the same rule applies to it as to a table —
+the interface is declared in `services`, the implementation returns that
+interface, and the service cannot tell SMTP from the console logger. Which one
+it gets is decided by `newEmailSender` in `main.go` from `SMTP_ENABLED`.
 
 Note `accountRepository` is the only repository that also receives the raw
 `*pgxpool.Pool`: it needs `pool.Begin` to insert an account and its role subtype row
@@ -225,6 +240,7 @@ graph TD
     G --> F["/api/fields<br/>RequireAuth + RequireRole(farmer)"]
     G --> P["/api/plots<br/>— public —"]
     G --> RE["/api/rentals<br/>RequireAuth + RequireRole(customer)"]
+    G --> N["/api/notifications<br/>RequireAuth + RequireRole(admin)"]
     G --> ST["/api/statistics<br/>RequireAuth + RequireAnyRole(farmer, admin)"]
 
     A --> A1["POST /login"]
@@ -241,6 +257,8 @@ graph TD
     RE --> R1["POST /"]
     RE --> R2["GET /"]
 
+    N --> N1["POST /"]
+
     ST --> ST1["GET /"]
 ```
 
@@ -256,6 +274,7 @@ graph TD
 | `GET /api/plots/nearest` | – | – | [plot_search_handler.go:40](internal/handlers/plot_search_handler.go#L40) |
 | `POST /api/rentals` | cookie | customer | [rental_handler.go:43](internal/handlers/rental_handler.go#L43) |
 | `GET /api/rentals` | cookie | customer | [rental_handler.go:78](internal/handlers/rental_handler.go#L78) |
+| `POST /api/notifications` | cookie | admin | [notification_handler.go](internal/handlers/notification_handler.go) |
 | `GET /api/statistics` | cookie | farmer or admin | [statistics_handler.go:62](internal/handlers/statistics_handler.go#L62) |
 
 Geometry crosses the wire as **GeoJSON Polygon** in a `coordinates` field, decoded
@@ -606,6 +625,47 @@ unaffected. See also §13, gap 3.
 
 ---
 
+## 9a. Notifications
+
+The provider is one interface with one implementation today, arranged so a
+second channel costs nothing at the call sites:
+
+```mermaid
+graph LR
+    CALL["caller<br/>(handler or service)"] --> NS["NotificationService<br/>render + fan out"]
+    NS --> TPL["emailtemplates.FS<br/>html/template, embedded"]
+    NS --> D["Dispatcher<br/>background, bounded"]
+    D --> ES{"EmailSender"}
+    ES -->|SMTP_ENABLED| SMTP["net/smtp<br/>STARTTLS :587"]
+    ES -->|else| CON["console logger"]
+```
+
+Three decisions worth knowing before extending it:
+
+- **Templates are embedded, not read from disk.** The runtime image copies only
+  the binary and `sql/migrations/`, so a `templates/` directory would exist in
+  development and be missing in production — a failure that only shows up when
+  the first mail is sent. `embed.FS` makes that unrepresentable, and lets tests
+  pass an `fstest.MapFS` instead.
+- **Delivery happens after the response.** `net/smtp` opens a fresh connection
+  per message, so a broadcast to every account would otherwise hold the request
+  open for as long as it takes to reach everyone. The endpoint therefore answers
+  **202** with the number of recipients *queued*. The cost is that delivery is
+  best-effort: nothing is retried, and a rejected address is logged, not
+  reported. An outbox table with a worker is the upgrade path if that stops
+  being acceptable.
+- **Shutdown is graceful because of the above.** `main.go` drains the HTTP
+  server and then waits on the `Dispatcher`, both under one deadline. The
+  deadline is not optional: `smtp.SendMail` takes no context and has no timeout
+  of its own, so a hung relay would otherwise keep the process alive forever.
+
+Recipients are resolved *before* the handler returns, so a database failure is a
+500 rather than a silently empty send. Admins are excluded from a platform
+broadcast, and so is any account with no farmer or customer row — the query
+tests membership positively rather than filtering admins out.
+
+---
+
 ## 10. Configuration
 
 Everything comes from environment variables; `config.Load()` validates and returns
@@ -620,6 +680,12 @@ a joined error rather than failing on the first problem.
 | `COOKIE_SECURE` | **`true`** | bool | `Secure` flag on auth cookies |
 | `SAME_SITE_STRICT` | **`true`** | bool | `Strict` vs `Lax` |
 | `DB_AUTO_MIGRATE` | `false` | bool | parsed but **currently unused** (see §13) |
+| `SMTP_ENABLED` | `false` | bool | off wires the console sender instead of SMTP |
+| `SMTP_HOST` | – | required when enabled | mail relay |
+| `SMTP_PORT` | **`587`** | 1–65535, checked always | STARTTLS; 465 implicit TLS is unsupported |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | – | – | empty username ⇒ no AUTH |
+| `SMTP_SENDER_NAME` | – | required when enabled | `From` display name |
+| `SMTP_SENDER_EMAIL` | – | required when enabled, must parse | envelope sender |
 
 The two security-relevant flags default to the *safe* value, so a production deploy
 that forgets them fails closed; local HTTP development against the Vite dev server is
@@ -636,6 +702,8 @@ graph TD
         U1["credentials: hash/verify, fresh salt,<br/>malformed PHC, JWT round-trip,<br/>wrong typ, foreign secret, alg=none"]
         U2["services: registration rules against a<br/>fake AccountRepository"]
         U3["middleware: cookie handling, context claims,<br/>refresh-token-is-not-access"]
+        U4["notifications: template rendering, fan-out<br/>past a failing recipient, RFC 2047 headers,<br/>base64 attachment framing"]
+        U5["config: parseIntEnv, conditional SMTP rules"]
     end
     subgraph "Integration — testcontainers"
         I1["rental overlap rejection against a real<br/>Postgres+PostGIS container with the<br/>project's own dbmate migrations applied"]
@@ -702,6 +770,12 @@ they are the things a newcomer will trip over:
    or request-body size limit anywhere.
 10. **The skill file references `db/queries/`**, but queries actually live in
     `sql/queries/` — worth fixing so generated guidance stays accurate.
+11. **Notification delivery is fire-and-forget.** Nothing is persisted, queued or
+    retried: if the relay is down when a broadcast goes out, the message is lost
+    and only a log line records it. `smtp.SendMail` also has no timeout, so a
+    hung relay pins a goroutine until the shutdown deadline expires.
+12. **No unsubscribe, and no rate limit on broadcasting.** Every farmer and
+    customer is a recipient by virtue of having an account.
 
 ---
 

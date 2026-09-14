@@ -21,6 +21,8 @@ tags:
     description: The crop catalog, and which crops a field offers
   - name: rentals
     description: Renting plots
+  - name: notifications
+    description: Platform-wide notifications sent by an admin
   - name: statistics
     description: Aggregate statistics for farmers and admins
 
@@ -803,6 +805,79 @@ paths:
               example:
                 error: internal error
 
+  /api/notifications:
+    post:
+      tags: [notifications]
+      summary: Send a notification to every user
+      description: |
+        Emails a message to every farmer and customer on the platform. Admins
+        only — a farmer or customer receives 403.
+
+        Admin accounts are deliberately not recipients: a platform notice is
+        addressed to users, not to the operators sending it. Neither are
+        accounts that somehow hold no farmer or customer role.
+
+        Delivery is asynchronous, which is why this answers 202 rather than
+        201. `recipients` is how many people the message was queued for, not
+        how many were reached: nothing is persisted and nothing is retried, so
+        an address the mail relay rejects is logged and otherwise lost.
+      operationId: broadcastNotification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BroadcastRequest'
+      responses:
+        '202':
+          description: The notification was queued for delivery.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BroadcastAccepted'
+              example:
+                recipients: 204
+        '400':
+          description: Malformed body, or a missing subject or body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                missingSubject:
+                  value:
+                    error: subject is required
+                missingBody:
+                  value:
+                    error: body is required
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not an admin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
   /api/statistics:
     get:
       tags: [statistics]
@@ -1304,6 +1379,35 @@ components:
           allOf:
             - $ref: '#/components/schemas/AccountStatistics'
           description: Present only when `scope` is `platform`.
+
+    BroadcastRequest:
+      type: object
+      required: [subject, body]
+      properties:
+        subject:
+          type: string
+          description: The email subject. Leading and trailing whitespace is trimmed.
+          example: Wartungsarbeiten am Sonntag
+        body:
+          type: string
+          description: |
+            The message text. Line breaks are preserved in the email. Trimmed,
+            and must not be empty.
+          example: |
+            Am Sonntag von 8 bis 12 Uhr ist die Plattform nicht erreichbar.
+
+    BroadcastAccepted:
+      type: object
+      required: [recipients]
+      properties:
+        recipients:
+          type: integer
+          format: int64
+          description: |
+            How many farmers and customers the message was queued for. Delivery
+            happens after this response, so it is not a count of successful
+            sends.
+          example: 204
 
 security:
   - accessTokenCookie: []

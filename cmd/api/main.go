@@ -2,13 +2,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/config"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/credentials"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/emailtemplates"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/handlers"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
 	database "github.com/Neue-Konzepte-BaaS/backend/internal/repositories/db"
@@ -33,6 +38,35 @@ func migrateDB(dbUrl string) {
 	if migrationErr != nil {
 		panic("Migration failed: " + migrationErr.Error())
 	}
+}
+
+// notificationConcurrency caps how many notification fan-outs run at once.
+// Each one sends serially, so this bounds the connections a burst of
+// broadcasts can open against the relay.
+const notificationConcurrency = 4
+
+// shutdownTimeout bounds both draining in-flight requests and waiting for
+// background notification sends. smtp.SendMail has no timeout of its own, so
+// without a deadline here a hung relay would keep the process alive.
+const shutdownTimeout = 15 * time.Second
+
+// newEmailSender picks the delivery backend. With SMTP disabled the console
+// sender logs each message instead, so the whole notification path can be
+// exercised locally and in tests without a relay.
+func newEmailSender(c config.Config) services.EmailSender {
+	if !c.SMTPEnabled {
+		slog.Warn("SMTP is disabled; notifications will be logged instead of sent")
+		return repositories.NewConsoleEmailSender()
+	}
+
+	return repositories.NewSMTPEmailSender(repositories.SMTPConfig{
+		Hostname:    c.SMTPHost,
+		Port:        c.SMTPPort,
+		Username:    c.SMTPUsername,
+		Password:    c.SMTPPassword,
+		SenderName:  c.SMTPSenderName,
+		SenderEmail: c.SMTPSenderEmail,
+	})
 }
 
 func main() {
@@ -89,8 +123,11 @@ func main() {
 	cropRepo := repositories.NewCropRepository(pool, queries)
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
 
+	dispatcher := services.NewDispatcher(notificationConcurrency)
+
 	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
 	fieldService := services.NewFieldService(fieldRepo, plotRepo, cropRepo)
+	notificationService := services.NewNotificationService(newEmailSender(c), accountRepo, emailtemplates.FS, dispatcher)
 	plotService := services.NewPlotService(fieldRepo, plotRepo)
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo)
 	rentalService := services.NewRentalService(rentalRepo, plotRepo, cropRepo)
@@ -99,16 +136,40 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(authService, c)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
+	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	plotSearchHandler := handlers.NewPlotSearchHandler(plotSearchService)
 	rentalHandler := handlers.NewRentalHandler(rentalService)
 	cropHandler := handlers.NewCropHandler(cropService)
 	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
 
-	router := handlers.NewRouter(authHandler, fieldHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
+	router := handlers.NewRouter(authHandler, fieldHandler, notificationHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
 
-	slog.Info("listening", "addr", ":8080")
-	if err := http.ListenAndServe(":8080", router); err != nil {
-		slog.Error("server stopped", "error", err)
-		os.Exit(1)
+	// Shutdown is graceful because notifications are delivered after the
+	// response is written: killing the process on SIGTERM would drop mail that
+	// a caller has already been told is on its way.
+	srv := &http.Server{Addr: ":8080", Handler: router}
+
+	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		slog.Info("listening", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server stopped", "error", err)
+			stop()
+		}
+	}()
+
+	<-signalCtx.Done()
+	slog.Info("shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("draining requests failed", "error", err)
+	}
+	if err := dispatcher.Wait(shutdownCtx); err != nil {
+		slog.Error("pending notifications were dropped", "error", err)
 	}
 }
