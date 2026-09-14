@@ -70,6 +70,10 @@ type RentalRepository interface {
 	// GetRentalsByCustomer returns the customer's rentals, newest first,
 	// each with the plot and crop it books.
 	GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error)
+	// GetRentalsByFarmer returns every rental on the farmer's own plots,
+	// active and historic, newest first, each with its plot, field name, and
+	// customer.
+	GetRentalsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.RentalWithPlotAndCustomer, error)
 }
 
 type CropRepository interface {

@@ -95,10 +95,17 @@ func NewRouter(authHandler *AuthHandler, announcementHandler *AnnouncementHandle
 
 	r.Route("/api/rentals", func(r chi.Router) {
 		r.Use(appmiddleware.RequireAuth(authService))
-		r.Use(appmiddleware.RequireRole(models.RoleCustomer))
 
-		r.Post("/", rentalHandler.RentPlot)
-		r.Get("/", rentalHandler.GetRentals)
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireRole(models.RoleCustomer))
+			r.Post("/", rentalHandler.RentPlot)
+			r.Get("/", rentalHandler.GetRentals)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Get("/farm", rentalHandler.GetFarmRentals)
+		})
 	})
 
 	r.Route("/api/statistics", func(r chi.Router) {

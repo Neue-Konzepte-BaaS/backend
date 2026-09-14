@@ -23,3 +23,10 @@ type RentalWithPlot struct {
 	Plot Plot
 	Crop Crop
 }
+
+type RentalWithPlotAndCustomer struct {
+	Rental
+	Plot      Plot
+	FieldName string
+	Customer  Recipient
+}

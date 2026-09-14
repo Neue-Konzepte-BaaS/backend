@@ -807,6 +807,50 @@ paths:
               example:
                 error: internal error
 
+  /api/rentals/farm:
+    get:
+      tags: [rentals]
+      summary: List every rental on the authenticated farmer's own plots
+      description: |
+        Returns every rental across all of the authenticated farmer's plots,
+        newest first, active and historic alike, each with the field, plot
+        and customer it belongs to. Farmers only — a customer or admin
+        receives 403.
+      operationId: getFarmRentals
+      responses:
+        '200':
+          description: The farmer's rentals.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RentalWithPlotAndCustomer'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
   /api/notifications:
     post:
       tags: [notifications]
@@ -1429,6 +1473,36 @@ components:
               $ref: '#/components/schemas/Plot'
             crop:
               $ref: '#/components/schemas/Crop'
+
+    Customer:
+      type: object
+      required: [id, email, firstName, lastName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+
+    RentalWithPlotAndCustomer:
+      allOf:
+        - $ref: '#/components/schemas/Rental'
+        - type: object
+          required: [plot, fieldName, customer]
+          properties:
+            plot:
+              $ref: '#/components/schemas/Plot'
+            fieldName:
+              type: string
+              description: Name of the field the rented plot belongs to.
+              example: North Field
+            customer:
+              $ref: '#/components/schemas/Customer'
 
     StatisticsScope:
       type: string

@@ -37,3 +37,29 @@ JOIN plot p ON p.id = r.plot
 JOIN crop c ON c.id = r.crop
 WHERE r.customer = $1
 ORDER BY lower(r.period) DESC;
+
+-- name: GetRentalsByFarmer :many
+-- Every rental on the farmer's own plots, active and historic alike: unlike
+-- GetCustomersOfFarmer, this is not restricted to r.period @> CURRENT_TIMESTAMP,
+-- since a farmer reviewing their rental history wants past bookings too.
+SELECT
+    r.id,
+    r.plot,
+    r.customer,
+    r.crop,
+    lower(r.period)::timestamptz AS start_at,
+    upper(r.period)::timestamptz AS end_at,
+    p.name AS plot_name,
+    p.field,
+    p.coordinates,
+    f.name AS field_name,
+    a.id AS customer_id,
+    a.email AS customer_email,
+    a.first_name AS customer_first_name,
+    a.last_name AS customer_last_name
+FROM rental r
+JOIN plot p ON p.id = r.plot
+JOIN field f ON f.id = p.field
+JOIN account a ON a.id = r.customer
+WHERE f.farmer = $1
+ORDER BY lower(r.period) DESC;

@@ -18,6 +18,9 @@ type RentalService interface {
 	RentPlot(ctx context.Context, customer, plot, crop uuid.UUID) (models.Rental, error)
 	// GetRentals returns the customer's own rentals, newest first.
 	GetRentals(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error)
+	// GetRentalsForFarmer returns every rental on the farmer's own plots,
+	// active and historic, newest first.
+	GetRentalsForFarmer(ctx context.Context, farmer uuid.UUID) ([]models.RentalWithPlotAndCustomer, error)
 }
 
 type rentalService struct {
@@ -80,6 +83,14 @@ func (s *rentalService) GetRentals(ctx context.Context, customer uuid.UUID) ([]m
 	rentals, err := s.rentalRepo.GetRentalsByCustomer(ctx, customer)
 	if err != nil {
 		return nil, fmt.Errorf("getting rentals: %w", err)
+	}
+	return rentals, nil
+}
+
+func (s *rentalService) GetRentalsForFarmer(ctx context.Context, farmer uuid.UUID) ([]models.RentalWithPlotAndCustomer, error) {
+	rentals, err := s.rentalRepo.GetRentalsByFarmer(ctx, farmer)
+	if err != nil {
+		return nil, fmt.Errorf("getting farmer rentals: %w", err)
 	}
 	return rentals, nil
 }

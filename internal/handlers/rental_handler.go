@@ -41,6 +41,20 @@ type rentalWithPlotResponse struct {
 	Crop cropResponse `json:"crop"`
 }
 
+type customerResponse struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+}
+
+type rentalWithPlotAndCustomerResponse struct {
+	rentalResponse
+	Plot      plotResponse     `json:"plot"`
+	FieldName string           `json:"fieldName"`
+	Customer  customerResponse `json:"customer"`
+}
+
 // RentPlot books a plot for the authenticated customer. It must be mounted
 // behind RequireAuth and RequireRole(models.RoleCustomer).
 func (h *RentalHandler) RentPlot(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +123,42 @@ func (h *RentalHandler) GetRentals(w http.ResponseWriter, r *http.Request) {
 				Coordinates: encodePolygon(rental.Plot.Coordinates),
 			},
 			Crop: toCropResponse(rental.Crop),
+		}
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, res)
+}
+
+// GetFarmRentals returns every rental on the authenticated farmer's own
+// plots, active and historic. It must be mounted behind RequireAuth and
+// RequireRole(models.RoleFarmer).
+func (h *RentalHandler) GetFarmRentals(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	rentals, err := h.rentalService.GetRentalsForFarmer(r.Context(), claims.UserID)
+	if err != nil {
+		slog.Error("getting farm rentals failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	res := make([]rentalWithPlotAndCustomerResponse, len(rentals))
+	for i, rental := range rentals {
+		res[i] = rentalWithPlotAndCustomerResponse{
+			rentalResponse: toRentalResponse(rental.Rental),
+			Plot: plotResponse{
+				ID:          rental.Plot.ID.String(),
+				Name:        rental.Plot.Name,
+				Field:       rental.Plot.Field.String(),
+				Coordinates: encodePolygon(rental.Plot.Coordinates),
+			},
+			FieldName: rental.FieldName,
+			Customer: customerResponse{
+				ID:        rental.Customer.AccountID.String(),
+				Email:     rental.Customer.Email,
+				FirstName: rental.Customer.FirstName,
+				LastName:  rental.Customer.LastName,
+			},
 		}
 	}
 

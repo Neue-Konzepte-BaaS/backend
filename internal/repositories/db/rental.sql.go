@@ -79,6 +79,85 @@ func (q *Queries) GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) 
 	return items, nil
 }
 
+const getRentalsByFarmer = `-- name: GetRentalsByFarmer :many
+SELECT
+    r.id,
+    r.plot,
+    r.customer,
+    r.crop,
+    lower(r.period)::timestamptz AS start_at,
+    upper(r.period)::timestamptz AS end_at,
+    p.name AS plot_name,
+    p.field,
+    p.coordinates,
+    f.name AS field_name,
+    a.id AS customer_id,
+    a.email AS customer_email,
+    a.first_name AS customer_first_name,
+    a.last_name AS customer_last_name
+FROM rental r
+JOIN plot p ON p.id = r.plot
+JOIN field f ON f.id = p.field
+JOIN account a ON a.id = r.customer
+WHERE f.farmer = $1
+ORDER BY lower(r.period) DESC
+`
+
+type GetRentalsByFarmerRow struct {
+	ID                uuid.UUID
+	Plot              uuid.UUID
+	Customer          uuid.UUID
+	Crop              uuid.UUID
+	StartAt           pgtype.Timestamptz
+	EndAt             pgtype.Timestamptz
+	PlotName          string
+	Field             uuid.UUID
+	Coordinates       *geom.Polygon
+	FieldName         string
+	CustomerID        uuid.UUID
+	CustomerEmail     string
+	CustomerFirstName string
+	CustomerLastName  string
+}
+
+// Every rental on the farmer's own plots, active and historic alike: unlike
+// GetCustomersOfFarmer, this is not restricted to r.period @> CURRENT_TIMESTAMP,
+// since a farmer reviewing their rental history wants past bookings too.
+func (q *Queries) GetRentalsByFarmer(ctx context.Context, farmer uuid.UUID) ([]GetRentalsByFarmerRow, error) {
+	rows, err := q.db.Query(ctx, getRentalsByFarmer, farmer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetRentalsByFarmerRow
+	for rows.Next() {
+		var i GetRentalsByFarmerRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Plot,
+			&i.Customer,
+			&i.Crop,
+			&i.StartAt,
+			&i.EndAt,
+			&i.PlotName,
+			&i.Field,
+			&i.Coordinates,
+			&i.FieldName,
+			&i.CustomerID,
+			&i.CustomerEmail,
+			&i.CustomerFirstName,
+			&i.CustomerLastName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertRental = `-- name: InsertRental :one
 
 

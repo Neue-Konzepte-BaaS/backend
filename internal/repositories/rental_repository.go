@@ -74,6 +74,41 @@ func (r *rentalRepository) GetRentalsByCustomer(ctx context.Context, customer uu
 	return rentals, nil
 }
 
+func (r *rentalRepository) GetRentalsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.RentalWithPlotAndCustomer, error) {
+	rows, err := r.queries.GetRentalsByFarmer(ctx, farmer)
+	if err != nil {
+		return nil, err
+	}
+
+	rentals := make([]models.RentalWithPlotAndCustomer, len(rows))
+	for i, row := range rows {
+		rentals[i] = models.RentalWithPlotAndCustomer{
+			Rental: models.Rental{
+				ID:       row.ID,
+				PlotID:   row.Plot,
+				CropID:   row.Crop,
+				Customer: row.Customer,
+				StartAt:  row.StartAt.Time,
+				EndAt:    row.EndAt.Time,
+			},
+			Plot: models.Plot{
+				ID:          row.Plot,
+				Name:        row.PlotName,
+				Field:       row.Field,
+				Coordinates: row.Coordinates,
+			},
+			FieldName: row.FieldName,
+			Customer: models.Recipient{
+				AccountID: row.CustomerID,
+				Email:     row.CustomerEmail,
+				FirstName: row.CustomerFirstName,
+				LastName:  row.CustomerLastName,
+			},
+		}
+	}
+	return rentals, nil
+}
+
 // mapRentalError turns the Postgres errors produced by the rental table's
 // constraints into service sentinels, so handlers can report them as a 409 or
 // 404 instead of leaking a raw SQL error as a 500.
