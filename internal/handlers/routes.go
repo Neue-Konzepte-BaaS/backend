@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(authHandler *AuthHandler, announcementHandler *AnnouncementHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -38,6 +38,22 @@ func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, notificatio
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Get("/me", authHandler.Me)
+		})
+	})
+
+	r.Route("/api/announcements", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Post("/", announcementHandler.Create)
+		})
+
+		// Both sides read the same board, from opposite ends: a farmer sees
+		// what he posted, a customer what the farmers he rents from posted.
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireAnyRole(models.RoleFarmer, models.RoleCustomer))
+			r.Get("/", announcementHandler.List)
 		})
 	})
 

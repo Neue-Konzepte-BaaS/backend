@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
+	"github.com/google/uuid"
 )
 
 // NotificationService is the outbound notification provider. Email is the only
@@ -30,6 +31,11 @@ type NotificationService interface {
 	// the returned count is how many people were queued, not how many were
 	// reached.
 	NotifyAllUsers(ctx context.Context, subject, body string) (int, error)
+	// NotifyFarmerCustomers delivers a message to the customers currently
+	// renting one of the farmer's plots. It behaves like NotifyAllUsers:
+	// recipients are resolved before returning, delivery happens afterwards,
+	// and the count is how many were queued.
+	NotifyFarmerCustomers(ctx context.Context, farmer uuid.UUID, farmName, subject, body string) (int, error)
 }
 
 // RecipientData is what a notification template is executed against: the
@@ -46,7 +52,19 @@ type broadcastData struct {
 	Body    string
 }
 
-const broadcastTemplate = "broadcast"
+// announcementData is the payload for a farmer's announcement. It carries the
+// farm name because a customer rents from several farmers and the mail is only
+// meaningful if it says which one is writing.
+type announcementData struct {
+	FarmName string
+	Subject  string
+	Body     string
+}
+
+const (
+	broadcastTemplate    = "broadcast"
+	announcementTemplate = "announcement"
+)
 
 type templateEntry struct {
 	once sync.Once
@@ -146,6 +164,21 @@ func (s *notificationService) NotifyAllUsers(ctx context.Context, subject, body 
 	}
 
 	s.deliverInBackground(recipients, subject, broadcastTemplate, broadcastData{Subject: subject, Body: body}, "broadcast")
+
+	return len(recipients), nil
+}
+
+func (s *notificationService) NotifyFarmerCustomers(ctx context.Context, farmer uuid.UUID, farmName, subject, body string) (int, error) {
+	recipients, err := s.accountRepo.GetCustomersOfFarmer(ctx, farmer)
+	if err != nil {
+		return 0, fmt.Errorf("loading customers of farmer %s: %w", farmer, err)
+	}
+	if len(recipients) == 0 {
+		return 0, nil
+	}
+
+	s.deliverInBackground(recipients, subject, announcementTemplate,
+		announcementData{FarmName: farmName, Subject: subject, Body: body}, "announcement")
 
 	return len(recipients), nil
 }

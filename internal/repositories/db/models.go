@@ -24,6 +24,14 @@ type Admin struct {
 	Role      int32
 }
 
+type Announcement struct {
+	ID        uuid.UUID
+	Farmer    uuid.UUID
+	Subject   string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+}
+
 type Crop struct {
 	ID             uuid.UUID
 	Name           string

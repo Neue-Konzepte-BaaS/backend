@@ -241,6 +241,7 @@ graph TD
     G --> P["/api/plots<br/>— public —"]
     G --> RE["/api/rentals<br/>RequireAuth + RequireRole(customer)"]
     G --> N["/api/notifications<br/>RequireAuth + RequireRole(admin)"]
+    G --> AN["/api/announcements<br/>RequireAuth + farmer (POST)<br/>farmer or customer (GET)"]
     G --> ST["/api/statistics<br/>RequireAuth + RequireAnyRole(farmer, admin)"]
 
     A --> A1["POST /login"]
@@ -259,6 +260,9 @@ graph TD
 
     N --> N1["POST /"]
 
+    AN --> AN1["POST /"]
+    AN --> AN2["GET /"]
+
     ST --> ST1["GET /"]
 ```
 
@@ -275,6 +279,8 @@ graph TD
 | `POST /api/rentals` | cookie | customer | [rental_handler.go:43](internal/handlers/rental_handler.go#L43) |
 | `GET /api/rentals` | cookie | customer | [rental_handler.go:78](internal/handlers/rental_handler.go#L78) |
 | `POST /api/notifications` | cookie | admin | [notification_handler.go](internal/handlers/notification_handler.go) |
+| `POST /api/announcements` | cookie | farmer | [announcement_handler.go](internal/handlers/announcement_handler.go) |
+| `GET /api/announcements` | cookie | farmer or customer | [announcement_handler.go](internal/handlers/announcement_handler.go) |
 | `GET /api/statistics` | cookie | farmer or admin | [statistics_handler.go:62](internal/handlers/statistics_handler.go#L62) |
 
 Geometry crosses the wire as **GeoJSON Polygon** in a `coordinates` field, decoded
@@ -670,6 +676,36 @@ Recipients are resolved *before* the handler returns, so a database failure is a
 broadcast, and so is any account with no farmer or customer row — the query
 tests membership positively rather than filtering admins out.
 
+### The Schwarzes Brett
+
+A farmer's announcement is the second fan-out, and the one that shows why the
+provider is an interface rather than a function: `announcementService` stores
+the notice and then calls `NotifyFarmerCustomers`, reusing the dispatcher, the
+bounded concurrency and the shutdown drain unchanged. Only the audience query
+and the template differ.
+
+Two things are worth knowing before extending it:
+
+- **"His customers" means the customers currently renting one of his plots** —
+  `r.period @> CURRENT_TIMESTAMP`, the same predicate §9's statistics use. A
+  rental that has ended ends the farmer's reach: there is no other
+  relationship between a farmer and a customer in this schema, so the rental is
+  also the licence to mail. The audience query joins `account` through
+  `rental`, `plot` and `field`, so it **must** be `DISTINCT` — a customer
+  renting three plots from one farmer is one person, and the integration test
+  in `announcement_repository_integration_test.go` exists to hold that.
+- **The notice is stored before it is mailed, and survives a delivery
+  failure.** This is the board earning its keep: best-effort delivery (above)
+  means a mail can be lost, and the board is where the customer reads it
+  anyway. A failed send therefore logs and returns `recipients: 0` rather than
+  failing the request — the announcement was still posted.
+
+`announcementService` is the first service to depend on another service rather
+than only on repositories. Storing-then-notifying is one business rule, and
+splitting it across the handler would put ordering logic in the layer that is
+not allowed to hold any; `NotificationService` is an interface owned by
+`services`, so the dependency is still inverted.
+
 ---
 
 ## 10. Configuration
@@ -781,7 +817,11 @@ they are the things a newcomer will trip over:
     and only a log line records it. `smtp.SendMail` also has no timeout, so a
     hung relay pins a goroutine until the shutdown deadline expires.
 12. **No unsubscribe, and no rate limit on broadcasting.** Every farmer and
-    customer is a recipient by virtue of having an account.
+    customer is a recipient by virtue of having an account. The Schwarzes Brett
+    widens this: a farmer can mail his current renters, and the rental is both
+    the audience rule and the only consent signal, so the one way to stop
+    hearing from him is to stop renting from him. Fine at the scale of a
+    university project; the first thing to fix if this ever mails real people.
 
 ---
 
