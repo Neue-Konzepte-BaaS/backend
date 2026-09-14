@@ -3,7 +3,8 @@
 Guidance for AI agents (and humans) working in this repository.
 
 > **Status: active.** The core API is in place — accounts and auth, fields and plots,
-> spatial plot search, rentals, statistics, and outbound notifications. Known gaps are catalogued in
+> spatial plot search, rentals, statistics, outbound notifications, and the Schwarzes
+> Brett. Known gaps are catalogued in
 > [ARCHITECTURE.md §13](ARCHITECTURE.md#13-known-gaps-and-rough-edges). Sections marked
 > **TBD** are decisions that have not been made yet — when you make one, update this
 > file in the same change.
@@ -106,7 +107,16 @@ runtime image ships only the binary and the migrations.
 
 Fan-out runs on `services.Dispatcher` after the response is written, so delivery
 is best-effort: nothing is retried, and failures are logged rather than returned.
-`main.go` shuts down gracefully so those sends are not killed mid-flight.
+`main.go` shuts down gracefully so those sends are not killed mid-flight — which
+narrows the window for losing queued mail without closing it, see
+[ARCHITECTURE.md §9a](ARCHITECTURE.md#9a-notifications).
+
+There are two fan-outs. `POST /api/notifications` reaches every user and is
+admin-only. `POST /api/announcements` — the **Schwarzes Brett** — is a farmer
+writing to the customers *currently renting one of his plots*, and stores the
+notice as well as mailing it, so a customer who misses the mail can still read
+the board. Adding a third means a query, a template and a call to
+`deliverInBackground`; it does not mean new delivery machinery.
 
 ## Database
 

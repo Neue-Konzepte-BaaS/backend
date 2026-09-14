@@ -23,6 +23,8 @@ tags:
     description: Renting plots
   - name: notifications
     description: Platform-wide notifications sent by an admin
+  - name: announcements
+    description: The Schwarzes Brett — notices a farmer posts for his current customers
   - name: statistics
     description: Aggregate statistics for farmers and admins
 
@@ -878,6 +880,144 @@ paths:
               example:
                 error: internal error
 
+  /api/announcements:
+    post:
+      tags: [announcements]
+      summary: Post an announcement to the Schwarzes Brett
+      description: |
+        Stores the notice and emails it to the customers currently renting one
+        of this farmer's plots. Farmers only — a customer or admin receives 403.
+
+        Unlike the platform broadcast this answers **201**, because the
+        announcement itself is stored before the response is written. The board
+        keeps it, so a customer who never receives the mail can still read it.
+
+        `recipients` is how many customers the message was queued for, not how
+        many were reached: delivery happens after the response, nothing is
+        retried, and an address the relay rejects is logged and otherwise lost.
+        A customer renting several plots from this farmer is counted and mailed
+        once.
+
+        Delivery failing does not fail the request — the announcement is
+        already on the board, and `recipients` is then `0`. A `0` is therefore
+        ambiguous: it means either that this farmer has no current renters or
+        that the mail could not be queued at all. A client cannot tell the two
+        apart, and should not report delivery on the strength of this number.
+      operationId: createAnnouncement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAnnouncementRequest'
+      responses:
+        '201':
+          description: The announcement was stored and queued for delivery.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedAnnouncement'
+        '400':
+          description: |
+            Malformed body, a missing subject or body, or one longer than the
+            limit in `CreateAnnouncementRequest`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                missingSubject:
+                  value:
+                    error: subject is required
+                missingBody:
+                  value:
+                    error: body is required
+                subjectTooLong:
+                  value:
+                    error: subject is too long
+                bodyTooLong:
+                  value:
+                    error: body is too long
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+    get:
+      tags: [announcements]
+      summary: Read the Schwarzes Brett
+      description: |
+        The board, scoped to who is asking. A **farmer** sees the announcements
+        he has posted. A **customer** sees the announcements of every farmer he
+        is currently renting from, each notice once however many plots he rents
+        from that farmer.
+
+        The rental decides *which farmers* a customer reads, not *which
+        notices*, so the board is not a record of the mail he received: a
+        customer who starts renting today also reads everything that farmer
+        posted before, and when a rental ends that farmer's notices leave the
+        board even if the customer was mailed them at the time.
+
+        Newest first. An admin receives 403: the board belongs to the farms and
+        their customers.
+      operationId: listAnnouncements
+      responses:
+        '200':
+          description: The board, newest first. Empty when there is nothing to read.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Announcement'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is neither a farmer nor a customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
   /api/statistics:
     get:
       tags: [statistics]
@@ -1379,6 +1519,70 @@ components:
           allOf:
             - $ref: '#/components/schemas/AccountStatistics'
           description: Present only when `scope` is `platform`.
+
+    CreateAnnouncementRequest:
+      type: object
+      required: [subject, body]
+      properties:
+        subject:
+          type: string
+          maxLength: 200
+          description: |
+            The announcement subject. Leading and trailing whitespace is
+            trimmed. Measured in characters, not bytes, after trimming.
+          example: Ernte am Samstag
+        body:
+          type: string
+          maxLength: 10000
+          description: |
+            The message text. Line breaks are preserved in both the email and
+            the board. Trimmed, must not be empty, and measured in characters,
+            not bytes.
+          example: |
+            Am Samstag ab 9 Uhr wird geerntet. Bringt bitte eigene Kisten mit.
+
+    Announcement:
+      type: object
+      required: [id, farmer, farm_name, subject, body, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        farmer:
+          type: string
+          format: uuid
+          description: The account id of the farmer who posted it.
+        farm_name:
+          type: string
+          description: |
+            The farm the notice came from. Always present, including on a
+            farmer's own board — a customer rents from several farms, so the
+            board is only readable if each notice says which one is writing.
+          example: Hof Grünwald
+        subject:
+          type: string
+          example: Ernte am Samstag
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreatedAnnouncement:
+      allOf:
+        - $ref: '#/components/schemas/Announcement'
+        - type: object
+          required: [recipients]
+          properties:
+            recipients:
+              type: integer
+              format: int64
+              description: |
+                How many current customers the announcement was queued for.
+                Delivery happens after this response, so it is not a count of
+                successful sends, and it is `0` if the mail could not be
+                queued at all — the announcement is stored either way.
+              example: 12
 
     BroadcastRequest:
       type: object

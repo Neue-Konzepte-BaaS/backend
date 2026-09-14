@@ -127,6 +127,7 @@ func main() {
 	plotRepo := repositories.NewPlotRepository(queries)
 	postalCodeRepo := repositories.NewPostalCodeRepository(queries)
 	rentalRepo := repositories.NewRentalRepository(queries)
+	announcementRepo := repositories.NewAnnouncementRepository(queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
 
@@ -135,6 +136,7 @@ func main() {
 	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
 	fieldService := services.NewFieldService(fieldRepo, plotRepo, cropRepo)
 	notificationService := services.NewNotificationService(newEmailSender(c), accountRepo, emailtemplates.FS, dispatcher)
+	announcementService := services.NewAnnouncementService(announcementRepo, notificationService)
 	plotService := services.NewPlotService(fieldRepo, plotRepo)
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo)
 	rentalService := services.NewRentalService(rentalRepo, plotRepo, cropRepo)
@@ -143,13 +145,14 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(authService, c)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
+	announcementHandler := handlers.NewAnnouncementHandler(announcementService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	plotSearchHandler := handlers.NewPlotSearchHandler(plotSearchService)
 	rentalHandler := handlers.NewRentalHandler(rentalService)
 	cropHandler := handlers.NewCropHandler(cropService)
 	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
 
-	router := handlers.NewRouter(authHandler, fieldHandler, notificationHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
+	router := handlers.NewRouter(authHandler, announcementHandler, fieldHandler, notificationHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
 
 	// Shutdown is graceful because notifications are delivered after the
 	// response is written: killing the process on SIGTERM would drop mail that
