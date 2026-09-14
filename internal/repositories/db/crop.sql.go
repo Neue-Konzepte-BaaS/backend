@@ -20,6 +20,15 @@ func (q *Queries) DeletePlotCrops(ctx context.Context, plot uuid.UUID) error {
 	return err
 }
 
+const deleteCrop = `-- name: DeleteCrop :exec
+DELETE FROM crop WHERE id = $1
+`
+
+func (q *Queries) DeleteCrop(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteCrop, id)
+	return err
+}
+
 const getAllCrops = `-- name: GetAllCrops :many
 SELECT id, name, duration_months
 FROM crop

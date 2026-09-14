@@ -1,6 +1,9 @@
 -- name: InsertCrop :one
 INSERT INTO crop (name, duration_months) VALUES ($1, $2) RETURNING id;
 
+-- name: DeleteCrop :exec
+DELETE FROM crop WHERE id = $1;
+
 -- name: GetAllCrops :many
 SELECT id, name, duration_months
 FROM crop

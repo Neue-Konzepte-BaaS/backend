@@ -77,6 +77,9 @@ type RentalRepository interface {
 type CropRepository interface {
 	// CreateCrop adds a new crop to the catalog.
 	CreateCrop(ctx context.Context, name string, durationMonths int32) (models.Crop, error)
+	// DeleteCrop removes a crop from the catalog. Crops referenced by active
+	// rentals cannot be removed (the DB enforces the FK).
+	DeleteCrop(ctx context.Context, id uuid.UUID) error
 	// GetAllCrops returns the full crop catalog, ordered by name.
 	GetAllCrops(ctx context.Context) ([]models.Crop, error)
 	// GetCropByID returns ErrNotFound if the crop does not exist.

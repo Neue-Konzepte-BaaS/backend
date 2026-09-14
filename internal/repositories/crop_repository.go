@@ -37,6 +37,18 @@ func (r *cropRepository) CreateCrop(ctx context.Context, name string, durationMo
 	return models.Crop{ID: id, Name: name, DurationMonths: durationMonths}, nil
 }
 
+func (r *cropRepository) DeleteCrop(ctx context.Context, id uuid.UUID) error {
+	err := r.queries.DeleteCrop(ctx, id)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {
+			return services.ErrConflict
+		}
+		return err
+	}
+	return nil
+}
+
 func (r *cropRepository) GetAllCrops(ctx context.Context) ([]models.Crop, error) {
 	rows, err := r.queries.GetAllCrops(ctx)
 	if err != nil {
