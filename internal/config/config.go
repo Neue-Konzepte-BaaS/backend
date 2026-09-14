@@ -27,6 +27,9 @@ type Config struct {
 	SMTPPassword    string
 	SMTPSenderName  string
 	SMTPSenderEmail string
+
+	AdminEmail    string
+	AdminPassword string
 }
 
 func Load() (Config, error) {
@@ -78,6 +81,9 @@ func Load() (Config, error) {
 		SMTPPassword:    os.Getenv("SMTP_PASSWORD"),
 		SMTPSenderName:  os.Getenv("SMTP_SENDER_NAME"),
 		SMTPSenderEmail: os.Getenv("SMTP_SENDER_EMAIL"),
+
+		AdminEmail:    os.Getenv("ADMIN_EMAIL"),
+		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
 	}
 
 	if err := c.Validate(); err != nil {
@@ -124,6 +130,10 @@ func (c Config) Validate() error {
 		errs = append(errs, err)
 	}
 	errs = append(errs, validateSMTP(c)...)
+
+	if (c.AdminEmail == "") != (c.AdminPassword == "") {
+		errs = append(errs, errors.New("ADMIN_EMAIL and ADMIN_PASSWORD: set both or neither"))
+	}
 
 	return errors.Join(errs...)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/Neue-Konzepte-BaaS/backend/internal/credentials"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/emailtemplates"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/handlers"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
 	database "github.com/Neue-Konzepte-BaaS/backend/internal/repositories/db"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
@@ -44,6 +45,32 @@ func migrateDB(dbUrl string) {
 // Each one sends serially, so this bounds the connections a burst of
 // broadcasts can open against the relay.
 const notificationConcurrency = 4
+
+func seedAdmin(ctx context.Context, accountRepo services.AccountRepository, cfg config.Config) {
+	if cfg.AdminEmail == "" {
+		return
+	}
+	hash, err := credentials.HashPassword(cfg.AdminPassword)
+	if err != nil {
+		slog.Error("admin seed: hashing password failed", "error", err)
+		return
+	}
+	_, err = accountRepo.CreateAdmin(ctx, models.Account{
+		FirstName:    "Admin",
+		LastName:     "BaaS",
+		Email:        cfg.AdminEmail,
+		PasswordHash: hash,
+	})
+	if errors.Is(err, services.ErrEmailTaken) {
+		slog.Info("admin seed: account already exists, skipping", "email", cfg.AdminEmail)
+		return
+	}
+	if err != nil {
+		slog.Error("admin seed: failed", "error", err)
+		return
+	}
+	slog.Info("admin seed: account created", "email", cfg.AdminEmail)
+}
 
 // shutdownTimeout bounds both draining in-flight requests and waiting for
 // background notification sends. smtp.SendMail has no timeout of its own, so
@@ -125,6 +152,7 @@ func main() {
 	queries := database.New(pool)
 
 	accountRepo := repositories.NewAccountRepository(pool, queries)
+	seedAdmin(ctx, accountRepo, c)
 	fieldRepo := repositories.NewFieldRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
 	postalCodeRepo := repositories.NewPostalCodeRepository(queries)

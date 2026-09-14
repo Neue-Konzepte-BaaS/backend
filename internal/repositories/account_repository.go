@@ -102,6 +102,12 @@ func (r *accountRepository) GetCustomersOfFarmer(ctx context.Context, farmer uui
 	return recipients, nil
 }
 
+func (r *accountRepository) CreateAdmin(ctx context.Context, account models.Account) (models.Account, error) {
+	return r.createAccountWithSubtype(ctx, account, models.RoleAdmin, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
+		return q.InsertAdmin(ctx, database.InsertAdminParams{AccountID: id, Role: 1})
+	})
+}
+
 func (r *accountRepository) CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32) (models.Account, error) {
 	return r.createAccountWithSubtype(ctx, account, models.RoleFarmer, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
 		return q.InsertFarmer(ctx, database.InsertFarmerParams{

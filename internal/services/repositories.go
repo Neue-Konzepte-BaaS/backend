@@ -17,6 +17,8 @@ type EmailSender interface {
 type AccountRepository interface {
 	GetAccountByEmail(ctx context.Context, email string) (models.Account, error)
 	GetAccountByID(ctx context.Context, id uuid.UUID) (models.Account, error)
+	// CreateAdmin atomically inserts the account and its admin subtype row.
+	CreateAdmin(ctx context.Context, account models.Account) (models.Account, error)
 	// CreateFarmer atomically inserts the account and its farmer subtype row.
 	CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32) (models.Account, error)
 	// CreateCustomer atomically inserts the account and its customer subtype row.
