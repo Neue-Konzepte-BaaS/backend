@@ -166,8 +166,14 @@ func TestGetCustomersOfFarmer_OnlyCurrentRenters(t *testing.T) {
 }
 
 // TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom checks
-// the board mirrors the fan-out: a customer reads exactly the announcements he
-// would also have been mailed, and reads each of them once.
+// the two properties the board actually has: it is scoped to the farmers the
+// customer currently rents from, and each of their notices appears once
+// however many plots he rents from them.
+//
+// It deliberately does not check that the board equals what he was mailed —
+// it does not. The rental gates the farmer, not the notice, so notices posted
+// before this customer's rental began are on his board too; see the comment on
+// GetAnnouncementsForCustomer.
 func TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()

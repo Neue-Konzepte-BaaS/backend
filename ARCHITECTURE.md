@@ -698,7 +698,21 @@ Two things are worth knowing before extending it:
   failure.** This is the board earning its keep: best-effort delivery (above)
   means a mail can be lost, and the board is where the customer reads it
   anyway. A failed send therefore logs and returns `recipients: 0` rather than
-  failing the request — the announcement was still posted.
+  failing the request — the announcement was still posted. The cost is that
+  `recipients: 0` is ambiguous, meaning either "no current renters" or "nothing
+  could be queued"; distinguishing them needs a response field this API does
+  not have yet.
+- **The board is not a record of what was mailed, in either direction.** The
+  audience query and the customer's board share the rental predicate, but the
+  rental gates *which farmers* a customer reads, not *which notices*: a
+  customer who starts renting today reads everything that farmer posted before
+  he arrived, and when his rental ends the whole board goes with it, including
+  notices he was mailed at the time. That is the board behaving like a board
+  rather than an inbox, and it is a deliberate choice — but it means a notice
+  written for one set of renters stays readable by the next, so anything a
+  farmer would not repeat to a stranger does not belong on it. Tying visibility
+  to the rental the notice was posted during (`r.period @> a.created_at`) is
+  the one-line change that would make the board an inbox instead.
 
 `announcementService` is the first service to depend on another service rather
 than only on repositories. Storing-then-notifying is one business rule, and
@@ -808,14 +822,18 @@ they are the things a newcomer will trip over:
    `mapGeometryError` does not translate, so it would surface as a 500 rather than a
    400/404. Unreachable today because the farmer id comes from a verified token.
 8. **`GetAccountByID` and `GetPlotByID`/`GetFieldByID`** are implemented but unused.
-9. **No pagination** on `GET /api/fields` or `GET /api/rentals`, and no rate limiting
-   or request-body size limit anywhere.
+9. **No pagination** on `GET /api/fields`, `GET /api/rentals` or
+   `GET /api/announcements`, and no rate limiting or request-body size limit
+   anywhere. `POST /api/announcements` caps its subject and body in the handler,
+   which bounds one post but not how many a farmer may make.
 10. **The skill file references `db/queries/`**, but queries actually live in
     `sql/queries/` — worth fixing so generated guidance stays accurate.
 11. **Notification delivery is fire-and-forget.** Nothing is persisted, queued or
     retried: if the relay is down when a broadcast goes out, the message is lost
     and only a log line records it. `smtp.SendMail` also has no timeout, so a
-    hung relay pins a goroutine until the shutdown deadline expires.
+    hung relay pins a goroutine until the shutdown deadline expires. Nothing a
+    caller receives distinguishes a failed fan-out from an empty one — see
+    `recipients: 0` in §9a — so the failure is invisible outside the logs.
 12. **No unsubscribe, and no rate limit on broadcasting.** Every farmer and
     customer is a recipient by virtue of having an account. The Schwarzes Brett
     widens this: a farmer can mail his current renters, and the rental is both

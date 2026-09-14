@@ -78,9 +78,12 @@ type GetAnnouncementsForCustomerRow struct {
 }
 
 // The customer's board: notices from every farmer he is currently renting
-// from. The rental filter matches the one the fan-out uses, so a customer
-// reads exactly the announcements he was also mailed. Renting several plots
-// from the same farmer must not repeat that farmer's notices, hence DISTINCT.
+// from. The rental gates which *farmers* he reads, not which notices, so the
+// board is deliberately not a record of what he was mailed: a new renter reads
+// everything that farmer has ever posted, including notices from before his
+// rental began, and an ended rental takes the whole board with it. Renting
+// several plots from the same farmer must not repeat that farmer's notices,
+// hence DISTINCT.
 func (q *Queries) GetAnnouncementsForCustomer(ctx context.Context, customer uuid.UUID) ([]GetAnnouncementsForCustomerRow, error) {
 	rows, err := q.db.Query(ctx, getAnnouncementsForCustomer, customer)
 	if err != nil {

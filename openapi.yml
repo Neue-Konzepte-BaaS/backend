@@ -899,7 +899,10 @@ paths:
         once.
 
         Delivery failing does not fail the request — the announcement is
-        already on the board, and `recipients` is then `0`.
+        already on the board, and `recipients` is then `0`. A `0` is therefore
+        ambiguous: it means either that this farmer has no current renters or
+        that the mail could not be queued at all. A client cannot tell the two
+        apart, and should not report delivery on the strength of this number.
       operationId: createAnnouncement
       requestBody:
         required: true
@@ -915,7 +918,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/CreatedAnnouncement'
         '400':
-          description: Malformed body, or a missing subject or body.
+          description: |
+            Malformed body, a missing subject or body, or one longer than the
+            limit in `CreateAnnouncementRequest`.
           content:
             application/json:
               schema:
@@ -930,6 +935,12 @@ paths:
                 missingBody:
                   value:
                     error: body is required
+                subjectTooLong:
+                  value:
+                    error: subject is too long
+                bodyTooLong:
+                  value:
+                    error: body is too long
         '401':
           description: Not authenticated.
           content:
@@ -961,9 +972,14 @@ paths:
       description: |
         The board, scoped to who is asking. A **farmer** sees the announcements
         he has posted. A **customer** sees the announcements of every farmer he
-        is currently renting from — the same audience rule the mail uses, so a
-        customer reads exactly what he was also mailed, and reads each notice
-        once however many plots he rents from that farmer.
+        is currently renting from, each notice once however many plots he rents
+        from that farmer.
+
+        The rental decides *which farmers* a customer reads, not *which
+        notices*, so the board is not a record of the mail he received: a
+        customer who starts renting today also reads everything that farmer
+        posted before, and when a rental ends that farmer's notices leave the
+        board even if the customer was mailed them at the time.
 
         Newest first. An admin receives 403: the board belongs to the farms and
         their customers.
@@ -1510,13 +1526,18 @@ components:
       properties:
         subject:
           type: string
-          description: The announcement subject. Leading and trailing whitespace is trimmed.
+          maxLength: 200
+          description: |
+            The announcement subject. Leading and trailing whitespace is
+            trimmed. Measured in characters, not bytes, after trimming.
           example: Ernte am Samstag
         body:
           type: string
+          maxLength: 10000
           description: |
             The message text. Line breaks are preserved in both the email and
-            the board. Trimmed, and must not be empty.
+            the board. Trimmed, must not be empty, and measured in characters,
+            not bytes.
           example: |
             Am Samstag ab 9 Uhr wird geerntet. Bringt bitte eigene Kisten mit.
 

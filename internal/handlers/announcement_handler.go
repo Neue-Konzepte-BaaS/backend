@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/middleware"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
@@ -20,6 +21,17 @@ type AnnouncementHandler struct {
 func NewAnnouncementHandler(announcementService services.AnnouncementService) *AnnouncementHandler {
 	return &AnnouncementHandler{announcementService: announcementService}
 }
+
+// An announcement is mailed to every current renter, so its size is multiplied
+// by the audience before it reaches the relay. These bounds are generous for a
+// notice a farmer writes by hand and small enough that one post cannot put an
+// unbounded payload through the fan-out. They are counted in runes, not bytes:
+// a German notice is the normal case, and counting bytes would silently give
+// umlauts half the budget.
+const (
+	maxAnnouncementSubject = 200
+	maxAnnouncementBody    = 10_000
+)
 
 type createAnnouncementRequest struct {
 	Subject string `json:"subject"`
@@ -76,6 +88,14 @@ func (h *AnnouncementHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Body == "" {
 		webutils.WriteError(w, http.StatusBadRequest, "body is required")
+		return
+	}
+	if utf8.RuneCountInString(req.Subject) > maxAnnouncementSubject {
+		webutils.WriteError(w, http.StatusBadRequest, "subject is too long")
+		return
+	}
+	if utf8.RuneCountInString(req.Body) > maxAnnouncementBody {
+		webutils.WriteError(w, http.StatusBadRequest, "body is too long")
 		return
 	}
 
