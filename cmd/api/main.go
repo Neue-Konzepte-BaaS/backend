@@ -48,6 +48,13 @@ const notificationConcurrency = 4
 // shutdownTimeout bounds both draining in-flight requests and waiting for
 // background notification sends. smtp.SendMail has no timeout of its own, so
 // without a deadline here a hung relay would keep the process alive.
+//
+// Note what this does and does not guarantee. A fan-out still in flight when
+// the deadline passes is abandoned, and at one fresh SMTP connection per
+// message a broadcast only finishes inside 15s for a small audience. Shutting
+// down gracefully narrows the window in which queued mail is lost; it does not
+// close it. Closing it needs delivery that survives the process — see the
+// outbox note in ARCHITECTURE.md §9a.
 const shutdownTimeout = 15 * time.Second
 
 // newEmailSender picks the delivery backend. With SMTP disabled the console
@@ -86,7 +93,9 @@ func main() {
 	// db migrations
 	// Must run before the pool below: registering the PostGIS types needs the
 	// postgis extension to already exist, which the field migration creates.
-	migrateDB(c.DatabaseURL)
+	if c.DBAutoMigrate {
+		migrateDB(c.DatabaseURL)
+	}
 
 	// setup db connection pool
 	ctx := context.Background()
@@ -120,6 +129,7 @@ func main() {
 	plotRepo := repositories.NewPlotRepository(queries)
 	postalCodeRepo := repositories.NewPostalCodeRepository(queries)
 	rentalRepo := repositories.NewRentalRepository(queries)
+	announcementRepo := repositories.NewAnnouncementRepository(queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
 
@@ -128,6 +138,7 @@ func main() {
 	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
 	fieldService := services.NewFieldService(fieldRepo, plotRepo, cropRepo)
 	notificationService := services.NewNotificationService(newEmailSender(c), accountRepo, emailtemplates.FS, dispatcher)
+	announcementService := services.NewAnnouncementService(announcementRepo, notificationService)
 	plotService := services.NewPlotService(fieldRepo, plotRepo)
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo, cropRepo)
 	rentalService := services.NewRentalService(rentalRepo, plotRepo, cropRepo)
@@ -136,13 +147,14 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(authService, c)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
+	announcementHandler := handlers.NewAnnouncementHandler(announcementService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	plotSearchHandler := handlers.NewPlotSearchHandler(plotSearchService)
 	rentalHandler := handlers.NewRentalHandler(rentalService)
 	cropHandler := handlers.NewCropHandler(cropService)
 	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
 
-	router := handlers.NewRouter(authHandler, fieldHandler, notificationHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
+	router := handlers.NewRouter(authHandler, announcementHandler, fieldHandler, notificationHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
 
 	// Shutdown is graceful because notifications are delivered after the
 	// response is written: killing the process on SIGTERM would drop mail that

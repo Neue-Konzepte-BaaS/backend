@@ -241,6 +241,7 @@ graph TD
     G --> P["/api/plots<br/>— public —"]
     G --> RE["/api/rentals<br/>RequireAuth + RequireRole(customer)"]
     G --> N["/api/notifications<br/>RequireAuth + RequireRole(admin)"]
+    G --> AN["/api/announcements<br/>RequireAuth + farmer (POST)<br/>farmer or customer (GET)"]
     G --> ST["/api/statistics<br/>RequireAuth + RequireAnyRole(farmer, admin)"]
 
     A --> A1["POST /login"]
@@ -259,6 +260,9 @@ graph TD
 
     N --> N1["POST /"]
 
+    AN --> AN1["POST /"]
+    AN --> AN2["GET /"]
+
     ST --> ST1["GET /"]
 ```
 
@@ -275,6 +279,8 @@ graph TD
 | `POST /api/rentals` | cookie | customer | [rental_handler.go:43](internal/handlers/rental_handler.go#L43) |
 | `GET /api/rentals` | cookie | customer | [rental_handler.go:78](internal/handlers/rental_handler.go#L78) |
 | `POST /api/notifications` | cookie | admin | [notification_handler.go](internal/handlers/notification_handler.go) |
+| `POST /api/announcements` | cookie | farmer | [announcement_handler.go](internal/handlers/announcement_handler.go) |
+| `GET /api/announcements` | cookie | farmer or customer | [announcement_handler.go](internal/handlers/announcement_handler.go) |
 | `GET /api/statistics` | cookie | farmer or admin | [statistics_handler.go:62](internal/handlers/statistics_handler.go#L62) |
 
 Geometry crosses the wire as **GeoJSON Polygon** in a `coordinates` field, decoded
@@ -658,11 +664,61 @@ Three decisions worth knowing before extending it:
   server and then waits on the `Dispatcher`, both under one deadline. The
   deadline is not optional: `smtp.SendMail` takes no context and has no timeout
   of its own, so a hung relay would otherwise keep the process alive forever.
+  It is also a limit, not a fix: a fan-out that has not finished when the
+  deadline passes is abandoned, and since each message costs a fresh connection,
+  only a small audience is reached within it. Queued mail is therefore still
+  lost on a deploy mid-broadcast — less of it than before, but the guarantee is
+  narrower than "graceful shutdown" suggests. The outbox table above is what
+  actually closes it.
 
 Recipients are resolved *before* the handler returns, so a database failure is a
 500 rather than a silently empty send. Admins are excluded from a platform
 broadcast, and so is any account with no farmer or customer row — the query
 tests membership positively rather than filtering admins out.
+
+### The Schwarzes Brett
+
+A farmer's announcement is the second fan-out, and the one that shows why the
+provider is an interface rather than a function: `announcementService` stores
+the notice and then calls `NotifyFarmerCustomers`, reusing the dispatcher, the
+bounded concurrency and the shutdown drain unchanged. Only the audience query
+and the template differ.
+
+Two things are worth knowing before extending it:
+
+- **"His customers" means the customers currently renting one of his plots** —
+  `r.period @> CURRENT_TIMESTAMP`, the same predicate §9's statistics use. A
+  rental that has ended ends the farmer's reach: there is no other
+  relationship between a farmer and a customer in this schema, so the rental is
+  also the licence to mail. The audience query joins `account` through
+  `rental`, `plot` and `field`, so it **must** be `DISTINCT` — a customer
+  renting three plots from one farmer is one person, and the integration test
+  in `announcement_repository_integration_test.go` exists to hold that.
+- **The notice is stored before it is mailed, and survives a delivery
+  failure.** This is the board earning its keep: best-effort delivery (above)
+  means a mail can be lost, and the board is where the customer reads it
+  anyway. A failed send therefore logs and returns `recipients: 0` rather than
+  failing the request — the announcement was still posted. The cost is that
+  `recipients: 0` is ambiguous, meaning either "no current renters" or "nothing
+  could be queued"; distinguishing them needs a response field this API does
+  not have yet.
+- **The board is not a record of what was mailed, in either direction.** The
+  audience query and the customer's board share the rental predicate, but the
+  rental gates *which farmers* a customer reads, not *which notices*: a
+  customer who starts renting today reads everything that farmer posted before
+  he arrived, and when his rental ends the whole board goes with it, including
+  notices he was mailed at the time. That is the board behaving like a board
+  rather than an inbox, and it is a deliberate choice — but it means a notice
+  written for one set of renters stays readable by the next, so anything a
+  farmer would not repeat to a stranger does not belong on it. Tying visibility
+  to the rental the notice was posted during (`r.period @> a.created_at`) is
+  the one-line change that would make the board an inbox instead.
+
+`announcementService` is the first service to depend on another service rather
+than only on repositories. Storing-then-notifying is one business rule, and
+splitting it across the handler would put ordering logic in the layer that is
+not allowed to hold any; `NotificationService` is an interface owned by
+`services`, so the dependency is still inverted.
 
 ---
 
@@ -766,16 +822,24 @@ they are the things a newcomer will trip over:
    `mapGeometryError` does not translate, so it would surface as a 500 rather than a
    400/404. Unreachable today because the farmer id comes from a verified token.
 8. **`GetAccountByID` and `GetPlotByID`/`GetFieldByID`** are implemented but unused.
-9. **No pagination** on `GET /api/fields` or `GET /api/rentals`, and no rate limiting
-   or request-body size limit anywhere.
+9. **No pagination** on `GET /api/fields`, `GET /api/rentals` or
+   `GET /api/announcements`, and no rate limiting or request-body size limit
+   anywhere. `POST /api/announcements` caps its subject and body in the handler,
+   which bounds one post but not how many a farmer may make.
 10. **The skill file references `db/queries/`**, but queries actually live in
     `sql/queries/` — worth fixing so generated guidance stays accurate.
 11. **Notification delivery is fire-and-forget.** Nothing is persisted, queued or
     retried: if the relay is down when a broadcast goes out, the message is lost
     and only a log line records it. `smtp.SendMail` also has no timeout, so a
-    hung relay pins a goroutine until the shutdown deadline expires.
+    hung relay pins a goroutine until the shutdown deadline expires. Nothing a
+    caller receives distinguishes a failed fan-out from an empty one — see
+    `recipients: 0` in §9a — so the failure is invisible outside the logs.
 12. **No unsubscribe, and no rate limit on broadcasting.** Every farmer and
-    customer is a recipient by virtue of having an account.
+    customer is a recipient by virtue of having an account. The Schwarzes Brett
+    widens this: a farmer can mail his current renters, and the rental is both
+    the audience rule and the only consent signal, so the one way to stop
+    hearing from him is to stop renting from him. Fine at the scale of a
+    university project; the first thing to fix if this ever mails real people.
 
 ---
 

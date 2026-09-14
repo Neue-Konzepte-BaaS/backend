@@ -45,9 +45,10 @@ func (f *fakeEmailSender) SendMail(email, displayName, subject, message string, 
 // fakeRecipientRepo is an AccountRepository that only answers recipient
 // lookups; the rest of the interface is unreachable from this service.
 type fakeRecipientRepo struct {
-	recipients []models.Recipient
-	err        error
-	calls      int
+	recipients        []models.Recipient
+	customersOfFarmer map[uuid.UUID][]models.Recipient
+	err               error
+	calls             int
 }
 
 func (f *fakeRecipientRepo) GetAllRecipients(context.Context) ([]models.Recipient, error) {
@@ -56,6 +57,16 @@ func (f *fakeRecipientRepo) GetAllRecipients(context.Context) ([]models.Recipien
 		return nil, f.err
 	}
 	return f.recipients, nil
+}
+
+// customersOfFarmer is keyed by farmer id, so one fake can answer both the
+// platform-wide lookup and the per-farmer one.
+func (f *fakeRecipientRepo) GetCustomersOfFarmer(_ context.Context, farmer uuid.UUID) ([]models.Recipient, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.customersOfFarmer[farmer], nil
 }
 
 func (f *fakeRecipientRepo) GetAccountByEmail(context.Context, string) (models.Account, error) {
@@ -252,4 +263,76 @@ func TestNotifyAllUsers_NoAccountsSendsNothing(t *testing.T) {
 	if len(sender.sent) != 0 {
 		t.Errorf("sent %d mails, want none", len(sender.sent))
 	}
+}
+
+func TestNotifyFarmerCustomers_QueuesTheFarmersOwnCustomers(t *testing.T) {
+	farmer := uuid.New()
+	sender := &fakeEmailSender{}
+	repo := &fakeRecipientRepo{customersOfFarmer: map[uuid.UUID][]models.Recipient{
+		farmer: {
+			recipient("anna@example.com", "Anna", "Bauer"),
+			recipient("ben@example.com", "Ben", "Klein"),
+		},
+	}}
+	dispatcher := NewDispatcher(1)
+	svc := NewNotificationService(sender, repo, announcementTestTemplates(), dispatcher)
+
+	queued, err := svc.NotifyFarmerCustomers(context.Background(), farmer, "Hof Grünwald", "Ernte", "Samstag")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if queued != 2 {
+		t.Errorf("queued = %d, want 2", queued)
+	}
+
+	if err := dispatcher.Wait(context.Background()); err != nil {
+		t.Fatalf("waiting for delivery: %v", err)
+	}
+	if len(sender.sent) != 2 {
+		t.Fatalf("delivered %d mails, want 2", len(sender.sent))
+	}
+	// The farm name is the whole reason the announcement template differs from
+	// the broadcast one: a customer rents from several farmers.
+	if !strings.Contains(sender.sent[0].message, "Hof Grünwald") {
+		t.Errorf("message = %q, want it to name the farm", sender.sent[0].message)
+	}
+	if !strings.Contains(sender.sent[0].message, "Hallo Anna Bauer") {
+		t.Errorf("message = %q, want it to greet the recipient", sender.sent[0].message)
+	}
+}
+
+func TestNotifyFarmerCustomers_NoCustomersSendsNothing(t *testing.T) {
+	sender := &fakeEmailSender{}
+	repo := &fakeRecipientRepo{customersOfFarmer: map[uuid.UUID][]models.Recipient{}}
+	svc := NewNotificationService(sender, repo, announcementTestTemplates(), NewDispatcher(1))
+
+	queued, err := svc.NotifyFarmerCustomers(context.Background(), uuid.New(), "Hof", "Ernte", "Samstag")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if queued != 0 {
+		t.Errorf("queued = %d, want 0", queued)
+	}
+	if len(sender.sent) != 0 {
+		t.Errorf("sent %d mails, want none", len(sender.sent))
+	}
+}
+
+func TestNotifyFarmerCustomers_RepositoryFailureIsReturned(t *testing.T) {
+	boom := errors.New("db exploded")
+	svc := NewNotificationService(&fakeEmailSender{}, &fakeRecipientRepo{err: boom}, announcementTestTemplates(), NewDispatcher(1))
+
+	if _, err := svc.NotifyFarmerCustomers(context.Background(), uuid.New(), "Hof", "Ernte", "Samstag"); !errors.Is(err, boom) {
+		t.Errorf("error = %v, want it to wrap the repository failure", err)
+	}
+}
+
+// announcementTestTemplates adds the announcement body to the broadcast one so
+// a single fake filesystem serves both fan-outs.
+func announcementTestTemplates() fstest.MapFS {
+	templates := testTemplates()
+	templates["announcement.html"] = &fstest.MapFile{
+		Data: []byte("<p>Hallo {{ .Recipient.DisplayName }}</p><p>{{ .Data.FarmName }}</p><h1>{{ .Data.Subject }}</h1><p>{{ .Data.Body }}</p>"),
+	}
+	return templates
 }

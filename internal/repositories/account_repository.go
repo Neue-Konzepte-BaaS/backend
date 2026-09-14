@@ -84,6 +84,24 @@ func (r *accountRepository) GetAllRecipients(ctx context.Context) ([]models.Reci
 	return recipients, nil
 }
 
+func (r *accountRepository) GetCustomersOfFarmer(ctx context.Context, farmer uuid.UUID) ([]models.Recipient, error) {
+	rows, err := r.queries.GetCustomersOfFarmer(ctx, farmer)
+	if err != nil {
+		return nil, err
+	}
+
+	recipients := make([]models.Recipient, len(rows))
+	for i, row := range rows {
+		recipients[i] = models.Recipient{
+			AccountID: row.ID,
+			Email:     row.Email,
+			FirstName: row.FirstName,
+			LastName:  row.LastName,
+		}
+	}
+	return recipients, nil
+}
+
 func (r *accountRepository) CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32) (models.Account, error) {
 	return r.createAccountWithSubtype(ctx, account, models.RoleFarmer, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
 		return q.InsertFarmer(ctx, database.InsertFarmerParams{

@@ -25,6 +25,23 @@ type AccountRepository interface {
 	// recipient. Admins are not included: a platform-wide notice is addressed
 	// to users, not to the operators sending it.
 	GetAllRecipients(ctx context.Context) ([]models.Recipient, error)
+	// GetCustomersOfFarmer returns the customers currently renting one of the
+	// farmer's plots, each exactly once however many plots they rent. A
+	// customer whose rental has ended is not included: the farmer's licence to
+	// mail them is the rental itself.
+	GetCustomersOfFarmer(ctx context.Context, farmer uuid.UUID) ([]models.Recipient, error)
+}
+
+type AnnouncementRepository interface {
+	// CreateAnnouncement stores one notice by a farmer and returns it with the
+	// farm name already resolved.
+	CreateAnnouncement(ctx context.Context, farmer uuid.UUID, subject, body string) (models.AnnouncementWithFarm, error)
+	// GetAnnouncementsByFarmer returns the farmer's own notices, newest first.
+	GetAnnouncementsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.AnnouncementWithFarm, error)
+	// GetAnnouncementsForCustomer returns the notices of every farmer the
+	// customer currently rents from, newest first, each carrying the farm name
+	// it came from.
+	GetAnnouncementsForCustomer(ctx context.Context, customer uuid.UUID) ([]models.AnnouncementWithFarm, error)
 }
 
 type FieldRepository interface {

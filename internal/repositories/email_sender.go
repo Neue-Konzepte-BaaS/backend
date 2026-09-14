@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"mime"
 	"mime/multipart"
+	"net/mail"
 	"net/smtp"
 	"net/textproto"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"unicode"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
@@ -61,13 +63,36 @@ func needsEncoding(s string) bool {
 	return false
 }
 
-// encodeHeader encodes a header value using RFC 2047 (Q-encoding) if it
-// contains non-ASCII characters. Pure ASCII values are returned unchanged.
+// headerLineBreaks replaces the two characters that terminate a header. They
+// are turned into spaces rather than dropped so the value stays readable.
+var headerLineBreaks = strings.NewReplacer("\r", " ", "\n", " ")
+
+// encodeHeader prepares a value for use as a header. CR and LF are removed
+// first and unconditionally: a value carrying either would otherwise end the
+// header and let the rest be read as further headers, and that must not depend
+// on whether the value happens to be non-ASCII. What is left is Q-encoded per
+// RFC 2047 when it needs to be, and returned unchanged when it does not.
+//
+// Address headers do not go through here — see addressHeader, which also has
+// to quote characters that are legal in a name but structural in an address.
 func encodeHeader(value string) string {
+	value = headerLineBreaks.Replace(value)
 	if !needsEncoding(value) {
 		return value
 	}
 	return mime.QEncoding.Encode("utf-8", value)
+}
+
+// addressHeader formats a name and address as a single header value.
+//
+// mail.Address does the whole job: it encodes a non-ASCII name, quotes one
+// containing characters that would otherwise be read as address syntax — a
+// comma in "Müller, Hans" splits it into two recipients otherwise — and, since
+// both CR and LF force the encoded form, leaves no way to break out of the
+// header. The name is attacker-controlled: it is built from the first and last
+// name of an account, which registration only trims.
+func addressHeader(name, address string) string {
+	return (&mail.Address{Name: headerLineBreaks.Replace(name), Address: address}).String()
 }
 
 func (s *smtpEmailSender) getAddress() string {
@@ -85,9 +110,9 @@ func (s *smtpEmailSender) SendMail(email string, displayName string, subject str
 	// buffer for mail
 	buf := bytes.NewBuffer(nil)
 
-	fmt.Fprintf(buf, "From: %s <%s>\r\n", encodeHeader(s.config.SenderName), s.config.SenderEmail)
+	fmt.Fprintf(buf, "From: %s\r\n", addressHeader(s.config.SenderName, s.config.SenderEmail))
 	fmt.Fprintf(buf, "Subject: %s\r\n", encodeHeader(subject))
-	fmt.Fprintf(buf, "To: %s <%s>\r\n", encodeHeader(displayName), email)
+	fmt.Fprintf(buf, "To: %s\r\n", addressHeader(displayName, email))
 	buf.WriteString("MIME-Version: 1.0\r\n")
 
 	if len(attachments) > 0 {
@@ -140,10 +165,19 @@ func writeAttachment(writer *multipart.Writer, name string, content []byte) erro
 		mediaType = "application/octet-stream"
 	}
 
+	// A filename is not necessarily a safe header parameter: quotes, semicolons
+	// and line breaks all have meaning here. FormatMediaType quotes and encodes
+	// it, and returns empty for a name it cannot represent at all — in which
+	// case the attachment is still sent, just unnamed.
+	disposition := mime.FormatMediaType("attachment", map[string]string{"filename": name})
+	if disposition == "" {
+		disposition = "attachment"
+	}
+
 	partHeader := make(textproto.MIMEHeader)
 	partHeader.Set("Content-Type", mediaType)
 	partHeader.Set("Content-Transfer-Encoding", "base64")
-	partHeader.Set("Content-Disposition", "attachment; filename=\""+name+"\"")
+	partHeader.Set("Content-Disposition", disposition)
 
 	part, err := writer.CreatePart(partHeader)
 	if err != nil {
