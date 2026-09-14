@@ -48,16 +48,16 @@ type Field struct {
 	Coordinates *geom.Polygon
 }
 
-type FieldCrop struct {
-	Field uuid.UUID
-	Crop  uuid.UUID
-}
-
 type Plot struct {
 	ID          uuid.UUID
 	Name        string
 	Field       uuid.UUID
 	Coordinates *geom.Polygon
+}
+
+type PlotCrop struct {
+	Plot uuid.UUID
+	Crop uuid.UUID
 }
 
 type PostalCode struct {

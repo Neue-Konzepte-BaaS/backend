@@ -11,12 +11,12 @@ import (
 	"github.com/google/uuid"
 )
 
-const deleteFieldCrops = `-- name: DeleteFieldCrops :exec
-DELETE FROM field_crop WHERE field = $1
+const deletePlotCrops = `-- name: DeletePlotCrops :exec
+DELETE FROM plot_crop WHERE plot = $1
 `
 
-func (q *Queries) DeleteFieldCrops(ctx context.Context, field uuid.UUID) error {
-	_, err := q.db.Exec(ctx, deleteFieldCrops, field)
+func (q *Queries) DeletePlotCrops(ctx context.Context, plot uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deletePlotCrops, plot)
 	return err
 }
 
@@ -60,16 +60,16 @@ func (q *Queries) GetCropByID(ctx context.Context, id uuid.UUID) (Crop, error) {
 	return i, err
 }
 
-const getCropsByField = `-- name: GetCropsByField :many
+const getCropsByPlot = `-- name: GetCropsByPlot :many
 SELECT c.id, c.name, c.duration_months
-FROM field_crop fc
-JOIN crop c ON c.id = fc.crop
-WHERE fc.field = $1
+FROM plot_crop pc
+JOIN crop c ON c.id = pc.crop
+WHERE pc.plot = $1
 ORDER BY c.name
 `
 
-func (q *Queries) GetCropsByField(ctx context.Context, field uuid.UUID) ([]Crop, error) {
-	rows, err := q.db.Query(ctx, getCropsByField, field)
+func (q *Queries) GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]Crop, error) {
+	rows, err := q.db.Query(ctx, getCropsByPlot, plot)
 	if err != nil {
 		return nil, err
 	}
@@ -88,32 +88,32 @@ func (q *Queries) GetCropsByField(ctx context.Context, field uuid.UUID) ([]Crop,
 	return items, nil
 }
 
-const getCropsByFields = `-- name: GetCropsByFields :many
-SELECT fc.field, c.id, c.name, c.duration_months
-FROM field_crop fc
-JOIN crop c ON c.id = fc.crop
-WHERE fc.field = ANY($1::uuid[])
+const getCropsByPlots = `-- name: GetCropsByPlots :many
+SELECT pc.plot, c.id, c.name, c.duration_months
+FROM plot_crop pc
+JOIN crop c ON c.id = pc.crop
+WHERE pc.plot = ANY($1::uuid[])
 ORDER BY c.name
 `
 
-type GetCropsByFieldsRow struct {
-	Field          uuid.UUID
+type GetCropsByPlotsRow struct {
+	Plot           uuid.UUID
 	ID             uuid.UUID
 	Name           string
 	DurationMonths int32
 }
 
-func (q *Queries) GetCropsByFields(ctx context.Context, fields []uuid.UUID) ([]GetCropsByFieldsRow, error) {
-	rows, err := q.db.Query(ctx, getCropsByFields, fields)
+func (q *Queries) GetCropsByPlots(ctx context.Context, plots []uuid.UUID) ([]GetCropsByPlotsRow, error) {
+	rows, err := q.db.Query(ctx, getCropsByPlots, plots)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetCropsByFieldsRow
+	var items []GetCropsByPlotsRow
 	for rows.Next() {
-		var i GetCropsByFieldsRow
+		var i GetCropsByPlotsRow
 		if err := rows.Scan(
-			&i.Field,
+			&i.Plot,
 			&i.ID,
 			&i.Name,
 			&i.DurationMonths,
@@ -144,16 +144,16 @@ func (q *Queries) InsertCrop(ctx context.Context, arg InsertCropParams) (uuid.UU
 	return id, err
 }
 
-const insertFieldCrop = `-- name: InsertFieldCrop :exec
-INSERT INTO field_crop (field, crop) VALUES ($1, $2)
+const insertPlotCrop = `-- name: InsertPlotCrop :exec
+INSERT INTO plot_crop (plot, crop) VALUES ($1, $2)
 `
 
-type InsertFieldCropParams struct {
-	Field uuid.UUID
-	Crop  uuid.UUID
+type InsertPlotCropParams struct {
+	Plot uuid.UUID
+	Crop uuid.UUID
 }
 
-func (q *Queries) InsertFieldCrop(ctx context.Context, arg InsertFieldCropParams) error {
-	_, err := q.db.Exec(ctx, insertFieldCrop, arg.Field, arg.Crop)
+func (q *Queries) InsertPlotCrop(ctx context.Context, arg InsertPlotCropParams) error {
+	_, err := q.db.Exec(ctx, insertPlotCrop, arg.Plot, arg.Crop)
 	return err
 }

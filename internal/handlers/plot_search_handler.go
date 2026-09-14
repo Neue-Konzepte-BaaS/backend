@@ -32,6 +32,7 @@ type nearbyPlotResponse struct {
 	Field          string          `json:"field"`
 	Coordinates    json.RawMessage `json:"coordinates"`
 	DistanceMeters float64         `json:"distanceMeters"`
+	Crops          []cropResponse  `json:"crops"`
 }
 
 // FindNearestPlots returns the plots nearest to a search point, given
@@ -86,6 +87,7 @@ func (h *PlotSearchHandler) FindNearestPlots(w http.ResponseWriter, r *http.Requ
 			Field:          plot.Field.String(),
 			Coordinates:    encodePolygon(plot.Coordinates),
 			DistanceMeters: plot.DistanceMeters,
+			Crops:          toCropResponses(plot.Crops),
 		}
 	}
 

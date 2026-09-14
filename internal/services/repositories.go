@@ -62,13 +62,13 @@ type CropRepository interface {
 	GetAllCrops(ctx context.Context) ([]models.Crop, error)
 	// GetCropByID returns ErrNotFound if the crop does not exist.
 	GetCropByID(ctx context.Context, id uuid.UUID) (models.Crop, error)
-	// SetFieldCrops replaces the set of crops a field offers.
-	SetFieldCrops(ctx context.Context, field uuid.UUID, crops []uuid.UUID) error
-	// GetCropsByField returns the crops offered by a single field, ordered by name.
-	GetCropsByField(ctx context.Context, field uuid.UUID) ([]models.Crop, error)
-	// GetCropsByFields returns the crops offered by each of the given fields,
-	// keyed by field id.
-	GetCropsByFields(ctx context.Context, fields []uuid.UUID) (map[uuid.UUID][]models.Crop, error)
+	// SetPlotCrops replaces the set of crops a plot offers.
+	SetPlotCrops(ctx context.Context, plot uuid.UUID, crops []uuid.UUID) error
+	// GetCropsByPlot returns the crops offered by a single plot, ordered by name.
+	GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]models.Crop, error)
+	// GetCropsByPlots returns the crops offered by each of the given plots,
+	// keyed by plot id.
+	GetCropsByPlots(ctx context.Context, plots []uuid.UUID) (map[uuid.UUID][]models.Crop, error)
 }
 
 type PostalCodeRepository interface {

@@ -129,9 +129,9 @@ func main() {
 	fieldService := services.NewFieldService(fieldRepo, plotRepo, cropRepo)
 	notificationService := services.NewNotificationService(newEmailSender(c), accountRepo, emailtemplates.FS, dispatcher)
 	plotService := services.NewPlotService(fieldRepo, plotRepo)
-	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo)
+	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo, cropRepo)
 	rentalService := services.NewRentalService(rentalRepo, plotRepo, cropRepo)
-	cropService := services.NewCropService(fieldRepo, cropRepo)
+	cropService := services.NewCropService(fieldRepo, plotRepo, cropRepo)
 	statisticsService := services.NewStatisticsService(statisticsRepo)
 
 	authHandler := handlers.NewAuthHandler(authService, c)

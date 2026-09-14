@@ -16,9 +16,9 @@ tags:
   - name: fields
     description: Fields and plots owned by a farmer
   - name: plots
-    description: Public plot search
+    description: Public plot search, and which crops a plot offers
   - name: crops
-    description: The crop catalog, and which crops a field offers
+    description: The crop catalog
   - name: rentals
     description: Renting plots
   - name: notifications
@@ -203,7 +203,7 @@ paths:
       summary: List fields and plots
       description: |
         Returns all fields owned by the authenticated farmer, each including
-        its plots and the crops it offers. Requires the `farmer` role.
+        its plots and the crops each plot offers. Requires the `farmer` role.
       operationId: getFields
       responses:
         '200':
@@ -391,91 +391,6 @@ paths:
               example:
                 error: internal error
 
-  /api/fields/{fieldID}/crops:
-    put:
-      tags: [fields, crops]
-      summary: Set the crops a field offers
-      description: |
-        Replaces the full set of crops offered by the given field with the
-        provided list. The field must be owned by the authenticated farmer.
-        Requires the `farmer` role.
-      operationId: setFieldCrops
-      parameters:
-        - name: fieldID
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SetFieldCropsRequest'
-      responses:
-        '200':
-          description: The field's crops after the update.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Crop'
-        '400':
-          description: Malformed body, invalid field id, or invalid crop id.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                invalidFieldId:
-                  value:
-                    error: invalid field id
-                invalidBody:
-                  value:
-                    error: invalid request body
-                invalidCropId:
-                  value:
-                    error: invalid crop id
-        '401':
-          description: Missing, expired, or invalid access token.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: not authenticated
-        '403':
-          description: The authenticated account is not a farmer, or the field is not owned by this farmer.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                insufficientPermissions:
-                  value:
-                    error: insufficient permissions
-                notOwner:
-                  value:
-                    error: field is not owned by this farmer
-        '404':
-          description: The field, or one of the given crop ids, does not exist.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: field or crop not found
-        '500':
-          description: Internal error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: internal error
-
   /api/plots/nearest:
     get:
       tags: [plots]
@@ -568,6 +483,91 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: no location found for the given postal code or city
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/plots/{plotID}/crops:
+    put:
+      tags: [plots, crops]
+      summary: Set the crops a plot offers
+      description: |
+        Replaces the full set of crops offered by the given plot with the
+        provided list. The plot's field must be owned by the authenticated
+        farmer. Requires the `farmer` role.
+      operationId: setPlotCrops
+      parameters:
+        - name: plotID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPlotCropsRequest'
+      responses:
+        '200':
+          description: The plot's crops after the update.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Crop'
+        '400':
+          description: Malformed body, invalid plot id, or invalid crop id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidPlotId:
+                  value:
+                    error: invalid plot id
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidCropId:
+                  value:
+                    error: invalid crop id
+        '401':
+          description: Missing, expired, or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer, or the plot's field is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                insufficientPermissions:
+                  value:
+                    error: insufficient permissions
+                notOwner:
+                  value:
+                    error: field is not owned by this farmer
+        '404':
+          description: The plot, or one of the given crop ids, does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: plot or crop not found
         '500':
           description: Internal error.
           content:
@@ -682,8 +682,8 @@ paths:
         rental starts immediately and runs for that crop's fixed duration.
         Customers only — a farmer or admin receives 403.
 
-        The chosen crop must be one the plot's field offers (see
-        `PUT /api/fields/{fieldID}/crops`); otherwise the request fails with
+        The chosen crop must be one the plot offers (see
+        `PUT /api/plots/{plotID}/crops`); otherwise the request fails with
         409. A plot can only be booked once for any given moment: renting a
         plot whose existing rental overlaps the new period also fails with
         409. Once a rental's period has elapsed the plot can be rented again.
@@ -742,7 +742,7 @@ paths:
               example:
                 error: plot or crop not found
         '409':
-          description: The crop is not offered by the plot's field, or the plot is already rented for an overlapping period.
+          description: The crop is not offered by the plot, or the plot is already rented for an overlapping period.
           content:
             application/json:
               schema:
@@ -750,7 +750,7 @@ paths:
               examples:
                 cropNotOffered:
                   value:
-                    error: crop is not offered by this plot's field
+                    error: crop is not offered by this plot
                 plotUnavailable:
                   value:
                     error: plot is already rented
@@ -1123,7 +1123,7 @@ components:
 
     NearbyPlot:
       type: object
-      required: [id, name, field, coordinates, distanceMeters]
+      required: [id, name, field, coordinates, distanceMeters, crops]
       properties:
         id:
           type: string
@@ -1142,10 +1142,37 @@ components:
           format: double
           description: Distance from the search point to the plot's centroid, in meters.
           example: 1523.42
+        crops:
+          type: array
+          description: The crops this plot currently offers, orderable via `POST /api/rentals`.
+          items:
+            $ref: '#/components/schemas/Crop'
+
+    PlotWithCrops:
+      type: object
+      required: [id, name, field, coordinates, crops]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Plot A
+        field:
+          type: string
+          format: uuid
+          description: ID of the field this plot belongs to.
+        coordinates:
+          $ref: '#/components/schemas/GeoJSONPolygon'
+        crops:
+          type: array
+          description: The crops this plot currently offers.
+          items:
+            $ref: '#/components/schemas/Crop'
 
     FieldWithPlots:
       type: object
-      required: [id, name, farmer, coordinates, plots, crops]
+      required: [id, name, farmer, coordinates, plots]
       properties:
         id:
           type: string
@@ -1162,12 +1189,7 @@ components:
         plots:
           type: array
           items:
-            $ref: '#/components/schemas/Plot'
-        crops:
-          type: array
-          description: The crops this field currently offers.
-          items:
-            $ref: '#/components/schemas/Crop'
+            $ref: '#/components/schemas/PlotWithCrops'
 
     Crop:
       type: object
@@ -1200,13 +1222,13 @@ components:
           minimum: 1
           example: 4
 
-    SetFieldCropsRequest:
+    SetPlotCropsRequest:
       type: object
       required: [cropIds]
       properties:
         cropIds:
           type: array
-          description: The full set of crop ids the field should offer, replacing any previous set.
+          description: The full set of crop ids the plot should offer, replacing any previous set.
           items:
             type: string
             format: uuid

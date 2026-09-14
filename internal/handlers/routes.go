@@ -23,7 +23,7 @@ func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, notificatio
 	if cfg.CORSEnabled {
 		r.Use(cors.Handler(cors.Options{
 			AllowedOrigins:   []string{cfg.FrontendURL},
-			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodOptions},
 			AllowedHeaders:   []string{"Content-Type"},
 			AllowCredentials: true,
 			MaxAge:           300,
@@ -48,7 +48,6 @@ func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, notificatio
 		r.Post("/", fieldHandler.CreateField)
 		r.Get("/", fieldHandler.GetFields)
 		r.Post("/{fieldID}/plots", fieldHandler.CreatePlot)
-		r.Put("/{fieldID}/crops", cropHandler.SetFieldCrops)
 	})
 
 	r.Route("/api/notifications", func(r chi.Router) {
@@ -60,6 +59,12 @@ func NewRouter(authHandler *AuthHandler, fieldHandler *FieldHandler, notificatio
 
 	r.Route("/api/plots", func(r chi.Router) {
 		r.Get("/nearest", plotSearchHandler.FindNearestPlots)
+
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireAuth(authService))
+			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Put("/{plotID}/crops", cropHandler.SetPlotCrops)
+		})
 	})
 
 	r.Route("/api/crops", func(r chi.Router) {

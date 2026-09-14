@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
+	"github.com/google/uuid"
 )
 
 type PlotSearchService interface {
@@ -20,16 +21,31 @@ type PlotSearchService interface {
 type plotSearchService struct {
 	plotRepo       PlotRepository
 	postalCodeRepo PostalCodeRepository
+	cropRepo       CropRepository
 }
 
-func NewPlotSearchService(plotRepo PlotRepository, postalCodeRepo PostalCodeRepository) PlotSearchService {
-	return &plotSearchService{plotRepo: plotRepo, postalCodeRepo: postalCodeRepo}
+func NewPlotSearchService(plotRepo PlotRepository, postalCodeRepo PostalCodeRepository, cropRepo CropRepository) PlotSearchService {
+	return &plotSearchService{plotRepo: plotRepo, postalCodeRepo: postalCodeRepo, cropRepo: cropRepo}
 }
 
 func (s *plotSearchService) FindNearestByCoordinates(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error) {
 	plots, err := s.plotRepo.GetNearestPlots(ctx, lon, lat, limit)
 	if err != nil {
 		return nil, fmt.Errorf("getting nearest plots: %w", err)
+	}
+
+	plotIDs := make([]uuid.UUID, len(plots))
+	for i, plot := range plots {
+		plotIDs[i] = plot.ID
+	}
+
+	cropsByPlot, err := s.cropRepo.GetCropsByPlots(ctx, plotIDs)
+	if err != nil {
+		return nil, fmt.Errorf("getting plot crops: %w", err)
+	}
+
+	for i, plot := range plots {
+		plots[i].Crops = cropsByPlot[plot.ID]
 	}
 	return plots, nil
 }

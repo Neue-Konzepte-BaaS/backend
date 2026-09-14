@@ -12,22 +12,22 @@ FROM crop
 WHERE id = $1
 LIMIT 1;
 
--- name: DeleteFieldCrops :exec
-DELETE FROM field_crop WHERE field = $1;
+-- name: DeletePlotCrops :exec
+DELETE FROM plot_crop WHERE plot = $1;
 
--- name: InsertFieldCrop :exec
-INSERT INTO field_crop (field, crop) VALUES ($1, $2);
+-- name: InsertPlotCrop :exec
+INSERT INTO plot_crop (plot, crop) VALUES ($1, $2);
 
--- name: GetCropsByField :many
+-- name: GetCropsByPlot :many
 SELECT c.id, c.name, c.duration_months
-FROM field_crop fc
-JOIN crop c ON c.id = fc.crop
-WHERE fc.field = $1
+FROM plot_crop pc
+JOIN crop c ON c.id = pc.crop
+WHERE pc.plot = $1
 ORDER BY c.name;
 
--- name: GetCropsByFields :many
-SELECT fc.field, c.id, c.name, c.duration_months
-FROM field_crop fc
-JOIN crop c ON c.id = fc.crop
-WHERE fc.field = ANY(sqlc.arg(fields)::uuid[])
+-- name: GetCropsByPlots :many
+SELECT pc.plot, c.id, c.name, c.duration_months
+FROM plot_crop pc
+JOIN crop c ON c.id = pc.crop
+WHERE pc.plot = ANY(sqlc.arg(plots)::uuid[])
 ORDER BY c.name;

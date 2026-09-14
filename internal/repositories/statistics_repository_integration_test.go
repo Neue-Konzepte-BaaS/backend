@@ -14,8 +14,8 @@ import (
 
 // seedFarmWithPlots creates a farmer with one field containing plotCount
 // plots (each a distinct rectangle, so their areas don't overlap), offers a
-// crop on that field, and returns the farmer id, the created plot ids, and
-// the crop id.
+// crop on each of those plots, and returns the farmer id, the created plot
+// ids, and the crop id.
 func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plotCount int) (uuid.UUID, []uuid.UUID, uuid.UUID) {
 	t.Helper()
 
@@ -48,9 +48,6 @@ func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pl
 	if err != nil {
 		t.Fatalf("creating crop: %v", err)
 	}
-	if err := cropRepo.SetFieldCrops(ctx, fieldID, []uuid.UUID{crop.ID}); err != nil {
-		t.Fatalf("offering crop on field: %v", err)
-	}
 
 	plotIDs := make([]uuid.UUID, plotCount)
 	for i := range plotCount {
@@ -62,6 +59,9 @@ func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pl
 		})
 		if err != nil {
 			t.Fatalf("creating plot %d: %v", i, err)
+		}
+		if err := cropRepo.SetPlotCrops(ctx, plotID, []uuid.UUID{crop.ID}); err != nil {
+			t.Fatalf("offering crop on plot %d: %v", i, err)
 		}
 		plotIDs[i] = plotID
 	}

@@ -70,7 +70,7 @@ func (h *RentalHandler) RentPlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, services.ErrCropNotOffered) {
-		webutils.WriteError(w, http.StatusConflict, "crop is not offered by this plot's field")
+		webutils.WriteError(w, http.StatusConflict, "crop is not offered by this plot")
 		return
 	}
 	if errors.Is(err, services.ErrPlotUnavailable) {

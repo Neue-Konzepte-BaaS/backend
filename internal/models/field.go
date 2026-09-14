@@ -19,13 +19,20 @@ type Plot struct {
 	Coordinates *geom.Polygon
 }
 
+type PlotWithCrops struct {
+	Plot
+	// Crops this plot currently offers.
+	Crops []Crop
+}
+
 type FieldWithPlots struct {
 	Field
-	Plots []Plot
-	Crops []Crop
+	Plots []PlotWithCrops
 }
 
 type NearbyPlot struct {
 	Plot
 	DistanceMeters float64
+	// Crops this plot currently offers.
+	Crops []Crop
 }
