@@ -13,6 +13,8 @@ servers:
 tags:
   - name: auth
     description: Authentication and the current account
+  - name: farms
+    description: Public farm details, shown to customers browsing plots
   - name: fields
     description: Fields and plots owned by a farmer
   - name: plots
@@ -40,7 +42,8 @@ paths:
 
         The role is chosen by the client: `farmer` or `customer`. Admins are
         seeded directly in the database and cannot be registered here. A farmer
-        must supply `farm_name`; both roles must supply `postal_code`.
+        must supply `farm_name` and `address`; both roles must supply
+        `postal_code`.
       operationId: register
       security: []
       requestBody:
@@ -77,6 +80,9 @@ paths:
                 missingFarmName:
                   value:
                     error: farm name is required for farmers
+                missingAddress:
+                  value:
+                    error: address is required for farmers
                 badRole:
                   value:
                     error: role must be farmer or customer
@@ -199,6 +205,58 @@ paths:
               description: Both auth cookies are re-sent with `Max-Age=0`.
               schema:
                 type: string
+
+  /api/farms/{farmID}:
+    get:
+      tags: [farms]
+      summary: Get public details of a farm
+      description: |
+        Returns the public details of the farm with the given id, including
+        the total area of plots it currently offers on the platform. Public
+        endpoint — no authentication required; used by customers browsing
+        plots to see who they'd be renting from.
+      operationId: getFarm
+      security: []
+      parameters:
+        - name: farmID
+          in: path
+          required: true
+          description: ID of the farm, e.g. the `farm` field on a `NearbyPlot`.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The farm's public details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Farm'
+        '400':
+          description: Malformed farm id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid farm id
+        '404':
+          description: No farm exists with that id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: farm not found
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
   /api/fields:
     get:
       tags: [fields]
@@ -1159,9 +1217,10 @@ components:
       type: object
       required: [first_name, last_name, email, password, role, postal_code]
       description: |
-        Fields are role-dependent. A `farmer` must also supply `farm_name`; a
-        `customer` supplies only the shared fields plus `postal_code`. `role`
-        must be `farmer` or `customer` — `admin` is rejected.
+        Fields are role-dependent. A `farmer` must also supply `farm_name` and
+        `address`; a `customer` supplies only the shared fields plus
+        `postal_code`. `role` must be `farmer` or `customer` — `admin` is
+        rejected.
       properties:
         first_name:
           type: string
@@ -1191,6 +1250,14 @@ components:
           type: string
           description: Required when `role` is `farmer`; ignored otherwise.
           example: Green Acres
+        address:
+          type: string
+          description: Required when `role` is `farmer`; ignored otherwise.
+          example: 1 Farm Lane, 76133 Karlsruhe
+        description:
+          type: string
+          description: Optional free-text description of the farm; only used when `role` is `farmer`.
+          example: A small family farm since 1998.
 
     SessionAccount:
       type: object
@@ -1271,9 +1338,44 @@ components:
             - $ref: '#/components/schemas/GeoJSONPolygon'
           description: Any simple polygon that lies within the field's boundaries.
 
+    Farm:
+      type: object
+      required: [id, farmerId, name, address, description, foundedAt, totalSquareMeters]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID of the farm; also the id used by `GET /api/farms/{farmID}` and the `farm` field on `Field`/`NearbyPlot`.
+        farmerId:
+          type: string
+          format: uuid
+          description: ID of the account that runs this farm.
+        name:
+          type: string
+          example: Green Acres
+        address:
+          type: string
+          example: 1 Farm Lane, 76133 Karlsruhe
+        description:
+          type: string
+          example: A small family farm since 1998.
+        foundedAt:
+          type: string
+          format: date
+          nullable: true
+          description: The date the farm was founded, or null if not set.
+          example: '1998-04-12'
+        totalSquareMeters:
+          type: number
+          format: double
+          description: |
+            Sum of the area of every plot across every field owned by this
+            farmer, computed live. Zero for a farmer with no fields or plots.
+          example: 12500.75
+
     Field:
       type: object
-      required: [id, name, farmer, coordinates]
+      required: [id, name, farm, coordinates]
       properties:
         id:
           type: string
@@ -1281,10 +1383,10 @@ components:
         name:
           type: string
           example: North Field
-        farmer:
+        farm:
           type: string
           format: uuid
-          description: ID of the account that owns this field.
+          description: ID of the farm this field belongs to.
         coordinates:
           $ref: '#/components/schemas/GeoJSONPolygon'
 
@@ -1312,7 +1414,7 @@ components:
 
     NearbyPlot:
       type: object
-      required: [id, name, field, coordinates, areaSquareMeters, distanceMeters, crops]
+      required: [id, name, field, farm, coordinates, areaSquareMeters, distanceMeters, crops]
       properties:
         id:
           type: string
@@ -1324,6 +1426,10 @@ components:
           type: string
           format: uuid
           description: ID of the field this plot belongs to.
+        farm:
+          type: string
+          format: uuid
+          description: ID of the farm this plot belongs to; also the id used by `GET /api/farms/{farmID}`.
         coordinates:
           $ref: '#/components/schemas/GeoJSONPolygon'
         areaSquareMeters:
@@ -1371,7 +1477,7 @@ components:
 
     FieldWithPlots:
       type: object
-      required: [id, name, farmer, coordinates, plots]
+      required: [id, name, farm, coordinates, plots]
       properties:
         id:
           type: string
@@ -1379,10 +1485,10 @@ components:
         name:
           type: string
           example: North Field
-        farmer:
+        farm:
           type: string
           format: uuid
-          description: ID of the account that owns this field.
+          description: ID of the farm this field belongs to.
         coordinates:
           $ref: '#/components/schemas/GeoJSONPolygon'
         plots:

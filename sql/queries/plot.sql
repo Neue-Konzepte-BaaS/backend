@@ -22,21 +22,23 @@ ORDER BY name;
 
 -- name: GetNearestPlots :many
 SELECT
-    id,
-    name,
-    field,
-    coordinates,
-    ST_Area(coordinates::geography)::float8 AS area_square_meters,
+    plot.id,
+    plot.name,
+    plot.field,
+    plot.coordinates,
+    ST_Area(plot.coordinates::geography)::float8 AS area_square_meters,
+    field.farm AS farm,
     ST_Distance(
-        ST_Centroid(coordinates)::geography,
+        ST_Centroid(plot.coordinates)::geography,
         ST_SetSRID(ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8), 4326)::geography
     )::float8 AS distance_meters
 FROM plot
+JOIN field ON field.id = plot.field
 -- Only plots that are free right now; a rental that has run out stops
 -- hiding its plot.
 WHERE NOT EXISTS (
     SELECT 1 FROM rental r
     WHERE r.plot = plot.id AND r.period @> CURRENT_TIMESTAMP
 )
-ORDER BY coordinates <-> ST_SetSRID(ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8), 4326)
+ORDER BY plot.coordinates <-> ST_SetSRID(ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8), 4326)
 LIMIT sqlc.arg(result_limit);

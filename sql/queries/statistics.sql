@@ -14,8 +14,8 @@
 -- the whole result.
 
 -- name: GetFarmStatistics :one
--- Aggregates one farmer's own fields, plots and rentals. Every CTE is scoped by
--- farmer; a farmer who owns nothing gets zeros rather than no row.
+-- Aggregates one farm's own fields, plots and rentals. Every CTE is scoped by
+-- farm; a farm that owns nothing gets zeros rather than no row.
 WITH farm_plot_rows AS (
     -- Same "rented right now" test as plot.sql: containment of the current
     -- instant, so an expired rental stops counting with no cleanup job.
@@ -27,14 +27,14 @@ WITH farm_plot_rows AS (
         ) AS is_rented
     FROM plot p
     JOIN field f ON f.id = p.field
-    WHERE f.farmer = sqlc.arg(farmer)
+    WHERE f.farm = sqlc.arg(farm)
 ),
 farm_fields AS (
     SELECT
         COUNT(*)::bigint AS total,
         COALESCE(SUM(ST_Area(coordinates::geography)::float8), 0)::float8 AS area
     FROM field
-    WHERE farmer = sqlc.arg(farmer)
+    WHERE farm = sqlc.arg(farm)
 ),
 farm_plots AS (
     SELECT
@@ -51,7 +51,7 @@ farm_rentals AS (
     FROM rental r
     JOIN plot p ON p.id = r.plot
     JOIN field f ON f.id = p.field
-    WHERE f.farmer = sqlc.arg(farmer)
+    WHERE f.farm = sqlc.arg(farm)
 )
 SELECT
     CURRENT_TIMESTAMP::timestamptz AS generated_at,

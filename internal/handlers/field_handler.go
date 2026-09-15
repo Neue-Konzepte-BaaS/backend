@@ -38,7 +38,7 @@ type createPlotRequest struct {
 type fieldResponse struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
-	Farmer      string          `json:"farmer"`
+	Farm        string          `json:"farm"`
 	Coordinates json.RawMessage `json:"coordinates"`
 }
 
@@ -62,7 +62,7 @@ type plotWithCropsResponse struct {
 type fieldWithPlotsResponse struct {
 	ID          string                  `json:"id"`
 	Name        string                  `json:"name"`
-	Farmer      string                  `json:"farmer"`
+	Farm        string                  `json:"farm"`
 	Coordinates json.RawMessage         `json:"coordinates"`
 	Plots       []plotWithCropsResponse `json:"plots"`
 }
@@ -127,7 +127,7 @@ func (h *FieldHandler) CreateField(w http.ResponseWriter, r *http.Request) {
 	webutils.WriteJSON(w, http.StatusCreated, fieldResponse{
 		ID:          field.ID.String(),
 		Name:        field.Name,
-		Farmer:      field.Farmer.String(),
+		Farm:        field.Farm.String(),
 		Coordinates: encodePolygon(field.Coordinates),
 	})
 }
@@ -161,7 +161,7 @@ func (h *FieldHandler) GetFields(w http.ResponseWriter, r *http.Request) {
 		res[i] = fieldWithPlotsResponse{
 			ID:          field.ID.String(),
 			Name:        field.Name,
-			Farmer:      field.Farmer.String(),
+			Farm:        field.Farm.String(),
 			Coordinates: encodePolygon(field.Coordinates),
 			Plots:       plots,
 		}

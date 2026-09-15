@@ -8,7 +8,7 @@ import (
 type Field struct {
 	ID          uuid.UUID
 	Name        string
-	Farmer      uuid.UUID
+	Farm        uuid.UUID
 	Coordinates *geom.Polygon
 }
 
@@ -33,6 +33,7 @@ type FieldWithPlots struct {
 
 type NearbyPlot struct {
 	Plot
+	Farm           uuid.UUID
 	DistanceMeters float64
 	// Crops this plot currently offers.
 	Crops []Crop

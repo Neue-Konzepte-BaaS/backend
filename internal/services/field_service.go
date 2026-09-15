@@ -24,19 +24,25 @@ type PlotService interface {
 }
 
 type fieldService struct {
+	farmRepo  FarmRepository
 	fieldRepo FieldRepository
 	plotRepo  PlotRepository
 	cropRepo  CropRepository
 }
 
-func NewFieldService(fieldRepo FieldRepository, plotRepo PlotRepository, cropRepo CropRepository) FieldService {
-	return &fieldService{fieldRepo: fieldRepo, plotRepo: plotRepo, cropRepo: cropRepo}
+func NewFieldService(farmRepo FarmRepository, fieldRepo FieldRepository, plotRepo PlotRepository, cropRepo CropRepository) FieldService {
+	return &fieldService{farmRepo: farmRepo, fieldRepo: fieldRepo, plotRepo: plotRepo, cropRepo: cropRepo}
 }
 
 func (s *fieldService) CreateField(ctx context.Context, farmer uuid.UUID, name string, coordinates *geom.Polygon) (models.Field, error) {
+	farmID, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+	if err != nil {
+		return models.Field{}, fmt.Errorf("looking up farm: %w", err)
+	}
+
 	field := models.Field{
 		Name:        name,
-		Farmer:      farmer,
+		Farm:        farmID,
 		Coordinates: coordinates,
 	}
 
@@ -53,7 +59,12 @@ func (s *fieldService) CreateField(ctx context.Context, farmer uuid.UUID, name s
 }
 
 func (s *fieldService) GetFieldsWithPlots(ctx context.Context, farmer uuid.UUID) ([]models.FieldWithPlots, error) {
-	fields, err := s.fieldRepo.GetFieldsByFarmer(ctx, farmer)
+	farmID, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+	if err != nil {
+		return nil, fmt.Errorf("looking up farm: %w", err)
+	}
+
+	fields, err := s.fieldRepo.GetFieldsByFarm(ctx, farmID)
 	if err != nil {
 		return nil, fmt.Errorf("getting fields: %w", err)
 	}
@@ -97,23 +108,29 @@ func (s *fieldService) GetFieldsWithPlots(ctx context.Context, farmer uuid.UUID)
 }
 
 type plotService struct {
+	farmRepo  FarmRepository
 	fieldRepo FieldRepository
 	plotRepo  PlotRepository
 }
 
-func NewPlotService(fieldRepo FieldRepository, plotRepo PlotRepository) PlotService {
-	return &plotService{fieldRepo: fieldRepo, plotRepo: plotRepo}
+func NewPlotService(farmRepo FarmRepository, fieldRepo FieldRepository, plotRepo PlotRepository) PlotService {
+	return &plotService{farmRepo: farmRepo, fieldRepo: fieldRepo, plotRepo: plotRepo}
 }
 
 func (s *plotService) CreatePlot(ctx context.Context, farmer uuid.UUID, fieldID uuid.UUID, name string, coordinates *geom.Polygon) (models.Plot, error) {
-	owner, err := s.fieldRepo.GetFieldOwner(ctx, fieldID)
+	callerFarm, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+	if err != nil {
+		return models.Plot{}, fmt.Errorf("looking up farm: %w", err)
+	}
+
+	fieldFarm, err := s.fieldRepo.GetFieldFarm(ctx, fieldID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return models.Plot{}, err
 		}
-		return models.Plot{}, fmt.Errorf("looking up field owner: %w", err)
+		return models.Plot{}, fmt.Errorf("looking up field farm: %w", err)
 	}
-	if owner != farmer {
+	if fieldFarm != callerFarm {
 		return models.Plot{}, ErrForbidden
 	}
 

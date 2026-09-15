@@ -20,7 +20,7 @@ type AccountRepository interface {
 	// CreateAdmin atomically inserts the account and its admin subtype row.
 	CreateAdmin(ctx context.Context, account models.Account) (models.Account, error)
 	// CreateFarmer atomically inserts the account and its farmer subtype row.
-	CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32) (models.Account, error)
+	CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32, address string, description string) (models.Account, error)
 	// CreateCustomer atomically inserts the account and its customer subtype row.
 	CreateCustomer(ctx context.Context, account models.Account, postalCode int32) (models.Account, error)
 	// GetAllRecipients returns every farmer and customer as a notification
@@ -46,10 +46,19 @@ type AnnouncementRepository interface {
 	GetAnnouncementsForCustomer(ctx context.Context, customer uuid.UUID) ([]models.AnnouncementWithFarm, error)
 }
 
+type FarmRepository interface {
+	// GetFarmByID returns ErrNotFound if no farm has that id.
+	GetFarmByID(ctx context.Context, farmID uuid.UUID) (models.Farm, error)
+	// GetFarmIDByFarmerID resolves a farmer's own farm id. Returns
+	// ErrNotFound if the account is not a farmer.
+	GetFarmIDByFarmerID(ctx context.Context, farmerID uuid.UUID) (uuid.UUID, error)
+}
+
 type FieldRepository interface {
 	CreateField(ctx context.Context, field models.Field) (uuid.UUID, error)
-	GetFieldOwner(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
-	GetFieldsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.Field, error)
+	// GetFieldFarm returns the id of the farm a field belongs to.
+	GetFieldFarm(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	GetFieldsByFarm(ctx context.Context, farm uuid.UUID) ([]models.Field, error)
 }
 
 type PlotRepository interface {
@@ -73,10 +82,10 @@ type RentalRepository interface {
 	// GetRentalsByCustomer returns the customer's rentals, newest first,
 	// each with the plot and crop it books.
 	GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error)
-	// GetRentalsByFarmer returns every rental on the farmer's own plots,
+	// GetRentalsByFarm returns every rental on the farm's own plots,
 	// active and historic, newest first, each with its plot, field name, and
 	// customer.
-	GetRentalsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.RentalWithPlotAndCustomer, error)
+	GetRentalsByFarm(ctx context.Context, farm uuid.UUID) ([]models.RentalWithPlotAndCustomer, error)
 }
 
 type CropRepository interface {
