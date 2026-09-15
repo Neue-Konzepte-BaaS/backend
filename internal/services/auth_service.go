@@ -31,6 +31,9 @@ var (
 	// ErrCropNameTaken is returned when creating a crop whose name is already
 	// in the catalog.
 	ErrCropNameTaken = errors.New("crop name already exists")
+	// ErrConflict is returned when an operation would violate a referential
+	// constraint, e.g. deleting a crop still referenced by a rental.
+	ErrConflict = errors.New("conflict")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

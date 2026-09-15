@@ -23,7 +23,7 @@ func NewRouter(authHandler *AuthHandler, announcementHandler *AnnouncementHandle
 	if cfg.CORSEnabled {
 		r.Use(cors.Handler(cors.Options{
 			AllowedOrigins:   []string{cfg.FrontendURL},
-			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodOptions},
+			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
 			AllowedHeaders:   []string{"Content-Type"},
 			AllowCredentials: true,
 			MaxAge:           300,
@@ -90,6 +90,7 @@ func NewRouter(authHandler *AuthHandler, announcementHandler *AnnouncementHandle
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Use(appmiddleware.RequireRole(models.RoleAdmin))
 			r.Post("/", cropHandler.CreateCrop)
+			r.Delete("/{cropID}", cropHandler.DeleteCrop)
 		})
 	})
 

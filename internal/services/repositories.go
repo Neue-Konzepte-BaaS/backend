@@ -17,6 +17,8 @@ type EmailSender interface {
 type AccountRepository interface {
 	GetAccountByEmail(ctx context.Context, email string) (models.Account, error)
 	GetAccountByID(ctx context.Context, id uuid.UUID) (models.Account, error)
+	// CreateAdmin atomically inserts the account and its admin subtype row.
+	CreateAdmin(ctx context.Context, account models.Account) (models.Account, error)
 	// CreateFarmer atomically inserts the account and its farmer subtype row.
 	CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32) (models.Account, error)
 	// CreateCustomer atomically inserts the account and its customer subtype row.
@@ -79,6 +81,9 @@ type RentalRepository interface {
 type CropRepository interface {
 	// CreateCrop adds a new crop to the catalog.
 	CreateCrop(ctx context.Context, name string, durationMonths int32) (models.Crop, error)
+	// DeleteCrop removes a crop from the catalog. Crops referenced by active
+	// rentals cannot be removed (the DB enforces the FK).
+	DeleteCrop(ctx context.Context, id uuid.UUID) error
 	// GetAllCrops returns the full crop catalog, ordered by name.
 	GetAllCrops(ctx context.Context) ([]models.Crop, error)
 	// GetCropByID returns ErrNotFound if the crop does not exist.

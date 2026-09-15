@@ -48,6 +48,10 @@ func (f *fakeAccountRepo) CreateFarmer(_ context.Context, account models.Account
 	return account, nil
 }
 
+func (f *fakeAccountRepo) CreateAdmin(_ context.Context, account models.Account) (models.Account, error) {
+	panic("auth service does not create admin accounts")
+}
+
 func (f *fakeAccountRepo) CreateCustomer(_ context.Context, account models.Account, postalCode int32) (models.Account, error) {
 	if f.createCustomerErr != nil {
 		return models.Account{}, f.createCustomerErr

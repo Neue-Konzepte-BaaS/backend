@@ -77,6 +77,10 @@ func (f *fakeRecipientRepo) GetAccountByID(context.Context, uuid.UUID) (models.A
 	panic("notification service does not look accounts up by id")
 }
 
+func (f *fakeRecipientRepo) CreateAdmin(context.Context, models.Account) (models.Account, error) {
+	panic("notification service does not create accounts")
+}
+
 func (f *fakeRecipientRepo) CreateFarmer(context.Context, models.Account, string, int32) (models.Account, error) {
 	panic("notification service does not create accounts")
 }

@@ -87,6 +87,27 @@ func (h *CropHandler) CreateCrop(w http.ResponseWriter, r *http.Request) {
 	webutils.WriteJSON(w, http.StatusCreated, toCropResponse(crop))
 }
 
+// DeleteCrop removes a crop from the catalog. It must be mounted behind
+// RequireAuth and RequireRole(models.RoleAdmin).
+func (h *CropHandler) DeleteCrop(w http.ResponseWriter, r *http.Request) {
+	cropID, err := uuid.Parse(chi.URLParam(r, "cropID"))
+	if err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid crop id")
+		return
+	}
+
+	if err := h.cropService.DeleteCrop(r.Context(), cropID); errors.Is(err, services.ErrConflict) {
+		webutils.WriteError(w, http.StatusConflict, "crop is referenced by a rental")
+		return
+	} else if err != nil {
+		slog.Error("deleting crop failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // GetAllCrops returns the full crop catalog.
 func (h *CropHandler) GetAllCrops(w http.ResponseWriter, r *http.Request) {
 	crops, err := h.cropService.GetAllCrops(r.Context())

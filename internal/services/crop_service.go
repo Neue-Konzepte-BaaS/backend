@@ -12,6 +12,9 @@ import (
 type CropService interface {
 	// CreateCrop adds a new crop to the catalog. Admin only.
 	CreateCrop(ctx context.Context, name string, durationMonths int32) (models.Crop, error)
+	// DeleteCrop removes a crop from the catalog. Returns ErrConflict if the
+	// crop is referenced by a rental, ErrNotFound if the id is unknown.
+	DeleteCrop(ctx context.Context, id uuid.UUID) error
 	// GetAllCrops returns the full crop catalog.
 	GetAllCrops(ctx context.Context) ([]models.Crop, error)
 	// SetPlotCrops replaces the crops a plot offers, after checking the
@@ -38,6 +41,16 @@ func (s *cropService) CreateCrop(ctx context.Context, name string, durationMonth
 		return models.Crop{}, fmt.Errorf("creating crop: %w", err)
 	}
 	return crop, nil
+}
+
+func (s *cropService) DeleteCrop(ctx context.Context, id uuid.UUID) error {
+	if err := s.cropRepo.DeleteCrop(ctx, id); err != nil {
+		if errors.Is(err, ErrConflict) {
+			return err
+		}
+		return fmt.Errorf("deleting crop: %w", err)
+	}
+	return nil
 }
 
 func (s *cropService) GetAllCrops(ctx context.Context) ([]models.Crop, error) {
