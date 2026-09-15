@@ -123,7 +123,7 @@ func (s *plotService) CreatePlot(ctx context.Context, farmer uuid.UUID, fieldID 
 		Coordinates: coordinates,
 	}
 
-	id, err := s.plotRepo.CreatePlot(ctx, plot)
+	created, err := s.plotRepo.CreatePlot(ctx, plot)
 	if err != nil {
 		if errors.Is(err, ErrInvalidGeometry) {
 			return models.Plot{}, err
@@ -131,6 +131,5 @@ func (s *plotService) CreatePlot(ctx context.Context, farmer uuid.UUID, fieldID 
 		return models.Plot{}, fmt.Errorf("creating plot: %w", err)
 	}
 
-	plot.ID = id
-	return plot, nil
+	return created, nil
 }

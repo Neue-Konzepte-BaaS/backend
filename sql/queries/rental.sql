@@ -30,6 +30,7 @@ SELECT
     p.name AS plot_name,
     p.field,
     p.coordinates,
+    ST_Area(p.coordinates::geography)::float8 AS plot_area_square_meters,
     c.name AS crop_name,
     c.duration_months AS crop_duration_months
 FROM rental r
@@ -52,6 +53,7 @@ SELECT
     p.name AS plot_name,
     p.field,
     p.coordinates,
+    ST_Area(p.coordinates::geography)::float8 AS plot_area_square_meters,
     f.name AS field_name,
     a.id AS customer_id,
     a.email AS customer_email,

@@ -20,16 +20,18 @@ func NewPlotRepository(queries *database.Queries) services.PlotRepository {
 	return &plotRepository{queries: queries}
 }
 
-func (r *plotRepository) CreatePlot(ctx context.Context, plot models.Plot) (uuid.UUID, error) {
-	id, err := r.queries.InsertPlot(ctx, database.InsertPlotParams{
+func (r *plotRepository) CreatePlot(ctx context.Context, plot models.Plot) (models.Plot, error) {
+	row, err := r.queries.InsertPlot(ctx, database.InsertPlotParams{
 		Name:        plot.Name,
 		Field:       plot.Field,
 		Coordinates: plot.Coordinates,
 	})
 	if err != nil {
-		return uuid.UUID{}, mapGeometryError(err)
+		return models.Plot{}, mapGeometryError(err)
 	}
-	return id, nil
+	plot.ID = row.ID
+	plot.AreaSquareMeters = row.AreaSquareMeters
+	return plot, nil
 }
 
 func (r *plotRepository) GetPlotsByFields(ctx context.Context, fields []uuid.UUID) ([]models.Plot, error) {
@@ -41,10 +43,11 @@ func (r *plotRepository) GetPlotsByFields(ctx context.Context, fields []uuid.UUI
 	plots := make([]models.Plot, len(rows))
 	for i, row := range rows {
 		plots[i] = models.Plot{
-			ID:          row.ID,
-			Name:        row.Name,
-			Field:       row.Field,
-			Coordinates: row.Coordinates,
+			ID:               row.ID,
+			Name:             row.Name,
+			Field:            row.Field,
+			Coordinates:      row.Coordinates,
+			AreaSquareMeters: row.AreaSquareMeters,
 		}
 	}
 	return plots, nil
@@ -75,10 +78,11 @@ func (r *plotRepository) GetNearestPlots(ctx context.Context, lon, lat float64, 
 	for i, row := range rows {
 		plots[i] = models.NearbyPlot{
 			Plot: models.Plot{
-				ID:          row.ID,
-				Name:        row.Name,
-				Field:       row.Field,
-				Coordinates: row.Coordinates,
+				ID:               row.ID,
+				Name:             row.Name,
+				Field:            row.Field,
+				Coordinates:      row.Coordinates,
+				AreaSquareMeters: row.AreaSquareMeters,
 			},
 			DistanceMeters: row.DistanceMeters,
 		}

@@ -59,10 +59,11 @@ func (r *rentalRepository) GetRentalsByCustomer(ctx context.Context, customer uu
 				EndAt:    row.EndAt.Time,
 			},
 			Plot: models.Plot{
-				ID:          row.Plot,
-				Name:        row.PlotName,
-				Field:       row.Field,
-				Coordinates: row.Coordinates,
+				ID:               row.Plot,
+				Name:             row.PlotName,
+				Field:            row.Field,
+				Coordinates:      row.Coordinates,
+				AreaSquareMeters: row.PlotAreaSquareMeters,
 			},
 			Crop: models.Crop{
 				ID:             row.Crop,
@@ -92,10 +93,11 @@ func (r *rentalRepository) GetRentalsByFarmer(ctx context.Context, farmer uuid.U
 				EndAt:    row.EndAt.Time,
 			},
 			Plot: models.Plot{
-				ID:          row.Plot,
-				Name:        row.PlotName,
-				Field:       row.Field,
-				Coordinates: row.Coordinates,
+				ID:               row.Plot,
+				Name:             row.PlotName,
+				Field:            row.Field,
+				Coordinates:      row.Coordinates,
+				AreaSquareMeters: row.PlotAreaSquareMeters,
 			},
 			FieldName: row.FieldName,
 			Customer: models.Recipient{

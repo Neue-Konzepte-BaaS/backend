@@ -117,10 +117,11 @@ func (h *RentalHandler) GetRentals(w http.ResponseWriter, r *http.Request) {
 		res[i] = rentalWithPlotResponse{
 			rentalResponse: toRentalResponse(rental.Rental),
 			Plot: plotResponse{
-				ID:          rental.Plot.ID.String(),
-				Name:        rental.Plot.Name,
-				Field:       rental.Plot.Field.String(),
-				Coordinates: encodePolygon(rental.Plot.Coordinates),
+				ID:               rental.Plot.ID.String(),
+				Name:             rental.Plot.Name,
+				Field:            rental.Plot.Field.String(),
+				Coordinates:      encodePolygon(rental.Plot.Coordinates),
+				AreaSquareMeters: rental.Plot.AreaSquareMeters,
 			},
 			Crop: toCropResponse(rental.Crop),
 		}
@@ -147,10 +148,11 @@ func (h *RentalHandler) GetFarmRentals(w http.ResponseWriter, r *http.Request) {
 		res[i] = rentalWithPlotAndCustomerResponse{
 			rentalResponse: toRentalResponse(rental.Rental),
 			Plot: plotResponse{
-				ID:          rental.Plot.ID.String(),
-				Name:        rental.Plot.Name,
-				Field:       rental.Plot.Field.String(),
-				Coordinates: encodePolygon(rental.Plot.Coordinates),
+				ID:               rental.Plot.ID.String(),
+				Name:             rental.Plot.Name,
+				Field:            rental.Plot.Field.String(),
+				Coordinates:      encodePolygon(rental.Plot.Coordinates),
+				AreaSquareMeters: rental.Plot.AreaSquareMeters,
 			},
 			FieldName: rental.FieldName,
 			Customer: customerResponse{

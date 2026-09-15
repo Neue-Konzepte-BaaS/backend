@@ -18,6 +18,7 @@ SELECT
     name,
     field,
     coordinates,
+    ST_Area(coordinates::geography)::float8 AS area_square_meters,
     ST_Distance(
         ST_Centroid(coordinates)::geography,
         ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)::geography
@@ -38,11 +39,12 @@ type GetNearestPlotsParams struct {
 }
 
 type GetNearestPlotsRow struct {
-	ID             uuid.UUID
-	Name           string
-	Field          uuid.UUID
-	Coordinates    *geom.Polygon
-	DistanceMeters float64
+	ID               uuid.UUID
+	Name             string
+	Field            uuid.UUID
+	Coordinates      *geom.Polygon
+	AreaSquareMeters float64
+	DistanceMeters   float64
 }
 
 // Only plots that are free right now; a rental that has run out stops
@@ -61,6 +63,7 @@ func (q *Queries) GetNearestPlots(ctx context.Context, arg GetNearestPlotsParams
 			&i.Name,
 			&i.Field,
 			&i.Coordinates,
+			&i.AreaSquareMeters,
 			&i.DistanceMeters,
 		); err != nil {
 			return nil, err
@@ -74,20 +77,29 @@ func (q *Queries) GetNearestPlots(ctx context.Context, arg GetNearestPlotsParams
 }
 
 const getPlotByID = `-- name: GetPlotByID :one
-SELECT id, name, field, coordinates
+SELECT id, name, field, coordinates, ST_Area(coordinates::geography)::float8 AS area_square_meters
 FROM plot
 WHERE id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetPlotByID(ctx context.Context, id uuid.UUID) (Plot, error) {
+type GetPlotByIDRow struct {
+	ID               uuid.UUID
+	Name             string
+	Field            uuid.UUID
+	Coordinates      *geom.Polygon
+	AreaSquareMeters float64
+}
+
+func (q *Queries) GetPlotByID(ctx context.Context, id uuid.UUID) (GetPlotByIDRow, error) {
 	row := q.db.QueryRow(ctx, getPlotByID, id)
-	var i Plot
+	var i GetPlotByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.Field,
 		&i.Coordinates,
+		&i.AreaSquareMeters,
 	)
 	return i, err
 }
@@ -107,26 +119,35 @@ func (q *Queries) GetPlotField(ctx context.Context, id uuid.UUID) (uuid.UUID, er
 }
 
 const getPlotsByFields = `-- name: GetPlotsByFields :many
-SELECT id, name, field, coordinates
+SELECT id, name, field, coordinates, ST_Area(coordinates::geography)::float8 AS area_square_meters
 FROM plot
 WHERE field = ANY($1::uuid[])
 ORDER BY name
 `
 
-func (q *Queries) GetPlotsByFields(ctx context.Context, dollar_1 []uuid.UUID) ([]Plot, error) {
+type GetPlotsByFieldsRow struct {
+	ID               uuid.UUID
+	Name             string
+	Field            uuid.UUID
+	Coordinates      *geom.Polygon
+	AreaSquareMeters float64
+}
+
+func (q *Queries) GetPlotsByFields(ctx context.Context, dollar_1 []uuid.UUID) ([]GetPlotsByFieldsRow, error) {
 	rows, err := q.db.Query(ctx, getPlotsByFields, dollar_1)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Plot
+	var items []GetPlotsByFieldsRow
 	for rows.Next() {
-		var i Plot
+		var i GetPlotsByFieldsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
 			&i.Field,
 			&i.Coordinates,
+			&i.AreaSquareMeters,
 		); err != nil {
 			return nil, err
 		}
@@ -139,7 +160,8 @@ func (q *Queries) GetPlotsByFields(ctx context.Context, dollar_1 []uuid.UUID) ([
 }
 
 const insertPlot = `-- name: InsertPlot :one
-INSERT INTO plot (name, field, coordinates) VALUES ($1, $2, $3) RETURNING id
+INSERT INTO plot (name, field, coordinates) VALUES ($1, $2, $3)
+RETURNING id, ST_Area(coordinates::geography)::float8 AS area_square_meters
 `
 
 type InsertPlotParams struct {
@@ -148,9 +170,14 @@ type InsertPlotParams struct {
 	Coordinates *geom.Polygon
 }
 
-func (q *Queries) InsertPlot(ctx context.Context, arg InsertPlotParams) (uuid.UUID, error) {
+type InsertPlotRow struct {
+	ID               uuid.UUID
+	AreaSquareMeters float64
+}
+
+func (q *Queries) InsertPlot(ctx context.Context, arg InsertPlotParams) (InsertPlotRow, error) {
 	row := q.db.QueryRow(ctx, insertPlot, arg.Name, arg.Field, arg.Coordinates)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var i InsertPlotRow
+	err := row.Scan(&i.ID, &i.AreaSquareMeters)
+	return i, err
 }

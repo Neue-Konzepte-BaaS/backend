@@ -52,7 +52,7 @@ func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pl
 	plotIDs := make([]uuid.UUID, plotCount)
 	for i := range plotCount {
 		minX := float64(i * 10)
-		plotID, err := plotRepo.CreatePlot(ctx, models.Plot{
+		plot, err := plotRepo.CreatePlot(ctx, models.Plot{
 			Name:        "Plot",
 			Field:       fieldID,
 			Coordinates: rectangle(minX, 0, minX+5, 5),
@@ -60,10 +60,10 @@ func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pl
 		if err != nil {
 			t.Fatalf("creating plot %d: %v", i, err)
 		}
-		if err := cropRepo.SetPlotCrops(ctx, plotID, []uuid.UUID{crop.ID}); err != nil {
+		if err := cropRepo.SetPlotCrops(ctx, plot.ID, []uuid.UUID{crop.ID}); err != nil {
 			t.Fatalf("offering crop on plot %d: %v", i, err)
 		}
-		plotIDs[i] = plotID
+		plotIDs[i] = plot.ID
 	}
 
 	return farmer.ID, plotIDs, crop.ID

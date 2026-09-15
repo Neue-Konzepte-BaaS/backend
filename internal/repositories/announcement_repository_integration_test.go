@@ -50,7 +50,7 @@ func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	for i := range plots {
 		// Side by side inside the field, so no two plots overlap.
 		minX := float64(i*10 + 1)
-		plotID, err := plotRepo.CreatePlot(ctx, models.Plot{
+		plot, err := plotRepo.CreatePlot(ctx, models.Plot{
 			Name:        "Plot",
 			Field:       fieldID,
 			Coordinates: rectangle(minX, 1, minX+5, 5),
@@ -58,10 +58,10 @@ func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 		if err != nil {
 			t.Fatalf("creating plot %d: %v", i, err)
 		}
-		if err := cropRepo.SetPlotCrops(ctx, plotID, []uuid.UUID{crop.ID}); err != nil {
+		if err := cropRepo.SetPlotCrops(ctx, plot.ID, []uuid.UUID{crop.ID}); err != nil {
 			t.Fatalf("offering crop on plot %d: %v", i, err)
 		}
-		plots[i] = plotID
+		plots[i] = plot.ID
 	}
 
 	return farmer.ID, plots, crop.ID
