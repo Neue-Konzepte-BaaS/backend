@@ -53,7 +53,8 @@ type FieldRepository interface {
 }
 
 type PlotRepository interface {
-	CreatePlot(ctx context.Context, plot models.Plot) (uuid.UUID, error)
+	// CreatePlot returns the created plot, including its computed area.
+	CreatePlot(ctx context.Context, plot models.Plot) (models.Plot, error)
 	GetPlotsByFields(ctx context.Context, fields []uuid.UUID) ([]models.Plot, error)
 	// GetNearestPlots returns up to limit plots ordered by distance from the
 	// given point (lon, lat), nearest first.

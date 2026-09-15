@@ -1,8 +1,9 @@
 -- name: InsertPlot :one
-INSERT INTO plot (name, field, coordinates) VALUES ($1, $2, $3) RETURNING id;
+INSERT INTO plot (name, field, coordinates) VALUES ($1, $2, $3)
+RETURNING id, ST_Area(coordinates::geography)::float8 AS area_square_meters;
 
 -- name: GetPlotByID :one
-SELECT id, name, field, coordinates
+SELECT id, name, field, coordinates, ST_Area(coordinates::geography)::float8 AS area_square_meters
 FROM plot
 WHERE id = $1
 LIMIT 1;
@@ -14,7 +15,7 @@ WHERE id = $1
 LIMIT 1;
 
 -- name: GetPlotsByFields :many
-SELECT id, name, field, coordinates
+SELECT id, name, field, coordinates, ST_Area(coordinates::geography)::float8 AS area_square_meters
 FROM plot
 WHERE field = ANY($1::uuid[])
 ORDER BY name;
@@ -25,6 +26,7 @@ SELECT
     name,
     field,
     coordinates,
+    ST_Area(coordinates::geography)::float8 AS area_square_meters,
     ST_Distance(
         ST_Centroid(coordinates)::geography,
         ST_SetSRID(ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8), 4326)::geography

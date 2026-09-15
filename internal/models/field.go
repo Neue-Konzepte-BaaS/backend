@@ -13,10 +13,11 @@ type Field struct {
 }
 
 type Plot struct {
-	ID          uuid.UUID
-	Name        string
-	Field       uuid.UUID
-	Coordinates *geom.Polygon
+	ID               uuid.UUID
+	Name             string
+	Field            uuid.UUID
+	Coordinates      *geom.Polygon
+	AreaSquareMeters float64
 }
 
 type PlotWithCrops struct {

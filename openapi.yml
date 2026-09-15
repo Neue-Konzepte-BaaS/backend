@@ -1290,7 +1290,7 @@ components:
 
     Plot:
       type: object
-      required: [id, name, field, coordinates]
+      required: [id, name, field, coordinates, areaSquareMeters]
       properties:
         id:
           type: string
@@ -1304,10 +1304,15 @@ components:
           description: ID of the field this plot belongs to.
         coordinates:
           $ref: '#/components/schemas/GeoJSONPolygon'
+        areaSquareMeters:
+          type: number
+          format: double
+          description: The plot's area in square meters, computed geodesically from its boundary.
+          example: 2340.5
 
     NearbyPlot:
       type: object
-      required: [id, name, field, coordinates, distanceMeters, crops]
+      required: [id, name, field, coordinates, areaSquareMeters, distanceMeters, crops]
       properties:
         id:
           type: string
@@ -1321,6 +1326,11 @@ components:
           description: ID of the field this plot belongs to.
         coordinates:
           $ref: '#/components/schemas/GeoJSONPolygon'
+        areaSquareMeters:
+          type: number
+          format: double
+          description: The plot's area in square meters, computed geodesically from its boundary.
+          example: 2340.5
         distanceMeters:
           type: number
           format: double
@@ -1334,7 +1344,7 @@ components:
 
     PlotWithCrops:
       type: object
-      required: [id, name, field, coordinates, crops]
+      required: [id, name, field, coordinates, areaSquareMeters, crops]
       properties:
         id:
           type: string
@@ -1348,6 +1358,11 @@ components:
           description: ID of the field this plot belongs to.
         coordinates:
           $ref: '#/components/schemas/GeoJSONPolygon'
+        areaSquareMeters:
+          type: number
+          format: double
+          description: The plot's area in square meters, computed geodesically from its boundary.
+          example: 2340.5
         crops:
           type: array
           description: The crops this plot currently offers.

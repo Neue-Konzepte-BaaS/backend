@@ -43,18 +43,20 @@ type fieldResponse struct {
 }
 
 type plotResponse struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Field       string          `json:"field"`
-	Coordinates json.RawMessage `json:"coordinates"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Field            string          `json:"field"`
+	Coordinates      json.RawMessage `json:"coordinates"`
+	AreaSquareMeters float64         `json:"areaSquareMeters"`
 }
 
 type plotWithCropsResponse struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Field       string          `json:"field"`
-	Coordinates json.RawMessage `json:"coordinates"`
-	Crops       []cropResponse  `json:"crops"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Field            string          `json:"field"`
+	Coordinates      json.RawMessage `json:"coordinates"`
+	AreaSquareMeters float64         `json:"areaSquareMeters"`
+	Crops            []cropResponse  `json:"crops"`
 }
 
 type fieldWithPlotsResponse struct {
@@ -148,11 +150,12 @@ func (h *FieldHandler) GetFields(w http.ResponseWriter, r *http.Request) {
 		plots := make([]plotWithCropsResponse, len(field.Plots))
 		for j, plot := range field.Plots {
 			plots[j] = plotWithCropsResponse{
-				ID:          plot.ID.String(),
-				Name:        plot.Name,
-				Field:       plot.Field.String(),
-				Coordinates: encodePolygon(plot.Coordinates),
-				Crops:       toCropResponses(plot.Crops),
+				ID:               plot.ID.String(),
+				Name:             plot.Name,
+				Field:            plot.Field.String(),
+				Coordinates:      encodePolygon(plot.Coordinates),
+				AreaSquareMeters: plot.AreaSquareMeters,
+				Crops:            toCropResponses(plot.Crops),
 			}
 		}
 		res[i] = fieldWithPlotsResponse{
@@ -216,9 +219,10 @@ func (h *FieldHandler) CreatePlot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	webutils.WriteJSON(w, http.StatusCreated, plotResponse{
-		ID:          plot.ID.String(),
-		Name:        plot.Name,
-		Field:       plot.Field.String(),
-		Coordinates: encodePolygon(plot.Coordinates),
+		ID:               plot.ID.String(),
+		Name:             plot.Name,
+		Field:            plot.Field.String(),
+		Coordinates:      encodePolygon(plot.Coordinates),
+		AreaSquareMeters: plot.AreaSquareMeters,
 	})
 }

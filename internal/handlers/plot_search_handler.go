@@ -27,12 +27,13 @@ func NewPlotSearchHandler(plotSearchService services.PlotSearchService) *PlotSea
 }
 
 type nearbyPlotResponse struct {
-	ID             string          `json:"id"`
-	Name           string          `json:"name"`
-	Field          string          `json:"field"`
-	Coordinates    json.RawMessage `json:"coordinates"`
-	DistanceMeters float64         `json:"distanceMeters"`
-	Crops          []cropResponse  `json:"crops"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Field            string          `json:"field"`
+	Coordinates      json.RawMessage `json:"coordinates"`
+	AreaSquareMeters float64         `json:"areaSquareMeters"`
+	DistanceMeters   float64         `json:"distanceMeters"`
+	Crops            []cropResponse  `json:"crops"`
 }
 
 // FindNearestPlots returns the plots nearest to a search point, given
@@ -82,12 +83,13 @@ func (h *PlotSearchHandler) FindNearestPlots(w http.ResponseWriter, r *http.Requ
 	res := make([]nearbyPlotResponse, len(plots))
 	for i, plot := range plots {
 		res[i] = nearbyPlotResponse{
-			ID:             plot.ID.String(),
-			Name:           plot.Name,
-			Field:          plot.Field.String(),
-			Coordinates:    encodePolygon(plot.Coordinates),
-			DistanceMeters: plot.DistanceMeters,
-			Crops:          toCropResponses(plot.Crops),
+			ID:               plot.ID.String(),
+			Name:             plot.Name,
+			Field:            plot.Field.String(),
+			Coordinates:      encodePolygon(plot.Coordinates),
+			AreaSquareMeters: plot.AreaSquareMeters,
+			DistanceMeters:   plot.DistanceMeters,
+			Crops:            toCropResponses(plot.Crops),
 		}
 	}
 

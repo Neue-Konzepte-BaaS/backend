@@ -128,7 +128,7 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 		t.Fatalf("creating field: %v", err)
 	}
 
-	plotID, err := plotRepo.CreatePlot(ctx, models.Plot{
+	plot, err := plotRepo.CreatePlot(ctx, models.Plot{
 		Name:        "Plot 1",
 		Field:       fieldID,
 		Coordinates: rectangle(1, 1, 5, 5),
@@ -143,11 +143,11 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 	}
 	cropID := crop.ID
 
-	if err := cropRepo.SetPlotCrops(ctx, plotID, []uuid.UUID{cropID}); err != nil {
+	if err := cropRepo.SetPlotCrops(ctx, plot.ID, []uuid.UUID{cropID}); err != nil {
 		t.Fatalf("offering crop on plot: %v", err)
 	}
 
-	return plotID, cropID
+	return plot.ID, cropID
 }
 
 // seedCustomer creates a bare customer account and returns its id.

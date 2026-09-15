@@ -24,6 +24,7 @@ SELECT
     p.name AS plot_name,
     p.field,
     p.coordinates,
+    ST_Area(p.coordinates::geography)::float8 AS plot_area_square_meters,
     c.name AS crop_name,
     c.duration_months AS crop_duration_months
 FROM rental r
@@ -34,17 +35,18 @@ ORDER BY lower(r.period) DESC
 `
 
 type GetRentalsByCustomerRow struct {
-	ID                 uuid.UUID
-	Plot               uuid.UUID
-	Customer           uuid.UUID
-	Crop               uuid.UUID
-	StartAt            pgtype.Timestamptz
-	EndAt              pgtype.Timestamptz
-	PlotName           string
-	Field              uuid.UUID
-	Coordinates        *geom.Polygon
-	CropName           string
-	CropDurationMonths int32
+	ID                   uuid.UUID
+	Plot                 uuid.UUID
+	Customer             uuid.UUID
+	Crop                 uuid.UUID
+	StartAt              pgtype.Timestamptz
+	EndAt                pgtype.Timestamptz
+	PlotName             string
+	Field                uuid.UUID
+	Coordinates          *geom.Polygon
+	PlotAreaSquareMeters float64
+	CropName             string
+	CropDurationMonths   int32
 }
 
 func (q *Queries) GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]GetRentalsByCustomerRow, error) {
@@ -66,6 +68,7 @@ func (q *Queries) GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) 
 			&i.PlotName,
 			&i.Field,
 			&i.Coordinates,
+			&i.PlotAreaSquareMeters,
 			&i.CropName,
 			&i.CropDurationMonths,
 		); err != nil {
@@ -90,6 +93,7 @@ SELECT
     p.name AS plot_name,
     p.field,
     p.coordinates,
+    ST_Area(p.coordinates::geography)::float8 AS plot_area_square_meters,
     f.name AS field_name,
     a.id AS customer_id,
     a.email AS customer_email,
@@ -104,20 +108,21 @@ ORDER BY lower(r.period) DESC
 `
 
 type GetRentalsByFarmerRow struct {
-	ID                uuid.UUID
-	Plot              uuid.UUID
-	Customer          uuid.UUID
-	Crop              uuid.UUID
-	StartAt           pgtype.Timestamptz
-	EndAt             pgtype.Timestamptz
-	PlotName          string
-	Field             uuid.UUID
-	Coordinates       *geom.Polygon
-	FieldName         string
-	CustomerID        uuid.UUID
-	CustomerEmail     string
-	CustomerFirstName string
-	CustomerLastName  string
+	ID                   uuid.UUID
+	Plot                 uuid.UUID
+	Customer             uuid.UUID
+	Crop                 uuid.UUID
+	StartAt              pgtype.Timestamptz
+	EndAt                pgtype.Timestamptz
+	PlotName             string
+	Field                uuid.UUID
+	Coordinates          *geom.Polygon
+	PlotAreaSquareMeters float64
+	FieldName            string
+	CustomerID           uuid.UUID
+	CustomerEmail        string
+	CustomerFirstName    string
+	CustomerLastName     string
 }
 
 // Every rental on the farmer's own plots, active and historic alike: unlike
@@ -142,6 +147,7 @@ func (q *Queries) GetRentalsByFarmer(ctx context.Context, farmer uuid.UUID) ([]G
 			&i.PlotName,
 			&i.Field,
 			&i.Coordinates,
+			&i.PlotAreaSquareMeters,
 			&i.FieldName,
 			&i.CustomerID,
 			&i.CustomerEmail,
