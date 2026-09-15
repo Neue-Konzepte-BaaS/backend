@@ -213,3 +213,75 @@ func TestCreateRental_RejectsOverlappingBooking(t *testing.T) {
 		t.Fatalf("second customer rentals = %d, want 0 (booking must have been rejected)", len(otherRentals))
 	}
 }
+
+// TestGetRentalsByFarmer_IncludesHistoricAndScopesToOwnPlots checks the two
+// properties a farmer's rental history depends on: an ended rental still
+// shows up (unlike GetCustomersOfFarmer, which is active-only), and a rental
+// on another farmer's plot never leaks in.
+func TestGetRentalsByFarmer_IncludesHistoricAndScopesToOwnPlots(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	queries := database.New(pool)
+	rentalRepo := repositories.NewRentalRepository(queries)
+
+	farmer, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
+	otherFarmer, otherPlots, otherCrop := seedFarmerWithPlots(t, ctx, pool, 1)
+
+	activeCustomer := seedCustomer(t, ctx, pool)
+	pastCustomer := seedCustomer(t, ctx, pool)
+	somebodyElses := seedCustomer(t, ctx, pool)
+
+	active, err := rentalRepo.CreateRental(ctx, plots[0], activeCustomer, cropID, 6)
+	if err != nil {
+		t.Fatalf("renting plot: %v", err)
+	}
+	rentPast(t, ctx, pool, plots[1], pastCustomer, cropID)
+	if _, err := rentalRepo.CreateRental(ctx, otherPlots[0], somebodyElses, otherCrop, 6); err != nil {
+		t.Fatalf("renting other farmer's plot: %v", err)
+	}
+
+	rentals, err := rentalRepo.GetRentalsByFarmer(ctx, farmer)
+	if err != nil {
+		t.Fatalf("getting farmer rentals: %v", err)
+	}
+
+	if len(rentals) != 2 {
+		t.Fatalf("got %d rentals, want 2 (one active, one historic): %+v", len(rentals), rentals)
+	}
+
+	byCustomer := make(map[uuid.UUID]models.RentalWithPlotAndCustomer, len(rentals))
+	for _, r := range rentals {
+		byCustomer[r.Customer.AccountID] = r
+	}
+
+	got, ok := byCustomer[activeCustomer]
+	if !ok {
+		t.Fatalf("active rental missing from results: %+v", rentals)
+	}
+	if got.ID != active.ID {
+		t.Errorf("active rental id = %v, want %v", got.ID, active.ID)
+	}
+	if got.FieldName != "Field 1" {
+		t.Errorf("field name = %q, want %q", got.FieldName, "Field 1")
+	}
+	if got.Plot.ID != plots[0] {
+		t.Errorf("plot id = %v, want %v", got.Plot.ID, plots[0])
+	}
+
+	if _, ok := byCustomer[pastCustomer]; !ok {
+		t.Errorf("historic (ended) rental missing from results: %+v", rentals)
+	}
+	if _, ok := byCustomer[somebodyElses]; ok {
+		t.Errorf("rental on another farmer's plot leaked into results: %+v", rentals)
+	}
+
+	// And the other farmer sees only his own rental.
+	others, err := rentalRepo.GetRentalsByFarmer(ctx, otherFarmer)
+	if err != nil {
+		t.Fatalf("getting other farmer's rentals: %v", err)
+	}
+	if len(others) != 1 || others[0].Customer.AccountID != somebodyElses {
+		t.Errorf("other farmer's rentals = %+v, want only the rental by %v", others, somebodyElses)
+	}
+}
