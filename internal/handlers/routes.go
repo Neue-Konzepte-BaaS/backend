@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(authHandler *AuthHandler, announcementHandler *AnnouncementHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -39,6 +39,16 @@ func NewRouter(authHandler *AuthHandler, announcementHandler *AnnouncementHandle
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Get("/me", authHandler.Me)
 		})
+	})
+
+	// Everything an admin reaches that is not an admin-only variant of an
+	// existing route lives here, under one gate.
+	r.Route("/api/admin", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+		r.Use(appmiddleware.RequireRole(models.RoleAdmin))
+
+		r.Get("/accounts", accountHandler.ListAccounts)
+		r.Get("/farms", farmHandler.ListFarms)
 	})
 
 	r.Route("/api/announcements", func(r chi.Router) {

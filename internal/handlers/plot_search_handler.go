@@ -13,11 +13,6 @@ import (
 	"github.com/Neue-Konzepte-BaaS/backend/internal/webutils"
 )
 
-const (
-	defaultNearestPlotsLimit = 20
-	maxNearestPlotsLimit     = 100
-)
-
 type PlotSearchHandler struct {
 	plotSearchService services.PlotSearchService
 }
@@ -42,7 +37,7 @@ type nearbyPlotResponse struct {
 func (h *PlotSearchHandler) FindNearestPlots(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
-	limit, err := parseNearestPlotsLimit(query.Get("limit"))
+	limit, err := parseLimit(query.Get("limit"), defaultPageLimit, maxPageLimit)
 	if err != nil {
 		webutils.WriteError(w, http.StatusBadRequest, "limit must be a number between 1 and 100")
 		return
@@ -94,15 +89,4 @@ func (h *PlotSearchHandler) FindNearestPlots(w http.ResponseWriter, r *http.Requ
 	}
 
 	webutils.WriteJSON(w, http.StatusOK, res)
-}
-
-func parseNearestPlotsLimit(raw string) (int32, error) {
-	if raw == "" {
-		return defaultNearestPlotsLimit, nil
-	}
-	limit, err := strconv.Atoi(raw)
-	if err != nil || limit < 1 || limit > maxNearestPlotsLimit {
-		return 0, errors.New("invalid limit")
-	}
-	return int32(limit), nil
 }
