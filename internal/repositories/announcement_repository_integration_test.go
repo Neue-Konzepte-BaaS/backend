@@ -11,13 +11,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// seedFarmerWithPlots creates a farmer owning one field with plotCount plots,
-// each offering one crop, and returns the farmer, the plots and that crop.
-func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plotCount int) (uuid.UUID, []uuid.UUID, uuid.UUID) {
+// seedFarmerWithPlots creates a farmer owning one farm and one field with
+// plotCount plots, each offering one crop, and returns the farmer id, the
+// farm id, the plots and that crop.
+func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plotCount int) (uuid.UUID, uuid.UUID, []uuid.UUID, uuid.UUID) {
 	t.Helper()
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
+	farmRepo := repositories.NewFarmRepository(queries)
 	fieldRepo := repositories.NewFieldRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
@@ -27,14 +29,19 @@ func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 		LastName:     "MacDonald",
 		Email:        uuid.NewString() + "@example.com",
 		PasswordHash: "irrelevant",
-	}, "Green Acres", 76133)
+	}, "Green Acres", 76133, "1 Farm Lane", "A small family farm")
 	if err != nil {
 		t.Fatalf("creating farmer: %v", err)
 	}
 
+	farmID, err := farmRepo.GetFarmIDByFarmerID(ctx, farmer.ID)
+	if err != nil {
+		t.Fatalf("looking up farm: %v", err)
+	}
+
 	fieldID, err := fieldRepo.CreateField(ctx, models.Field{
 		Name:        "Field 1",
-		Farmer:      farmer.ID,
+		Farm:        farmID,
 		Coordinates: rectangle(0, 0, 100, 100),
 	})
 	if err != nil {
@@ -64,7 +71,7 @@ func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 		plots[i] = plot.ID
 	}
 
-	return farmer.ID, plots, crop.ID
+	return farmer.ID, farmID, plots, crop.ID
 }
 
 // rentPast books a plot for a period that has already ended. The repository
@@ -95,7 +102,7 @@ func TestGetCustomersOfFarmer_CountsEachCustomerOnce(t *testing.T) {
 	accountRepo := repositories.NewAccountRepository(pool, queries)
 	rentalRepo := repositories.NewRentalRepository(queries)
 
-	farmer, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 3)
+	farmer, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 3)
 	customer := seedCustomer(t, ctx, pool)
 
 	for _, plot := range plots {
@@ -128,8 +135,8 @@ func TestGetCustomersOfFarmer_OnlyCurrentRenters(t *testing.T) {
 	accountRepo := repositories.NewAccountRepository(pool, queries)
 	rentalRepo := repositories.NewRentalRepository(queries)
 
-	farmer, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
-	otherFarmer, otherPlots, otherCrop := seedFarmerWithPlots(t, ctx, pool, 1)
+	farmer, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
+	otherFarmer, _, otherPlots, otherCrop := seedFarmerWithPlots(t, ctx, pool, 1)
 
 	current := seedCustomer(t, ctx, pool)
 	expired := seedCustomer(t, ctx, pool)
@@ -182,8 +189,8 @@ func TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom(t *testi
 	rentalRepo := repositories.NewRentalRepository(queries)
 	announcementRepo := repositories.NewAnnouncementRepository(queries)
 
-	farmer, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
-	otherFarmer, _, _ := seedFarmerWithPlots(t, ctx, pool, 1)
+	farmer, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
+	otherFarmer, _, _, _ := seedFarmerWithPlots(t, ctx, pool, 1)
 	customer := seedCustomer(t, ctx, pool)
 
 	// Renting two plots from the same farmer must not double his notices.

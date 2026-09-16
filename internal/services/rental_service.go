@@ -24,13 +24,14 @@ type RentalService interface {
 }
 
 type rentalService struct {
+	farmRepo   FarmRepository
 	rentalRepo RentalRepository
 	plotRepo   PlotRepository
 	cropRepo   CropRepository
 }
 
-func NewRentalService(rentalRepo RentalRepository, plotRepo PlotRepository, cropRepo CropRepository) RentalService {
-	return &rentalService{rentalRepo: rentalRepo, plotRepo: plotRepo, cropRepo: cropRepo}
+func NewRentalService(farmRepo FarmRepository, rentalRepo RentalRepository, plotRepo PlotRepository, cropRepo CropRepository) RentalService {
+	return &rentalService{farmRepo: farmRepo, rentalRepo: rentalRepo, plotRepo: plotRepo, cropRepo: cropRepo}
 }
 
 func (s *rentalService) RentPlot(ctx context.Context, customer, plot, crop uuid.UUID) (models.Rental, error) {
@@ -88,7 +89,11 @@ func (s *rentalService) GetRentals(ctx context.Context, customer uuid.UUID) ([]m
 }
 
 func (s *rentalService) GetRentalsForFarmer(ctx context.Context, farmer uuid.UUID) ([]models.RentalWithPlotAndCustomer, error) {
-	rentals, err := s.rentalRepo.GetRentalsByFarmer(ctx, farmer)
+	farmID, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+	if err != nil {
+		return nil, fmt.Errorf("looking up farm: %w", err)
+	}
+	rentals, err := s.rentalRepo.GetRentalsByFarm(ctx, farmID)
 	if err != nil {
 		return nil, fmt.Errorf("getting farmer rentals: %w", err)
 	}

@@ -42,8 +42,10 @@ func (f *fakeStatisticsRepo) GetPlatformStatistics(context.Context) (models.Stat
 
 func TestGetStatistics_Farmer_UsesOwnFarmScope(t *testing.T) {
 	account := uuid.New()
+	farmID := uuid.New()
+	farmRepo := &fakeFarmRepo{farmIDByFarmer: map[uuid.UUID]uuid.UUID{account: farmID}}
 	repo := &fakeStatisticsRepo{farmStats: models.Statistics{Fields: models.FieldStatistics{Total: 3}}}
-	svc := NewStatisticsService(repo)
+	svc := NewStatisticsService(farmRepo, repo)
 
 	stats, err := svc.GetStatistics(context.Background(), account, models.RoleFarmer)
 	if err != nil {
@@ -55,8 +57,8 @@ func TestGetStatistics_Farmer_UsesOwnFarmScope(t *testing.T) {
 	if repo.platformCalled {
 		t.Error("GetPlatformStatistics must not be called for a farmer")
 	}
-	if repo.calledFarmWith != account {
-		t.Errorf("farmer id = %v, want the caller's own id %v", repo.calledFarmWith, account)
+	if repo.calledFarmWith != farmID {
+		t.Errorf("farm id = %v, want the caller's own farm id %v", repo.calledFarmWith, farmID)
 	}
 	if stats.Scope != models.ScopeFarm {
 		t.Errorf("scope = %q, want %q", stats.Scope, models.ScopeFarm)
@@ -67,12 +69,13 @@ func TestGetStatistics_Farmer_UsesOwnFarmScope(t *testing.T) {
 }
 
 func TestGetStatistics_Admin_UsesPlatformScope(t *testing.T) {
+	farmRepo := &fakeFarmRepo{}
 	repo := &fakeStatisticsRepo{
 		platformStats: models.Statistics{
 			Accounts: &models.AccountStatistics{Total: 5},
 		},
 	}
-	svc := NewStatisticsService(repo)
+	svc := NewStatisticsService(farmRepo, repo)
 
 	stats, err := svc.GetStatistics(context.Background(), uuid.New(), models.RoleAdmin)
 	if err != nil {
@@ -95,8 +98,9 @@ func TestGetStatistics_Admin_UsesPlatformScope(t *testing.T) {
 func TestGetStatistics_OtherRoles_ForbiddenWithoutCallingRepo(t *testing.T) {
 	for _, role := range []models.Role{models.RoleCustomer, models.Role("")} {
 		t.Run(string(role), func(t *testing.T) {
+			farmRepo := &fakeFarmRepo{}
 			repo := &fakeStatisticsRepo{}
-			svc := NewStatisticsService(repo)
+			svc := NewStatisticsService(farmRepo, repo)
 
 			_, err := svc.GetStatistics(context.Background(), uuid.New(), role)
 			if !errors.Is(err, ErrForbidden) {
@@ -113,18 +117,22 @@ func TestGetStatistics_RepositoryErrorPropagates(t *testing.T) {
 	sentinel := errors.New("db exploded")
 
 	t.Run("farm", func(t *testing.T) {
+		account := uuid.New()
+		farmID := uuid.New()
+		farmRepo := &fakeFarmRepo{farmIDByFarmer: map[uuid.UUID]uuid.UUID{account: farmID}}
 		repo := &fakeStatisticsRepo{farmErr: sentinel}
-		svc := NewStatisticsService(repo)
+		svc := NewStatisticsService(farmRepo, repo)
 
-		_, err := svc.GetStatistics(context.Background(), uuid.New(), models.RoleFarmer)
+		_, err := svc.GetStatistics(context.Background(), account, models.RoleFarmer)
 		if !errors.Is(err, sentinel) {
 			t.Fatalf("error = %v, want wrapped %v", err, sentinel)
 		}
 	})
 
 	t.Run("platform", func(t *testing.T) {
+		farmRepo := &fakeFarmRepo{}
 		repo := &fakeStatisticsRepo{platformErr: sentinel}
-		svc := NewStatisticsService(repo)
+		svc := NewStatisticsService(farmRepo, repo)
 
 		_, err := svc.GetStatistics(context.Background(), uuid.New(), models.RoleAdmin)
 		if !errors.Is(err, sentinel) {

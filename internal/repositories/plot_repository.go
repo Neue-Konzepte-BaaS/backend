@@ -84,6 +84,7 @@ func (r *plotRepository) GetNearestPlots(ctx context.Context, lon, lat float64, 
 				Coordinates:      row.Coordinates,
 				AreaSquareMeters: row.AreaSquareMeters,
 			},
+			Farm:           row.Farm,
 			DistanceMeters: row.DistanceMeters,
 		}
 	}

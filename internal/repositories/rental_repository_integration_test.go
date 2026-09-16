@@ -105,6 +105,7 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
+	farmRepo := repositories.NewFarmRepository(queries)
 	fieldRepo := repositories.NewFieldRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
@@ -114,14 +115,19 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 		LastName:     "MacDonald",
 		Email:        uuid.NewString() + "@example.com",
 		PasswordHash: "irrelevant",
-	}, "Green Acres", 76133)
+	}, "Green Acres", 76133, "1 Farm Lane", "A small family farm")
 	if err != nil {
 		t.Fatalf("creating farmer: %v", err)
 	}
 
+	farmID, err := farmRepo.GetFarmIDByFarmerID(ctx, farmer.ID)
+	if err != nil {
+		t.Fatalf("looking up farm: %v", err)
+	}
+
 	fieldID, err := fieldRepo.CreateField(ctx, models.Field{
 		Name:        "Field 1",
-		Farmer:      farmer.ID,
+		Farm:        farmID,
 		Coordinates: rectangle(0, 0, 10, 10),
 	})
 	if err != nil {
@@ -214,19 +220,19 @@ func TestCreateRental_RejectsOverlappingBooking(t *testing.T) {
 	}
 }
 
-// TestGetRentalsByFarmer_IncludesHistoricAndScopesToOwnPlots checks the two
+// TestGetRentalsByFarm_IncludesHistoricAndScopesToOwnPlots checks the two
 // properties a farmer's rental history depends on: an ended rental still
 // shows up (unlike GetCustomersOfFarmer, which is active-only), and a rental
-// on another farmer's plot never leaks in.
-func TestGetRentalsByFarmer_IncludesHistoricAndScopesToOwnPlots(t *testing.T) {
+// on another farm's plot never leaks in.
+func TestGetRentalsByFarm_IncludesHistoricAndScopesToOwnPlots(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 
 	queries := database.New(pool)
 	rentalRepo := repositories.NewRentalRepository(queries)
 
-	farmer, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
-	otherFarmer, otherPlots, otherCrop := seedFarmerWithPlots(t, ctx, pool, 1)
+	_, farmID, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
+	_, otherFarmID, otherPlots, otherCrop := seedFarmerWithPlots(t, ctx, pool, 1)
 
 	activeCustomer := seedCustomer(t, ctx, pool)
 	pastCustomer := seedCustomer(t, ctx, pool)
@@ -241,7 +247,7 @@ func TestGetRentalsByFarmer_IncludesHistoricAndScopesToOwnPlots(t *testing.T) {
 		t.Fatalf("renting other farmer's plot: %v", err)
 	}
 
-	rentals, err := rentalRepo.GetRentalsByFarmer(ctx, farmer)
+	rentals, err := rentalRepo.GetRentalsByFarm(ctx, farmID)
 	if err != nil {
 		t.Fatalf("getting farmer rentals: %v", err)
 	}
@@ -277,7 +283,7 @@ func TestGetRentalsByFarmer_IncludesHistoricAndScopesToOwnPlots(t *testing.T) {
 	}
 
 	// And the other farmer sees only his own rental.
-	others, err := rentalRepo.GetRentalsByFarmer(ctx, otherFarmer)
+	others, err := rentalRepo.GetRentalsByFarm(ctx, otherFarmID)
 	if err != nil {
 		t.Fatalf("getting other farmer's rentals: %v", err)
 	}

@@ -39,8 +39,8 @@ JOIN crop c ON c.id = r.crop
 WHERE r.customer = $1
 ORDER BY lower(r.period) DESC;
 
--- name: GetRentalsByFarmer :many
--- Every rental on the farmer's own plots, active and historic alike: unlike
+-- name: GetRentalsByFarm :many
+-- Every rental on the farm's own plots, active and historic alike: unlike
 -- GetCustomersOfFarmer, this is not restricted to r.period @> CURRENT_TIMESTAMP,
 -- since a farmer reviewing their rental history wants past bookings too.
 SELECT
@@ -63,5 +63,5 @@ FROM rental r
 JOIN plot p ON p.id = r.plot
 JOIN field f ON f.id = p.field
 JOIN account a ON a.id = r.customer
-WHERE f.farmer = $1
+WHERE f.farm = $1
 ORDER BY lower(r.period) DESC;

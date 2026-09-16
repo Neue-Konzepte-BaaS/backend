@@ -75,8 +75,8 @@ func (r *rentalRepository) GetRentalsByCustomer(ctx context.Context, customer uu
 	return rentals, nil
 }
 
-func (r *rentalRepository) GetRentalsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.RentalWithPlotAndCustomer, error) {
-	rows, err := r.queries.GetRentalsByFarmer(ctx, farmer)
+func (r *rentalRepository) GetRentalsByFarm(ctx context.Context, farm uuid.UUID) ([]models.RentalWithPlotAndCustomer, error) {
+	rows, err := r.queries.GetRentalsByFarm(ctx, farm)
 	if err != nil {
 		return nil, err
 	}

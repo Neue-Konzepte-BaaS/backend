@@ -4,7 +4,7 @@ INSERT INTO account (first_name, last_name, email, password_hash) VALUES ($1, $2
 -- name: InsertFarmer :exec
 -- Links an account to the farmer subtype table. The account's role is derived
 -- from this membership; see GetAccountByEmail.
-INSERT INTO farmer (account_id, farm_name, postal_code) VALUES ($1, $2, $3);
+INSERT INTO farmer (account_id, postal_code) VALUES ($1, $2);
 
 -- name: InsertCustomer :exec
 -- Links an account to the customer subtype table.
