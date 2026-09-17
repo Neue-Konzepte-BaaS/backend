@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -88,6 +88,12 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Use(appmiddleware.RequireRole(models.RoleAdmin))
 
 		r.Post("/", notificationHandler.Broadcast)
+	})
+
+	r.Route("/api/inbox", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+		r.Use(appmiddleware.RequireRole(models.RoleCustomer))
+		r.Get("/", inboxHandler.GetInbox)
 	})
 
 	r.Route("/api/plots", func(r chi.Router) {

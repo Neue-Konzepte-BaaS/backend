@@ -197,6 +197,30 @@ Nodes (5): argon2id Password Hashing, Login Flow (argon2id + JWT), HS256 JWT Acc
 Cohesion: 0.25
 Nodes (6): GetAnnouncementsByFarmerRow, GetAnnouncementsForCustomerRow, GetCustomersOfFarmerRow, InsertAnnouncementParams, InsertAnnouncementRow, Queries
 
+### Community 42 - ".InsertBroadcastNotification"
+Cohesion: 0.32
+Nodes (4): InsertBroadcastNotificationParams, Queries, broadcast_notification, idx_broadcast_notification_created
+
+### Community 44 - "AnnouncementWithFarm"
+Cohesion: 0.22
+Nodes (4): AnnouncementWithFarm, toModelAnnouncement(), Announcement, announcementRepository
+
+### Community 45 - "plot.sql.go"
+Cohesion: 0.22
+Nodes (7): GetNearestPlotsParams, GetNearestPlotsRow, GetPlotByIDRow, GetPlotsByFieldsRow, InsertPlotParams, InsertPlotRow, Queries
+
+### Community 46 - "ListFarmsRow"
+Cohesion: 0.21
+Nodes (7): GetFarmByIDRow, InsertFarmParams, ListFarmsParams, ListFarmsRow, github.com/jackc/pgx/v5/pgtype.Date, github.com/jackc/pgx/v5/pgtype.Int4, Queries
+
+### Community 47 - "Rental"
+Cohesion: 0.24
+Nodes (5): Rental, RentalWithPlot, mapRentalError(), cropOffered(), rentalRepository
+
+### Community 48 - "notification_handler.go"
+Cohesion: 0.50
+Nodes (4): broadcastRequest, broadcastResponse, NotificationHandler, NewNotificationHandler()
+
 ## Knowledge Gaps
 - **25 isolated node(s):** `github.com/Neue-Konzepte-BaaS/backend`, `createAnnouncementRequest`, `loginRequest`, `registerRequest`, `meResponse` (+20 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 69 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)

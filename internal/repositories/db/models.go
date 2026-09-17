@@ -32,6 +32,13 @@ type Announcement struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type BroadcastNotification struct {
+	ID        uuid.UUID
+	Subject   string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+}
+
 type Crop struct {
 	ID             uuid.UUID
 	Name           string

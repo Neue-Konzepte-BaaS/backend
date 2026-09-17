@@ -27,6 +27,8 @@ tags:
     description: Platform-wide notifications sent by an admin
   - name: announcements
     description: The Schwarzes Brett — notices a farmer posts for his current customers
+  - name: inbox
+    description: A customer's merged feed of platform broadcasts and announcements
   - name: statistics
     description: Aggregate statistics for farmers and admins
   - name: admin
@@ -916,17 +918,22 @@ paths:
       tags: [notifications]
       summary: Send a notification to every user
       description: |
-        Emails a message to every farmer and customer on the platform. Admins
-        only — a farmer or customer receives 403.
+        Stores the broadcast and emails it to every farmer and customer on the
+        platform. Admins only — a farmer or customer receives 403.
 
         Admin accounts are deliberately not recipients: a platform notice is
         addressed to users, not to the operators sending it. Neither are
         accounts that somehow hold no farmer or customer role.
 
-        Delivery is asynchronous, which is why this answers 202 rather than
-        201. `recipients` is how many people the message was queued for, not
-        how many were reached: nothing is persisted and nothing is retried, so
-        an address the mail relay rejects is logged and otherwise lost.
+        The broadcast is stored before delivery is attempted, which is why a
+        storage failure is reported as a `500` before any mail is sent.
+        Delivery itself is asynchronous, which is why this still answers 202
+        rather than 201 — the notice is persisted, but delivery is not done
+        when the response is written. `recipients` is how many people the
+        message was queued for, not how many were reached: delivery is not
+        retried, so an address the mail relay rejects is logged and otherwise
+        lost. The stored broadcast is readable afterwards regardless of
+        delivery outcome, via `GET /api/inbox`.
       operationId: broadcastNotification
       requestBody:
         required: true
@@ -1267,6 +1274,58 @@ paths:
                 error: not authenticated
         '403':
           description: The authenticated account is neither a farmer nor a customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/inbox:
+    get:
+      tags: [inbox]
+      summary: Read the authenticated customer's inbox
+      description: |
+        A merged, newest-first feed of every platform broadcast plus the
+        announcements of every farmer this customer currently rents from.
+        Customers only — a farmer or admin receives 403.
+
+        Each item carries its `kind` (`broadcast` or `announcement`) so a
+        client can render one feed instead of two. `farm_name` is only present
+        on announcement items; broadcasts have no farm to attribute.
+
+        As with `GET /api/announcements`, the rental decides which farmers'
+        announcements appear, not which notices were mailed to this customer:
+        a new renter also reads that farmer's older notices, and an ended
+        rental removes that farmer's notices from the feed.
+      operationId: getInbox
+      responses:
+        '200':
+          description: The inbox, newest first. Empty when there is nothing to read.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InboxItem'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a customer.
           content:
             application/json:
               schema:
@@ -2174,6 +2233,32 @@ components:
             happens after this response, so it is not a count of successful
             sends.
           example: 204
+
+    InboxItem:
+      type: object
+      required: [kind, id, subject, body, created_at]
+      properties:
+        kind:
+          type: string
+          enum: [broadcast, announcement]
+          description: Which stored record this item came from.
+        id:
+          type: string
+          format: uuid
+        subject:
+          type: string
+          example: Ernte am Samstag
+        body:
+          type: string
+        farm_name:
+          type: string
+          description: |
+            The farm the notice came from. Present only on `announcement`
+            items; a `broadcast` has no farm to attribute and omits this field.
+          example: Hof Grünwald
+        created_at:
+          type: string
+          format: date-time
 
 security:
   - accessTokenCookie: []

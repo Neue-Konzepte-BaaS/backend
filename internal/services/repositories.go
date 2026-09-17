@@ -38,6 +38,13 @@ type AccountRepository interface {
 	GetCustomersOfFarmer(ctx context.Context, farmer uuid.UUID) ([]models.Recipient, error)
 }
 
+type BroadcastNotificationRepository interface {
+	// CreateBroadcastNotification stores one platform-wide notice.
+	CreateBroadcastNotification(ctx context.Context, subject, body string) (models.BroadcastNotification, error)
+	// GetAllBroadcastNotifications returns every broadcast, newest first.
+	GetAllBroadcastNotifications(ctx context.Context) ([]models.BroadcastNotification, error)
+}
+
 type AnnouncementRepository interface {
 	// CreateAnnouncement stores one notice by a farmer and returns it with the
 	// farm name already resolved.

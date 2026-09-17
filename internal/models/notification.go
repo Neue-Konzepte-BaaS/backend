@@ -2,6 +2,7 @@ package models
 
 import (
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -21,4 +22,13 @@ type Recipient struct {
 // parts; either may be blank in principle, hence the trim.
 func (r Recipient) DisplayName() string {
 	return strings.TrimSpace(r.FirstName + " " + r.LastName)
+}
+
+// BroadcastNotification is a platform-wide notice sent to every farmer and
+// customer, kept after delivery so it shows up in a user's inbox.
+type BroadcastNotification struct {
+	ID        uuid.UUID
+	Subject   string
+	Body      string
+	CreatedAt time.Time
 }
