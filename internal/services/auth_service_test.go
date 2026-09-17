@@ -32,6 +32,10 @@ func (f *fakeAccountRepo) GetAllRecipients(context.Context) ([]models.Recipient,
 	panic("auth service does not send notifications")
 }
 
+func (f *fakeAccountRepo) ListAccounts(context.Context, models.AccountListFilter) (models.Page[models.AccountListing], error) {
+	panic("auth service does not list accounts")
+}
+
 func (f *fakeAccountRepo) GetCustomersOfFarmer(context.Context, uuid.UUID) ([]models.Recipient, error) {
 	panic("auth service does not send notifications")
 }

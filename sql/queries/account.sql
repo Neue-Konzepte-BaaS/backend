@@ -68,3 +68,59 @@ FROM account a
 WHERE EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
    OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
 ORDER BY a.email;
+
+-- name: ListAccounts :many
+-- One page of the admin account list, newest first.
+--
+-- Role is derived exactly the way GetAccountByEmail derives it -- by subtype
+-- membership -- so there is one definition of "role" in the codebase. A CASE
+-- alias cannot be referenced from WHERE, hence the CTE: the filter then applies
+-- to the derived column instead of to a second copy of the expression that
+-- could drift from the first.
+--
+-- total_count is how many rows match the filter before LIMIT, taken in the same
+-- query so the count and the page come from one snapshot -- the same
+-- single-round-trip rule the statistics queries follow. A page past the end
+-- returns no rows, and therefore no count either.
+WITH listed AS (
+    SELECT
+        a.id,
+        a.first_name,
+        a.last_name,
+        a.email,
+        a.created_at,
+        CASE
+            WHEN ad.account_id IS NOT NULL THEN 'admin'
+            WHEN f.account_id IS NOT NULL THEN 'farmer'
+            WHEN c.account_id IS NOT NULL THEN 'customer'
+            ELSE ''
+        END AS role
+    FROM account a
+    LEFT JOIN admin ad ON ad.account_id = a.id
+    LEFT JOIN farmer f ON f.account_id = a.id
+    LEFT JOIN customer c ON c.account_id = a.id
+)
+SELECT
+    listed.id,
+    listed.first_name,
+    listed.last_name,
+    listed.email,
+    listed.created_at,
+    listed.role,
+    (COUNT(*) OVER ())::bigint AS total_count
+FROM listed
+-- An empty argument means "no filter", so one query serves every combination
+-- of them. The service has already rejected a role that is not one of the
+-- three, so an empty role here is always "any", never "unmatchable".
+WHERE (sqlc.arg(role_filter)::text = '' OR listed.role = sqlc.arg(role_filter)::text)
+  AND (
+      sqlc.arg(search)::text = ''
+      OR listed.email ILIKE '%' || sqlc.arg(search)::text || '%'
+      OR listed.first_name ILIKE '%' || sqlc.arg(search)::text || '%'
+      OR listed.last_name ILIKE '%' || sqlc.arg(search)::text || '%'
+  )
+-- created_at is not unique, so id breaks the tie. Without it two accounts
+-- registered in the same transaction can swap places between page 1 and page 2
+-- and one of them is never shown.
+ORDER BY listed.created_at DESC, listed.id
+LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);

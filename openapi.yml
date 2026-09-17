@@ -29,6 +29,8 @@ tags:
     description: The Schwarzes Brett — notices a farmer posts for his current customers
   - name: statistics
     description: Aggregate statistics for farmers and admins
+  - name: admin
+    description: Back-office listings an admin reads
 
 paths:
   /api/auth/register:
@@ -982,6 +984,166 @@ paths:
               example:
                 error: internal error
 
+  /api/admin/farms:
+    get:
+      tags: [admin]
+      summary: List every farm on the platform
+      description: |
+        One page of the platform's farms, alphabetically by farm name. Admin
+        only; every other role receives 403.
+
+        This is the back-office view of a farm: it carries the owner and the
+        holdings, where `GET /api/farms/{farmID}` is public and carries the
+        description and founding date instead. `id` is the same farm id both
+        accept. A farm that owns nothing yet is listed with zeros rather than
+        left out.
+
+        The `fields` and `plots` objects are the same shapes `GET
+        /api/statistics` returns, computed by the same predicates — so summing
+        `fields.total`, `plots.total` and `plots.rented` across every page
+        reproduces the platform figures from that endpoint exactly.
+        `occupancyRate` is a ratio in `[0, 1]`, areas are square meters, and
+        `plots.rented` counts plots with a rental covering the present moment.
+
+        There is deliberately no filter by farmer id: the scope is the whole
+        platform, decided by the caller's role.
+      operationId: listFarms
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageOffset'
+        - name: q
+          in: query
+          required: false
+          description: >-
+            Case-insensitive substring matched against the farm name and
+            address, and the owner's name and email.
+          schema:
+            type: string
+          example: green
+        - name: postalCode
+          in: query
+          required: false
+          description: Exact match on the farm's postal code.
+          schema:
+            type: integer
+            format: int32
+          example: 76133
+      responses:
+        '200':
+          description: One page of farms.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FarmPage'
+              example:
+                items:
+                  - id: 2a7f4c30-8e51-4b92-bc07-1f6d9e3a5c84
+                    farmerId: 3f1c9a8e-0b21-4d33-9a7e-5c2f1b8d4e60
+                    name: Green Acres
+                    address: 1 Farm Lane
+                    postalCode: 76133
+                    owner: { firstName: Old, lastName: MacDonald, email: old@example.com }
+                    createdAt: '2026-09-13T16:21:04Z'
+                    fields: { total: 3, areaSquareMeters: 128394.5 }
+                    plots: { total: 42, rented: 17, available: 25, areaSquareMeters: 91002.1, occupancyRate: 0.4047619 }
+                    activeRentals: 17
+                  - id: 6d0b8e21-3a94-4c17-9f52-7b1c4d8e0a35
+                    farmerId: 9b7d2f10-6c44-4a55-8e19-2d3a6f0c1b72
+                    name: Aardvark Farm
+                    address: 2 Empty Road
+                    postalCode: 10115
+                    owner: { firstName: Bare, lastName: Acres, email: bare@example.com }
+                    createdAt: '2026-09-15T09:02:11Z'
+                    fields: { total: 0, areaSquareMeters: 0 }
+                    plots: { total: 0, rented: 0, available: 0, areaSquareMeters: 0, occupancyRate: 0 }
+                    activeRentals: 0
+                total: 2
+                limit: 20
+                offset: 0
+        '400':
+          $ref: '#/components/responses/BadPagination'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/NotAnAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/admin/accounts:
+    get:
+      tags: [admin]
+      summary: List every account on the platform
+      description: |
+        One page of the platform's accounts, newest first. Admin only; every
+        other role receives 403.
+
+        `role` is derived from which subtype table the account joins to, not
+        stored on the account. It is `null` for an account belonging to no
+        subtype table at all — an orphan that nothing in the API can create,
+        and that this listing is the place to notice.
+
+        No password material is ever returned.
+      operationId: listAccounts
+      parameters:
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/PageOffset'
+        - name: role
+          in: query
+          required: false
+          description: >-
+            Narrow to one role. A value outside the enum is a 400 rather than an
+            empty page, so a typo does not read as "no such accounts".
+          schema:
+            $ref: '#/components/schemas/Role'
+          example: farmer
+        - name: q
+          in: query
+          required: false
+          description: >-
+            Case-insensitive substring matched against email, first name and
+            last name.
+          schema:
+            type: string
+          example: ada
+      responses:
+        '200':
+          description: One page of accounts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountPage'
+              example:
+                items:
+                  - id: 3f1c9a8e-0b21-4d33-9a7e-5c2f1b8d4e60
+                    firstName: Old
+                    lastName: MacDonald
+                    email: old@example.com
+                    role: farmer
+                    createdAt: '2026-09-13T16:21:04Z'
+                  - id: 7c2e4b91-5a38-4f26-9d14-8b0e3a7c5d21
+                    firstName: Cora
+                    lastName: Customer
+                    email: cora@example.com
+                    role: customer
+                    createdAt: '2026-09-12T08:45:30Z'
+                total: 2
+                limit: 20
+                offset: 0
+        '400':
+          description: A malformed pagination parameter, or an unknown role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: role must be one of admin, farmer, customer
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/NotAnAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/announcements:
     post:
       tags: [announcements]
@@ -1191,6 +1353,63 @@ paths:
                 error: internal error
 
 components:
+  parameters:
+    PageLimit:
+      name: limit
+      in: query
+      required: false
+      description: How many rows to return. Out of range is a 400, not a silent clamp.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
+        default: 20
+    PageOffset:
+      name: offset
+      in: query
+      required: false
+      description: How many rows to skip. An offset past the end returns an empty page.
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+        default: 0
+
+  responses:
+    BadPagination:
+      description: A malformed pagination parameter.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: limit must be a number between 1 and 100
+    Unauthenticated:
+      description: No valid session cookie.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: not authenticated
+    NotAnAdmin:
+      description: The authenticated account is not an admin.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: insufficient permissions
+    InternalError:
+      description: Internal error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: internal error
+
   securitySchemes:
     accessTokenCookie:
       type: apiKey
@@ -1624,6 +1843,132 @@ components:
               example: North Field
             customer:
               $ref: '#/components/schemas/Customer'
+
+    PageMeta:
+      type: object
+      description: >-
+        The window a listing returned, and how many rows matched the filter in
+        total. `total` counts every match, not just the rows on this page, and
+        is taken in the same query as the rows — so the two cannot disagree.
+        A page past the end returns no rows and a `total` of `0`.
+      required: [total, limit, offset]
+      properties:
+        total:
+          type: integer
+          format: int64
+          example: 137
+        limit:
+          type: integer
+          format: int32
+          example: 20
+        offset:
+          type: integer
+          format: int32
+          example: 0
+
+    FarmOwner:
+      type: object
+      required: [firstName, lastName, email]
+      properties:
+        firstName:
+          type: string
+          example: Old
+        lastName:
+          type: string
+          example: MacDonald
+        email:
+          type: string
+          format: email
+          example: old@example.com
+
+    FarmListing:
+      type: object
+      required: [id, farmerId, name, address, postalCode, owner, createdAt, fields, plots, activeRentals]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The farm, as accepted by `GET /api/farms/{farmID}`.
+        farmerId:
+          type: string
+          format: uuid
+          description: The farmer account that owns this farm.
+        name:
+          type: string
+          example: Green Acres
+        address:
+          type: string
+          example: 1 Farm Lane
+        postalCode:
+          type: integer
+          format: int32
+          description: The owner's postal code, which lives on the farmer rather than the farm.
+          example: 76133
+        owner:
+          $ref: '#/components/schemas/FarmOwner'
+        createdAt:
+          type: string
+          format: date-time
+          description: When the owning account was registered.
+        fields:
+          $ref: '#/components/schemas/FieldStatistics'
+        plots:
+          $ref: '#/components/schemas/PlotStatistics'
+        activeRentals:
+          type: integer
+          format: int64
+          description: Rentals on this farm's plots covering the present moment.
+          example: 17
+
+    FarmPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/FarmListing'
+
+    AccountListing:
+      type: object
+      required: [id, firstName, lastName, email, role, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        firstName:
+          type: string
+          example: Old
+        lastName:
+          type: string
+          example: MacDonald
+        email:
+          type: string
+          format: email
+          example: old@example.com
+        role:
+          oneOf:
+            - $ref: '#/components/schemas/Role'
+            - type: 'null'
+          description: >-
+            Derived from subtype membership. `null` for an account belonging to
+            no subtype table at all.
+        createdAt:
+          type: string
+          format: date-time
+
+    AccountPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AccountListing'
 
     StatisticsScope:
       type: string

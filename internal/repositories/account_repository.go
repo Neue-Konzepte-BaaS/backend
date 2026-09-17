@@ -186,3 +186,43 @@ func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation
 }
+
+func (r *accountRepository) ListAccounts(ctx context.Context, filter models.AccountListFilter) (models.Page[models.AccountListing], error) {
+	rows, err := r.queries.ListAccounts(ctx, database.ListAccountsParams{
+		RoleFilter:   string(filter.Role),
+		Search:       filter.Query,
+		ResultLimit:  filter.Limit,
+		ResultOffset: filter.Offset,
+	})
+	if err != nil {
+		return models.Page[models.AccountListing]{}, err
+	}
+
+	page := models.Page[models.AccountListing]{
+		Items:  make([]models.AccountListing, len(rows)),
+		Limit:  filter.Limit,
+		Offset: filter.Offset,
+	}
+	for i, row := range rows {
+		page.Items[i] = toModelAccountListing(row)
+	}
+	// Every row carries the same window-function count, so the first one
+	// answers for all of them. No rows means the page is past the end, and
+	// Total stays zero -- the client already learned the real total from the
+	// page it got there from.
+	if len(rows) > 0 {
+		page.Total = rows[0].TotalCount
+	}
+	return page, nil
+}
+
+func toModelAccountListing(row database.ListAccountsRow) models.AccountListing {
+	return models.AccountListing{
+		ID:        row.ID,
+		FirstName: row.FirstName,
+		LastName:  row.LastName,
+		Email:     row.Email,
+		Role:      models.Role(row.Role),
+		CreatedAt: row.CreatedAt.Time,
+	}
+}

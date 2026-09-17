@@ -164,6 +164,7 @@ func main() {
 
 	dispatcher := services.NewDispatcher(notificationConcurrency)
 
+	accountService := services.NewAccountService(accountRepo)
 	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
 	farmService := services.NewFarmService(farmRepo)
 	fieldService := services.NewFieldService(farmRepo, fieldRepo, plotRepo, cropRepo)
@@ -175,6 +176,7 @@ func main() {
 	cropService := services.NewCropService(farmRepo, fieldRepo, plotRepo, cropRepo)
 	statisticsService := services.NewStatisticsService(farmRepo, statisticsRepo)
 
+	accountHandler := handlers.NewAccountHandler(accountService)
 	authHandler := handlers.NewAuthHandler(authService, c)
 	farmHandler := handlers.NewFarmHandler(farmService)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
@@ -185,7 +187,7 @@ func main() {
 	cropHandler := handlers.NewCropHandler(cropService)
 	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
 
-	router := handlers.NewRouter(authHandler, announcementHandler, farmHandler, fieldHandler, notificationHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
+	router := handlers.NewRouter(accountHandler, authHandler, announcementHandler, farmHandler, fieldHandler, notificationHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
 
 	// Shutdown is graceful because notifications are delivered after the
 	// response is written: killing the process on SIGTERM would drop mail that

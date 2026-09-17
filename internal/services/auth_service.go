@@ -34,6 +34,11 @@ var (
 	// ErrConflict is returned when an operation would violate a referential
 	// constraint, e.g. deleting a crop still referenced by a rental.
 	ErrConflict = errors.New("conflict")
+	// ErrInvalidFilter is returned when a listing filter cannot be satisfied
+	// as written, e.g. a role that is not one of the three. Returning it beats
+	// silently answering with an empty page, which reads as "no such accounts"
+	// when it actually means "no such role".
+	ErrInvalidFilter = errors.New("invalid filter")
 )
 
 // dummyHash is verified against when no account matches, so a request for an
