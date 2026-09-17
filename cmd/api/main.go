@@ -174,7 +174,7 @@ func main() {
 	inboxService := services.NewInboxService(broadcastNotificationRepo, announcementRepo)
 	plotService := services.NewPlotService(farmRepo, fieldRepo, plotRepo)
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo, cropRepo)
-	rentalService := services.NewRentalService(farmRepo, rentalRepo, plotRepo, cropRepo)
+	rentalService := services.NewRentalService(farmRepo, fieldRepo, rentalRepo, plotRepo, cropRepo)
 	cropService := services.NewCropService(farmRepo, fieldRepo, plotRepo, cropRepo)
 	statisticsService := services.NewStatisticsService(farmRepo, statisticsRepo)
 

@@ -39,6 +39,14 @@ var (
 	// silently answering with an empty page, which reads as "no such accounts"
 	// when it actually means "no such role".
 	ErrInvalidFilter = errors.New("invalid filter")
+	// ErrInvalidRentalRequest is returned when a rental request fails a
+	// business rule: a blank message, or a start date outside the window a
+	// customer is allowed to request (1 to 60 days out).
+	ErrInvalidRentalRequest = errors.New("invalid rental request")
+	// ErrRentalAlreadyDecided is returned when approving or declining a
+	// rental that is not (or no longer) in the Requested state, including
+	// when the id does not exist.
+	ErrRentalAlreadyDecided = errors.New("rental already decided")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

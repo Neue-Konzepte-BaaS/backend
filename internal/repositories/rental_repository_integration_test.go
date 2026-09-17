@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
@@ -156,6 +157,25 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 	return plot.ID, cropID
 }
 
+// rentNow requests a rental starting tomorrow (the earliest a customer may
+// request) and immediately approves it, for tests that need an occupied
+// plot rather than the request/approval flow itself.
+func rentNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plot, customer, crop uuid.UUID, durationMonths int32) models.Rental {
+	t.Helper()
+
+	rentalRepo := repositories.NewRentalRepository(database.New(pool))
+	requested, err := rentalRepo.CreateRentalRequest(ctx, plot, customer, crop, time.Now().Add(24*time.Hour), durationMonths, "please")
+	if err != nil {
+		t.Fatalf("requesting rental: %v", err)
+	}
+
+	approved, err := rentalRepo.UpdateRentalStatus(ctx, requested.ID, models.RentalStatusApproved)
+	if err != nil {
+		t.Fatalf("approving rental: %v", err)
+	}
+	return approved
+}
+
 // seedCustomer creates a bare customer account and returns its id.
 func seedCustomer(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.UUID {
 	t.Helper()
@@ -175,11 +195,13 @@ func seedCustomer(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.UU
 	return customer.ID
 }
 
-// TestCreateRental_RejectsOverlappingBooking verifies that the database's
-// exclusion constraint (and the repository's mapping of it) stops a plot
-// from being rented twice for overlapping periods, even though the service
-// layer never checks availability itself before inserting.
-func TestCreateRental_RejectsOverlappingBooking(t *testing.T) {
+// TestCreateRentalRequest_RejectsOverlappingBooking verifies that the
+// database's exclusion constraint (and the repository's mapping of it) stops
+// a plot from being requested twice for overlapping periods, even though the
+// service layer never checks availability itself before inserting. A
+// still-undecided request counts, not just an approved one -- otherwise two
+// customers could both be approved for the same plot.
+func TestCreateRentalRequest_RejectsOverlappingBooking(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 
@@ -188,18 +210,19 @@ func TestCreateRental_RejectsOverlappingBooking(t *testing.T) {
 	secondCustomer := seedCustomer(t, ctx, pool)
 
 	rentalRepo := repositories.NewRentalRepository(database.New(pool))
+	startAt := time.Now().Add(24 * time.Hour)
 
-	first, err := rentalRepo.CreateRental(ctx, plotID, firstCustomer, cropID, 6)
+	first, err := rentalRepo.CreateRentalRequest(ctx, plotID, firstCustomer, cropID, startAt, 6, "please")
 	if err != nil {
-		t.Fatalf("first booking: unexpected error: %v", err)
+		t.Fatalf("first request: unexpected error: %v", err)
 	}
 	if first.EndAt.Sub(first.StartAt) <= 0 {
 		t.Fatalf("expected a positive rental period, got start=%v end=%v", first.StartAt, first.EndAt)
 	}
 
-	_, err = rentalRepo.CreateRental(ctx, plotID, secondCustomer, cropID, 6)
+	_, err = rentalRepo.CreateRentalRequest(ctx, plotID, secondCustomer, cropID, startAt, 6, "please")
 	if !errors.Is(err, services.ErrPlotUnavailable) {
-		t.Fatalf("second (overlapping) booking: error = %v, want ErrPlotUnavailable", err)
+		t.Fatalf("second (overlapping) request: error = %v, want ErrPlotUnavailable", err)
 	}
 
 	// Sanity check: only the first booking exists.
@@ -238,14 +261,9 @@ func TestGetRentalsByFarm_IncludesHistoricAndScopesToOwnPlots(t *testing.T) {
 	pastCustomer := seedCustomer(t, ctx, pool)
 	somebodyElses := seedCustomer(t, ctx, pool)
 
-	active, err := rentalRepo.CreateRental(ctx, plots[0], activeCustomer, cropID, 6)
-	if err != nil {
-		t.Fatalf("renting plot: %v", err)
-	}
+	active := rentNow(t, ctx, pool, plots[0], activeCustomer, cropID, 6)
 	rentPast(t, ctx, pool, plots[1], pastCustomer, cropID)
-	if _, err := rentalRepo.CreateRental(ctx, otherPlots[0], somebodyElses, otherCrop, 6); err != nil {
-		t.Fatalf("renting other farmer's plot: %v", err)
-	}
+	rentNow(t, ctx, pool, otherPlots[0], somebodyElses, otherCrop, 6)
 
 	rentals, err := rentalRepo.GetRentalsByFarm(ctx, farmID)
 	if err != nil {

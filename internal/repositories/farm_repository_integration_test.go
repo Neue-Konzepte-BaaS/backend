@@ -200,7 +200,6 @@ func TestListFarms_ReconcilesWithPlatformStatistics(t *testing.T) {
 	queries := database.New(pool)
 	farmRepo := repositories.NewFarmRepository(queries)
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
-	rentalRepo := repositories.NewRentalRepository(queries)
 
 	// Three farms with different shapes, so the sums are not trivially equal:
 	// one with rentals, one with plots but none rented, one with nothing.
@@ -209,9 +208,7 @@ func TestListFarms_ReconcilesWithPlatformStatistics(t *testing.T) {
 	seedFarmWithoutFields(t, ctx, pool, "Aardvark Farm", 10115)
 
 	customer := seedCustomer(t, ctx, pool)
-	if _, err := rentalRepo.CreateRental(ctx, busyPlots[0], customer, busyCrop, 6); err != nil {
-		t.Fatalf("renting a plot: %v", err)
-	}
+	rentNow(t, ctx, pool, busyPlots[0], customer, busyCrop, 6)
 
 	page := listAllFarms(t, ctx, farmRepo)
 	platform, err := statisticsRepo.GetPlatformStatistics(ctx)
@@ -251,19 +248,12 @@ func TestListFarms_ExpiredRentalsStopCounting(t *testing.T) {
 	ctx := context.Background()
 	queries := database.New(pool)
 	farmRepo := repositories.NewFarmRepository(queries)
-	rentalRepo := repositories.NewRentalRepository(queries)
 
 	_, farmID, plotIDs, crop := seedFarmWithPlots(t, ctx, pool, 2)
 	customer := seedCustomer(t, ctx, pool)
 
-	live, err := rentalRepo.CreateRental(ctx, plotIDs[0], customer, crop, 6)
-	if err != nil {
-		t.Fatalf("renting the first plot: %v", err)
-	}
-	expired, err := rentalRepo.CreateRental(ctx, plotIDs[1], customer, crop, 6)
-	if err != nil {
-		t.Fatalf("renting the second plot: %v", err)
-	}
+	live := rentNow(t, ctx, pool, plotIDs[0], customer, crop, 6)
+	expired := rentNow(t, ctx, pool, plotIDs[1], customer, crop, 6)
 	expireRental(t, ctx, pool, expired.ID)
 
 	farm := findFarm(t, listAllFarms(t, ctx, farmRepo), farmID)
