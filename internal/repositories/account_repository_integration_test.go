@@ -196,3 +196,78 @@ func TestListAccounts_FiltersNarrowBothItemsAndTotal(t *testing.T) {
 		})
 	}
 }
+
+// TestGetAccountByID_IncludesNameAndPostalCode pins that GetAccountByID
+// carries enough to build a tenant/farmer profile page (issue #34): first
+// and last name, plus postal code sourced from whichever subtype table
+// matches. An admin has neither subtype's postal_code, hence 0.
+func TestGetAccountByID_IncludesNameAndPostalCode(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+	repo := repositories.NewAccountRepository(pool, database.New(pool))
+
+	customer := seedCustomer(t, ctx, pool)
+	farmer, _, _, _ := seedFarmWithPlots(t, ctx, pool, 1)
+	admin, err := repo.CreateAdmin(ctx, models.Account{
+		FirstName:    "Ann",
+		LastName:     "Admin",
+		Email:        uuid.NewString() + "@example.com",
+		PasswordHash: "irrelevant",
+	})
+	if err != nil {
+		t.Fatalf("creating admin: %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		id             uuid.UUID
+		wantFirstName  string
+		wantPostalCode int32
+	}{
+		{name: "customer", id: customer, wantFirstName: "Ada", wantPostalCode: 76133},
+		{name: "farmer", id: farmer, wantFirstName: "Old", wantPostalCode: 76133},
+		{name: "admin", id: admin.ID, wantFirstName: "Ann", wantPostalCode: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			account, err := repo.GetAccountByID(ctx, tt.id)
+			if err != nil {
+				t.Fatalf("getting account: %v", err)
+			}
+			if account.FirstName != tt.wantFirstName {
+				t.Errorf("first name = %q, want %q", account.FirstName, tt.wantFirstName)
+			}
+			if account.PostalCode != tt.wantPostalCode {
+				t.Errorf("postal code = %d, want %d", account.PostalCode, tt.wantPostalCode)
+			}
+		})
+	}
+}
+
+// TestGetAccountByEmail_IncludesPostalCode pins that the login path (which
+// resolves the account via GetAccountByEmail, not GetAccountByID) also
+// carries postal code -- both queries derive it the same way.
+func TestGetAccountByEmail_IncludesPostalCode(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+	repo := repositories.NewAccountRepository(pool, database.New(pool))
+
+	email := uuid.NewString() + "@example.com"
+	if _, err := repo.CreateCustomer(ctx, models.Account{
+		FirstName:    "Ada",
+		LastName:     "Lovelace",
+		Email:        email,
+		PasswordHash: "irrelevant",
+	}, 76133); err != nil {
+		t.Fatalf("creating customer: %v", err)
+	}
+
+	account, err := repo.GetAccountByEmail(ctx, email)
+	if err != nil {
+		t.Fatalf("getting account: %v", err)
+	}
+	if account.PostalCode != 76133 {
+		t.Errorf("postal code = %d, want 76133", account.PostalCode)
+	}
+}

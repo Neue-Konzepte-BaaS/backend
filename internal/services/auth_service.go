@@ -8,6 +8,7 @@ import (
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/credentials"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
+	"github.com/google/uuid"
 )
 
 var (
@@ -55,6 +56,11 @@ type AuthService interface {
 	Login(ctx context.Context, email, plainPassword string) (models.Account, TokenPair, error)
 	Register(ctx context.Context, input RegisterInput) (models.Account, TokenPair, error)
 	Authenticate(ctx context.Context, accessToken string) (credentials.Claims, error)
+	// Me resolves the full account behind an already-authenticated request
+	// (see middleware.RequireAuth). The JWT claims alone only carry the user
+	// id and role, not name/postal code, so /auth/me needs this extra lookup
+	// to answer with more than that.
+	Me(ctx context.Context, id uuid.UUID) (models.Account, error)
 }
 
 // ErrInvalidRegistration reports a registration that fails a business rule
@@ -168,6 +174,18 @@ func (s *authService) Register(ctx context.Context, input RegisterInput) (models
 
 	account.PasswordHash = ""
 	return account, pair, nil
+}
+
+func (s *authService) Me(ctx context.Context, id uuid.UUID) (models.Account, error) {
+	account, err := s.accountRepo.GetAccountByID(ctx, id)
+	if err != nil {
+		// Wrapped, not returned bare: errors.Is still finds ErrNotFound through
+		// %w, and everything else keeps the "where did this fail" context.
+		return models.Account{}, fmt.Errorf("resolving account: %w", err)
+	}
+
+	account.PasswordHash = ""
+	return account, nil
 }
 
 func (s *authService) Authenticate(ctx context.Context, accessToken string) (credentials.Claims, error) {
