@@ -51,6 +51,10 @@ type fakeRecipientRepo struct {
 	calls             int
 }
 
+func (f *fakeRecipientRepo) ListAccounts(context.Context, models.AccountListFilter) (models.Page[models.AccountListing], error) {
+	panic("the notification service does not list accounts")
+}
+
 func (f *fakeRecipientRepo) GetAllRecipients(context.Context) ([]models.Recipient, error) {
 	f.calls++
 	if f.err != nil {

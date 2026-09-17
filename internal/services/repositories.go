@@ -27,6 +27,10 @@ type AccountRepository interface {
 	// recipient. Admins are not included: a platform-wide notice is addressed
 	// to users, not to the operators sending it.
 	GetAllRecipients(ctx context.Context) ([]models.Recipient, error)
+	// ListAccounts returns one page of every account on the platform, newest
+	// first, together with how many accounts match the filter in total. An
+	// empty page is an empty page: this never reports ErrNotFound.
+	ListAccounts(ctx context.Context, filter models.AccountListFilter) (models.Page[models.AccountListing], error)
 	// GetCustomersOfFarmer returns the customers currently renting one of the
 	// farmer's plots, each exactly once however many plots they rent. A
 	// customer whose rental has ended is not included: the farmer's licence to
@@ -59,6 +63,10 @@ type FarmRepository interface {
 	// GetFarmIDByFarmerID resolves a farmer's own farm id. Returns
 	// ErrNotFound if the account is not a farmer.
 	GetFarmIDByFarmerID(ctx context.Context, farmerID uuid.UUID) (uuid.UUID, error)
+	// ListFarms returns one page of every farm on the platform, together with
+	// how many match the filter in total. A farm that owns nothing comes back
+	// with zeros rather than being left out.
+	ListFarms(ctx context.Context, filter models.FarmListFilter) (models.Page[models.FarmListing], error)
 }
 
 type FieldRepository interface {

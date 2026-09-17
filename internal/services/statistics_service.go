@@ -53,12 +53,22 @@ func (s *statisticsService) GetStatistics(ctx context.Context, account uuid.UUID
 }
 
 // withDerivedStatistics fills the figures computed from the measured ones.
+func withDerivedStatistics(stats models.Statistics) models.Statistics {
+	stats.Plots = derivePlotFigures(stats.Plots)
+	return stats
+}
+
+// derivePlotFigures fills Available and OccupancyRate from Total and Rented.
 // Kept in Go, not SQL, so a divide-by-zero for a farmer with no plots yet is
 // an ordinary guarded branch rather than a NULL crossing into pgx.
-func withDerivedStatistics(stats models.Statistics) models.Statistics {
-	stats.Plots.Available = stats.Plots.Total - stats.Plots.Rented
-	if stats.Plots.Total > 0 {
-		stats.Plots.OccupancyRate = float64(stats.Plots.Rented) / float64(stats.Plots.Total)
+//
+// The admin farm list derives its per-farm figures through this same function,
+// so "occupancy" means one thing platform-wide rather than one thing per
+// endpoint.
+func derivePlotFigures(plots models.PlotStatistics) models.PlotStatistics {
+	plots.Available = plots.Total - plots.Rented
+	if plots.Total > 0 {
+		plots.OccupancyRate = float64(plots.Rented) / float64(plots.Total)
 	}
-	return stats
+	return plots
 }

@@ -236,13 +236,20 @@ Every other repository is satisfied by `*database.Queries` alone.
 graph TD
     R["chi Router"] --> G["Global: RequestID · Recoverer · Logger<br/>+ CORS when CORS_ENABLED"]
 
+    G --> AD["/api/admin<br/>RequireAuth + RequireRole(admin)"]
     G --> A["/api/auth"]
+    G --> FA["/api/farms<br/>— public —"]
     G --> F["/api/fields<br/>RequireAuth + RequireRole(farmer)"]
     G --> P["/api/plots<br/>— public —"]
     G --> RE["/api/rentals<br/>RequireAuth + RequireRole(customer)"]
     G --> N["/api/notifications<br/>RequireAuth + RequireRole(admin)"]
     G --> AN["/api/announcements<br/>RequireAuth + farmer (POST)<br/>farmer or customer (GET)"]
     G --> ST["/api/statistics<br/>RequireAuth + RequireAnyRole(farmer, admin)"]
+
+    AD --> AD1["GET /farms"]
+    AD --> AD2["GET /accounts"]
+
+    FA --> FA1["GET /{farmID}"]
 
     A --> A1["POST /login"]
     A --> A2["POST /register"]
@@ -268,10 +275,13 @@ graph TD
 
 | Method & path | Auth | Role | Handler |
 | --- | --- | --- | --- |
+| `GET /api/admin/farms` | cookie | admin | [farm_handler.go](internal/handlers/farm_handler.go) |
+| `GET /api/admin/accounts` | cookie | admin | [account_handler.go](internal/handlers/account_handler.go) |
 | `POST /api/auth/register` | – | – | [auth_handler.go:83](internal/handlers/auth_handler.go#L83) |
 | `POST /api/auth/login` | – | – | [auth_handler.go:48](internal/handlers/auth_handler.go#L48) |
 | `POST /api/auth/logout` | – | – | [auth_handler.go:137](internal/handlers/auth_handler.go#L137) |
 | `GET /api/auth/me` | cookie | any | [auth_handler.go:125](internal/handlers/auth_handler.go#L125) |
+| `GET /api/farms/{farmID}` | – | – | [farm_handler.go](internal/handlers/farm_handler.go) |
 | `POST /api/fields` | cookie | farmer | [field_handler.go:85](internal/handlers/field_handler.go#L85) |
 | `GET /api/fields` | cookie | farmer | [field_handler.go:128](internal/handlers/field_handler.go#L128) |
 | `POST /api/fields/{fieldID}/plots` | cookie | farmer | [field_handler.go:163](internal/handlers/field_handler.go#L163) |
@@ -722,6 +732,57 @@ not allowed to hold any; `NotificationService` is an interface owned by
 
 ---
 
+## 9b. Admin listings
+
+`GET /api/admin/farms` and `GET /api/admin/accounts` ([§5](#5-http-surface)) are the
+same design applied to lists. The caller's role is the whole of the scope — both are
+admin-only and always platform-wide, and there is deliberately **no farm-id or
+farmer-id filter** on the farm list, so there is no identity parameter to tamper with
+should a second role ever reach these routes.
+
+`GET /api/admin/farms` and the public `GET /api/farms/{farmID}` are two views of the
+same `farm` row, split by audience rather than by entity: the public one carries the
+description and founding date a visitor reads, the admin one the owner and the holdings
+an operator scans. Both key on the same farm id, and both live on `FarmService` — which
+is why the farm listing is a domain service rather than an "AdminService": the audience
+is a routing concern, not a domain one.
+
+The farm list computes its per-farm figures with the predicates
+[statistics.sql](sql/queries/statistics.sql) uses, unchanged: `ST_Area` over
+`::geography` for areas, and `period @> CURRENT_TIMESTAMP` for "rented right now". That
+buys a testable invariant:
+
+> Summing `fields.total`, `plots.total` and `plots.rented` across every page of
+> `GET /api/admin/farms` reproduces `fields.total`, `plots.total` and `plots.rented`
+> from `GET /api/statistics` at platform scope, exactly.
+
+An admin who compares the two screens must not see two different numbers, so
+`TestListFarms_ReconcilesWithPlatformStatistics` asserts it. `available` and
+`occupancyRate` go further and share the code: `derivePlotFigures`
+([statistics_service.go](internal/services/statistics_service.go)) is what both
+`withDerivedStatistics` and `farmService.ListFarms` call, so "occupancy" cannot come to
+mean two things.
+
+Aggregating per farm needs one thing §9's cross-join of single-row CTEs does not: each
+figure hangs off its own `LEFT JOIN LATERAL`. Grouping a farm's fields, plots and
+rentals in a single joined pass would multiply the rows against one another and count
+each field once per plot. An ungrouped aggregate returns a row even over no rows, so a
+farm that owns nothing is a row of zeros rather than a missing row — the same promise
+§9 makes to a farmer who owns nothing.
+
+**Pagination** arrives with these two routes and only these two (§13, gap 9). `limit`
+(default 20, max 100) and `offset`, with `total` taken in the same query as the rows via
+`(COUNT(*) OVER ())`. That is the §9 single-round-trip rule doing a second job: a
+registration landing between two round trips cannot make page 2 skip a row. The response
+is an envelope, `{items, total, limit, offset}` — unlike the bare arrays returned by
+`GET /api/fields`, `/api/rentals` and `/api/announcements`, because a bare array has
+nowhere to put `total`. New paginated routes should use the envelope; the existing three
+were left alone. Ordering always ends in a tiebreaker on `id`: farm names and
+`created_at` are both non-unique, and without it a row can shift between pages and never
+be shown.
+
+---
+
 ## 10. Configuration
 
 Everything comes from environment variables; `config.Load()` validates and returns
@@ -807,10 +868,10 @@ they are the things a newcomer will trip over:
 2. **No `/api/auth/refresh`.** The refresh token is issued and path-scoped to an
    endpoint that does not exist, so sessions hard-expire after the 15-minute access
    TTL. This is the most user-visible missing piece.
-3. ~~**Admins are unreachable through the API.**~~ Partially closed: `RequireAnyRole`
-   (§9) now exists, and `GET /api/statistics` is the first route an admin can reach.
-   Admins still cannot self-register (by design — seeded directly in the database) and
-   still have no route of their own for anything besides statistics.
+3. ~~**Admins are unreachable through the API.**~~ Closed: `RequireAnyRole` (§9) exists,
+   and `/api/admin` (§9b) is now an admin-only route group of its own, with the farm and
+   account listings under it. Admins still cannot self-register — by design, they are
+   seeded directly in the database.
 4. **A built binary (`main`, ~5 MB) is committed** at the repo root and is not in
    `.gitignore`.
 5. **`-tags=integration` in CI is a no-op.** The integration test has no build tag; it
@@ -823,9 +884,12 @@ they are the things a newcomer will trip over:
    400/404. Unreachable today because the farmer id comes from a verified token.
 8. **`GetAccountByID` and `GetPlotByID`/`GetFieldByID`** are implemented but unused.
 9. **No pagination** on `GET /api/fields`, `GET /api/rentals` or
-   `GET /api/announcements`, and no rate limiting or request-body size limit
-   anywhere. `POST /api/announcements` caps its subject and body in the handler,
-   which bounds one post but not how many a farmer may make.
+   `GET /api/announcements`. The two `/api/admin` listings are paginated (§9b) and
+   establish the convention, but retrofitting the older three would change their
+   response shape from a bare array to an envelope, so it has not been done. There is
+   still no rate limiting or request-body size limit anywhere. `POST /api/announcements`
+   caps its subject and body in the handler, which bounds one post but not how many a
+   farmer may make.
 10. **The skill file references `db/queries/`**, but queries actually live in
     `sql/queries/` — worth fixing so generated guidance stays accurate.
 11. **Notification delivery is fire-and-forget.** Nothing is persisted, queued or
