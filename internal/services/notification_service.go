@@ -25,11 +25,12 @@ type NotificationService interface {
 	// failures. It returns how many were delivered and, if any failed, a joined
 	// error describing them.
 	SendMailFromTemplateToMany(recipients []models.Recipient, subject string, templateName string, data any) (int, error)
-	// NotifyAllUsers delivers a message to every farmer and customer on the
-	// platform. Recipients are resolved before returning, so a database failure
-	// surfaces to the caller, but delivery itself happens in the background:
-	// the returned count is how many people were queued, not how many were
-	// reached.
+	// NotifyAllUsers stores the broadcast and delivers it to every farmer and
+	// customer on the platform. It is persisted before recipients are resolved,
+	// so a database failure surfaces to the caller before any mail goes out,
+	// and the notice remains readable afterwards regardless of delivery
+	// outcome. Delivery itself happens in the background: the returned count is
+	// how many people were queued, not how many were reached.
 	NotifyAllUsers(ctx context.Context, subject, body string) (int, error)
 	// NotifyFarmerCustomers delivers a message to the customers currently
 	// renting one of the farmer's plots. It behaves like NotifyAllUsers:
@@ -73,19 +74,21 @@ type templateEntry struct {
 }
 
 type notificationService struct {
-	emailSender EmailSender
-	accountRepo AccountRepository
-	templateFS  fs.FS
-	dispatcher  *Dispatcher
-	templates   sync.Map
+	emailSender   EmailSender
+	accountRepo   AccountRepository
+	broadcastRepo BroadcastNotificationRepository
+	templateFS    fs.FS
+	dispatcher    *Dispatcher
+	templates     sync.Map
 }
 
-func NewNotificationService(emailSender EmailSender, accountRepo AccountRepository, templateFS fs.FS, dispatcher *Dispatcher) NotificationService {
+func NewNotificationService(emailSender EmailSender, accountRepo AccountRepository, broadcastRepo BroadcastNotificationRepository, templateFS fs.FS, dispatcher *Dispatcher) NotificationService {
 	return &notificationService{
-		emailSender: emailSender,
-		accountRepo: accountRepo,
-		templateFS:  templateFS,
-		dispatcher:  dispatcher,
+		emailSender:   emailSender,
+		accountRepo:   accountRepo,
+		broadcastRepo: broadcastRepo,
+		templateFS:    templateFS,
+		dispatcher:    dispatcher,
 	}
 }
 
@@ -155,6 +158,10 @@ func (s *notificationService) SendMailFromTemplateToMany(recipients []models.Rec
 }
 
 func (s *notificationService) NotifyAllUsers(ctx context.Context, subject, body string) (int, error) {
+	if _, err := s.broadcastRepo.CreateBroadcastNotification(ctx, subject, body); err != nil {
+		return 0, fmt.Errorf("storing broadcast notification: %w", err)
+	}
+
 	recipients, err := s.accountRepo.GetAllRecipients(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("loading recipients: %w", err)

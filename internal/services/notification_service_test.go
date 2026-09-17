@@ -89,6 +89,25 @@ func (f *fakeRecipientRepo) CreateCustomer(context.Context, models.Account, int3
 	panic("notification service does not create accounts")
 }
 
+// fakeBroadcastRepo records what was stored and can fail on demand.
+type fakeBroadcastRepo struct {
+	stored    []models.BroadcastNotification
+	createErr error
+}
+
+func (f *fakeBroadcastRepo) CreateBroadcastNotification(_ context.Context, subject, body string) (models.BroadcastNotification, error) {
+	if f.createErr != nil {
+		return models.BroadcastNotification{}, f.createErr
+	}
+	notification := models.BroadcastNotification{ID: uuid.New(), Subject: subject, Body: body}
+	f.stored = append(f.stored, notification)
+	return notification, nil
+}
+
+func (f *fakeBroadcastRepo) GetAllBroadcastNotifications(context.Context) ([]models.BroadcastNotification, error) {
+	return f.stored, nil
+}
+
 func testTemplates() fstest.MapFS {
 	return fstest.MapFS{
 		"broadcast.html": &fstest.MapFile{
@@ -98,7 +117,7 @@ func testTemplates() fstest.MapFS {
 }
 
 func newTestNotificationService(sender EmailSender, repo AccountRepository) NotificationService {
-	return NewNotificationService(sender, repo, testTemplates(), NewDispatcher(1))
+	return NewNotificationService(sender, repo, &fakeBroadcastRepo{}, testTemplates(), NewDispatcher(1))
 }
 
 func recipient(email, first, last string) models.Recipient {
@@ -218,7 +237,8 @@ func TestNotifyAllUsers_QueuesEveryRecipient(t *testing.T) {
 		recipient("ben@example.com", "Ben", "Klein"),
 	}}
 	dispatcher := NewDispatcher(1)
-	svc := NewNotificationService(sender, repo, testTemplates(), dispatcher)
+	broadcastRepo := &fakeBroadcastRepo{}
+	svc := NewNotificationService(sender, repo, broadcastRepo, testTemplates(), dispatcher)
 
 	queued, err := svc.NotifyAllUsers(context.Background(), "Wartung", "Sonntag offline")
 	if err != nil {
@@ -229,6 +249,9 @@ func TestNotifyAllUsers_QueuesEveryRecipient(t *testing.T) {
 	}
 	if repo.calls != 1 {
 		t.Errorf("recipient lookups = %d, want exactly 1", repo.calls)
+	}
+	if len(broadcastRepo.stored) != 1 {
+		t.Errorf("stored %d broadcasts, want 1", len(broadcastRepo.stored))
 	}
 
 	// Delivery is asynchronous, so wait for the dispatcher before asserting.
@@ -250,6 +273,24 @@ func TestNotifyAllUsers_RepositoryFailureIsReturned(t *testing.T) {
 
 	if _, err := svc.NotifyAllUsers(context.Background(), "Wartung", "Sonntag offline"); !errors.Is(err, boom) {
 		t.Errorf("error = %v, want it to wrap the repository failure", err)
+	}
+}
+
+func TestNotifyAllUsers_StorageFailurePreventsSending(t *testing.T) {
+	boom := errors.New("db exploded")
+	sender := &fakeEmailSender{}
+	repo := &fakeRecipientRepo{recipients: []models.Recipient{recipient("anna@example.com", "Anna", "Bauer")}}
+	broadcastRepo := &fakeBroadcastRepo{createErr: boom}
+	svc := NewNotificationService(sender, repo, broadcastRepo, testTemplates(), NewDispatcher(1))
+
+	if _, err := svc.NotifyAllUsers(context.Background(), "Wartung", "Sonntag offline"); !errors.Is(err, boom) {
+		t.Errorf("error = %v, want it to wrap the storage failure", err)
+	}
+	if repo.calls != 0 {
+		t.Errorf("recipient lookups = %d, want 0 when storage failed first", repo.calls)
+	}
+	if len(sender.sent) != 0 {
+		t.Errorf("sent %d mails, want none when storage failed", len(sender.sent))
 	}
 }
 
@@ -279,7 +320,7 @@ func TestNotifyFarmerCustomers_QueuesTheFarmersOwnCustomers(t *testing.T) {
 		},
 	}}
 	dispatcher := NewDispatcher(1)
-	svc := NewNotificationService(sender, repo, announcementTestTemplates(), dispatcher)
+	svc := NewNotificationService(sender, repo, &fakeBroadcastRepo{}, announcementTestTemplates(), dispatcher)
 
 	queued, err := svc.NotifyFarmerCustomers(context.Background(), farmer, "Hof Grünwald", "Ernte", "Samstag")
 	if err != nil {
@@ -308,7 +349,7 @@ func TestNotifyFarmerCustomers_QueuesTheFarmersOwnCustomers(t *testing.T) {
 func TestNotifyFarmerCustomers_NoCustomersSendsNothing(t *testing.T) {
 	sender := &fakeEmailSender{}
 	repo := &fakeRecipientRepo{customersOfFarmer: map[uuid.UUID][]models.Recipient{}}
-	svc := NewNotificationService(sender, repo, announcementTestTemplates(), NewDispatcher(1))
+	svc := NewNotificationService(sender, repo, &fakeBroadcastRepo{}, announcementTestTemplates(), NewDispatcher(1))
 
 	queued, err := svc.NotifyFarmerCustomers(context.Background(), uuid.New(), "Hof", "Ernte", "Samstag")
 	if err != nil {
@@ -324,7 +365,7 @@ func TestNotifyFarmerCustomers_NoCustomersSendsNothing(t *testing.T) {
 
 func TestNotifyFarmerCustomers_RepositoryFailureIsReturned(t *testing.T) {
 	boom := errors.New("db exploded")
-	svc := NewNotificationService(&fakeEmailSender{}, &fakeRecipientRepo{err: boom}, announcementTestTemplates(), NewDispatcher(1))
+	svc := NewNotificationService(&fakeEmailSender{}, &fakeRecipientRepo{err: boom}, &fakeBroadcastRepo{}, announcementTestTemplates(), NewDispatcher(1))
 
 	if _, err := svc.NotifyFarmerCustomers(context.Background(), uuid.New(), "Hof", "Ernte", "Samstag"); !errors.Is(err, boom) {
 		t.Errorf("error = %v, want it to wrap the repository failure", err)
