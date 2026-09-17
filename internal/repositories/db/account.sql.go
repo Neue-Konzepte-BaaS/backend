@@ -24,7 +24,8 @@ SELECT
         WHEN f.account_id IS NOT NULL THEN 'farmer'
         WHEN c.account_id IS NOT NULL THEN 'customer'
         ELSE ''
-    END AS role
+    END AS role,
+    COALESCE(f.postal_code, c.postal_code, 0)::int AS postal_code
 FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id
@@ -40,10 +41,14 @@ type GetAccountByEmailRow struct {
 	PasswordHash string
 	Email        string
 	Role         string
+	PostalCode   int32
 }
 
 // Role is not stored on account; it is implied by which subtype table the
 // account joins to. admin.role is an admin-internal tier, not the account role.
+// postal_code lives on whichever subtype table matches (farmer/customer); an
+// admin has neither, hence the 0 default -- mirrors the frontend's own
+// "0 means unknown" convention for postalCode.
 func (q *Queries) GetAccountByEmail(ctx context.Context, email string) (GetAccountByEmailRow, error) {
 	row := q.db.QueryRow(ctx, getAccountByEmail, email)
 	var i GetAccountByEmailRow
@@ -54,6 +59,7 @@ func (q *Queries) GetAccountByEmail(ctx context.Context, email string) (GetAccou
 		&i.PasswordHash,
 		&i.Email,
 		&i.Role,
+		&i.PostalCode,
 	)
 	return i, err
 }
@@ -69,7 +75,8 @@ SELECT
         WHEN f.account_id IS NOT NULL THEN 'farmer'
         WHEN c.account_id IS NOT NULL THEN 'customer'
         ELSE ''
-    END AS role
+    END AS role,
+    COALESCE(f.postal_code, c.postal_code, 0)::int AS postal_code
 FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id
@@ -79,11 +86,12 @@ LIMIT 1
 `
 
 type GetAccountByIDRow struct {
-	ID        uuid.UUID
-	FirstName string
-	LastName  string
-	Email     string
-	Role      string
+	ID         uuid.UUID
+	FirstName  string
+	LastName   string
+	Email      string
+	Role       string
+	PostalCode int32
 }
 
 func (q *Queries) GetAccountByID(ctx context.Context, id uuid.UUID) (GetAccountByIDRow, error) {
@@ -95,6 +103,7 @@ func (q *Queries) GetAccountByID(ctx context.Context, id uuid.UUID) (GetAccountB
 		&i.LastName,
 		&i.Email,
 		&i.Role,
+		&i.PostalCode,
 	)
 	return i, err
 }

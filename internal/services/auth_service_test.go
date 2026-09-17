@@ -18,14 +18,21 @@ type fakeAccountRepo struct {
 	lastFarmName      string
 	lastPostalCode    int32
 	createdRole       models.Role
+
+	// byID backs GetAccountByID for TestMe_* below; nil means "not found".
+	byID map[uuid.UUID]models.Account
 }
 
 func (f *fakeAccountRepo) GetAccountByEmail(context.Context, string) (models.Account, error) {
 	return models.Account{}, ErrNotFound
 }
 
-func (f *fakeAccountRepo) GetAccountByID(context.Context, uuid.UUID) (models.Account, error) {
-	return models.Account{}, ErrNotFound
+func (f *fakeAccountRepo) GetAccountByID(_ context.Context, id uuid.UUID) (models.Account, error) {
+	account, ok := f.byID[id]
+	if !ok {
+		return models.Account{}, ErrNotFound
+	}
+	return account, nil
 }
 
 func (f *fakeAccountRepo) GetAllRecipients(context.Context) ([]models.Recipient, error) {
@@ -49,6 +56,7 @@ func (f *fakeAccountRepo) CreateFarmer(_ context.Context, account models.Account
 	f.createdRole = models.RoleFarmer
 	account.ID = uuid.New()
 	account.Role = models.RoleFarmer
+	account.PostalCode = postalCode
 	return account, nil
 }
 
@@ -64,6 +72,7 @@ func (f *fakeAccountRepo) CreateCustomer(_ context.Context, account models.Accou
 	f.createdRole = models.RoleCustomer
 	account.ID = uuid.New()
 	account.Role = models.RoleCustomer
+	account.PostalCode = postalCode
 	return account, nil
 }
 
@@ -102,6 +111,9 @@ func TestRegister_Customer(t *testing.T) {
 	}
 	if repo.lastPostalCode != 76133 {
 		t.Errorf("postal code = %d, want 76133", repo.lastPostalCode)
+	}
+	if account.PostalCode != 76133 {
+		t.Errorf("account.PostalCode = %d, want 76133", account.PostalCode)
 	}
 }
 
@@ -197,5 +209,44 @@ func TestRegister_EmailTakenPropagates(t *testing.T) {
 	_, _, err := svc.Register(context.Background(), validCustomerInput())
 	if !errors.Is(err, ErrEmailTaken) {
 		t.Fatalf("error = %v, want ErrEmailTaken", err)
+	}
+}
+
+func TestMe_OK(t *testing.T) {
+	id := uuid.New()
+	repo := &fakeAccountRepo{byID: map[uuid.UUID]models.Account{
+		id: {
+			ID:           id,
+			FirstName:    "Ada",
+			LastName:     "Lovelace",
+			Email:        "ada@example.com",
+			PasswordHash: "should-never-leave-this-function",
+			Role:         models.RoleCustomer,
+			PostalCode:   76133,
+		},
+	}}
+	svc := newTestService(repo)
+
+	account, err := svc.Me(context.Background(), id)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if account.FirstName != "Ada" || account.LastName != "Lovelace" {
+		t.Errorf("name = %q %q, want Ada Lovelace", account.FirstName, account.LastName)
+	}
+	if account.PostalCode != 76133 {
+		t.Errorf("postal code = %d, want 76133", account.PostalCode)
+	}
+	if account.PasswordHash != "" {
+		t.Error("password hash must not be returned to the caller")
+	}
+}
+
+func TestMe_NotFound(t *testing.T) {
+	svc := newTestService(&fakeAccountRepo{})
+
+	_, err := svc.Me(context.Background(), uuid.New())
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("error = %v, want ErrNotFound", err)
 	}
 }

@@ -44,6 +44,7 @@ func (r *accountRepository) GetAccountByEmail(ctx context.Context, email string)
 		Email:        row.Email,
 		PasswordHash: row.PasswordHash,
 		Role:         models.Role(row.Role),
+		PostalCode:   row.PostalCode,
 	}, nil
 }
 
@@ -58,11 +59,12 @@ func (r *accountRepository) GetAccountByID(ctx context.Context, id uuid.UUID) (m
 	}
 
 	return models.Account{
-		ID:        row.ID,
-		FirstName: row.FirstName,
-		LastName:  row.LastName,
-		Email:     row.Email,
-		Role:      models.Role(row.Role),
+		ID:         row.ID,
+		FirstName:  row.FirstName,
+		LastName:   row.LastName,
+		Email:      row.Email,
+		Role:       models.Role(row.Role),
+		PostalCode: row.PostalCode,
 	}, nil
 }
 
@@ -111,7 +113,7 @@ func (r *accountRepository) CreateAdmin(ctx context.Context, account models.Acco
 // CreateFarmer atomically inserts the account, its farmer subtype row, and
 // the farm it runs — a farmer never exists without exactly one farm.
 func (r *accountRepository) CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32, address string, description string) (models.Account, error) {
-	return r.createAccountWithSubtype(ctx, account, models.RoleFarmer, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
+	account, err := r.createAccountWithSubtype(ctx, account, models.RoleFarmer, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
 		if err := q.InsertFarmer(ctx, database.InsertFarmerParams{
 			AccountID:  id,
 			PostalCode: postalCode,
@@ -126,15 +128,25 @@ func (r *accountRepository) CreateFarmer(ctx context.Context, account models.Acc
 		})
 		return err
 	})
+	if err != nil {
+		return models.Account{}, err
+	}
+	account.PostalCode = postalCode
+	return account, nil
 }
 
 func (r *accountRepository) CreateCustomer(ctx context.Context, account models.Account, postalCode int32) (models.Account, error) {
-	return r.createAccountWithSubtype(ctx, account, models.RoleCustomer, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
+	account, err := r.createAccountWithSubtype(ctx, account, models.RoleCustomer, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
 		return q.InsertCustomer(ctx, database.InsertCustomerParams{
 			AccountID:  id,
 			PostalCode: postalCode,
 		})
 	})
+	if err != nil {
+		return models.Account{}, err
+	}
+	account.PostalCode = postalCode
+	return account, nil
 }
 
 // createAccountWithSubtype inserts the account row and its role-specific subtype

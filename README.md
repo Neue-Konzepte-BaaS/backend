@@ -59,10 +59,13 @@ make up
 ## Auth endpoints
 
 - `POST /api/auth/register` — register a **farmer** or **customer**; sets the auth
-  cookies and returns `{id, role}`. Admins are seeded in the database, not
-  registered here.
-- `POST /api/auth/login` — sets the auth cookies and returns `{id, role}`.
-- `GET /api/auth/me` — returns `{id, role}` for the authenticated cookie.
+  cookies and returns `{id, role, first_name, last_name, postal_code}`. Admins are
+  seeded in the database, not registered here.
+- `POST /api/auth/login` — sets the auth cookies and returns
+  `{id, role, first_name, last_name, postal_code}`.
+- `GET /api/auth/me` — returns `{id, role, first_name, last_name, postal_code}` for
+  the authenticated cookie. `postal_code` is 0 for an admin (no farmer/customer
+  subtype row carries one).
 - `POST /api/auth/logout` — expires both auth cookies (HttpOnly, so the browser
   can't clear them itself); returns `204`.
 
