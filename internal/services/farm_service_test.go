@@ -9,20 +9,73 @@ import (
 	"github.com/google/uuid"
 )
 
+// fakeFarmRepo is an in-memory FarmRepository for exercising the service
+// layer without a database. farmIDByFarmer maps a farmer's account id to
+// their farm id, for GetFarmIDByFarmerID. The listing fields record what the
+// service passed down, so tests can prove that and not only what came back.
 type fakeFarmRepo struct {
-	page   models.Page[models.FarmListing]
-	err    error
-	called bool
-	filter models.FarmListFilter
+	farm           models.Farm
+	farmErr        error
+	farmIDByFarmer map[uuid.UUID]uuid.UUID
+	farmIDErr      error
+
+	page       models.Page[models.FarmListing]
+	listErr    error
+	listCalled bool
+	listFilter models.FarmListFilter
 }
 
 func (f *fakeFarmRepo) ListFarms(_ context.Context, filter models.FarmListFilter) (models.Page[models.FarmListing], error) {
-	f.called = true
-	f.filter = filter
-	if f.err != nil {
-		return models.Page[models.FarmListing]{}, f.err
+	f.listCalled = true
+	f.listFilter = filter
+	if f.listErr != nil {
+		return models.Page[models.FarmListing]{}, f.listErr
 	}
 	return f.page, nil
+}
+
+func (f *fakeFarmRepo) GetFarmByID(context.Context, uuid.UUID) (models.Farm, error) {
+	return f.farm, f.farmErr
+}
+
+func (f *fakeFarmRepo) GetFarmIDByFarmerID(_ context.Context, farmerID uuid.UUID) (uuid.UUID, error) {
+	if f.farmIDErr != nil {
+		return uuid.UUID{}, f.farmIDErr
+	}
+	if id, ok := f.farmIDByFarmer[farmerID]; ok {
+		return id, nil
+	}
+	return uuid.UUID{}, ErrNotFound
+}
+
+func TestFarmService_GetFarm_OK(t *testing.T) {
+	farmID := uuid.New()
+	want := models.Farm{
+		ID:                farmID,
+		FarmerID:          uuid.New(),
+		Name:              "Green Acres",
+		Address:           "1 Farm Lane",
+		Description:       "A small family farm",
+		TotalSquareMeters: 1234.5,
+	}
+	svc := NewFarmService(&fakeFarmRepo{farm: want})
+
+	got, err := svc.GetFarm(context.Background(), farmID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != want {
+		t.Errorf("farm = %+v, want %+v", got, want)
+	}
+}
+
+func TestFarmService_GetFarm_NotFoundPropagates(t *testing.T) {
+	svc := NewFarmService(&fakeFarmRepo{farmErr: ErrNotFound})
+
+	_, err := svc.GetFarm(context.Background(), uuid.New())
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
 }
 
 func TestListFarms_OnlyAdminReachesTheRepository(t *testing.T) {
@@ -48,15 +101,15 @@ func TestListFarms_OnlyAdminReachesTheRepository(t *testing.T) {
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("error = %v, want %v", err, tt.wantErr)
 			}
-			if repo.called != tt.wantCalls {
-				t.Errorf("repository called = %v, want %v", repo.called, tt.wantCalls)
+			if repo.listCalled != tt.wantCalls {
+				t.Errorf("repository called = %v, want %v", repo.listCalled, tt.wantCalls)
 			}
 		})
 	}
 }
 
-// A farmer must not reach the farm list even to see his own farm: the scope
-// here is the platform, and there is no per-farmer variant of it.
+// GetFarm is public, ListFarms is not: a farmer may read any farm's public
+// details but may not enumerate the platform, not even to find his own.
 func TestListFarms_FarmerCannotListFarms(t *testing.T) {
 	repo := &fakeFarmRepo{page: models.Page[models.FarmListing]{Total: 3}}
 	svc := NewFarmService(repo)
@@ -122,8 +175,10 @@ func TestListFarms_DerivesOccupancyTheSameWayAsStatistics(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	farmer := uuid.New()
+	statsFarmRepo := &fakeFarmRepo{farmIDByFarmer: map[uuid.UUID]uuid.UUID{farmer: uuid.New()}}
 	statsRepo := &fakeStatisticsRepo{farmStats: models.Statistics{Plots: plots}}
-	fromStats, err := NewStatisticsService(statsRepo).GetStatistics(context.Background(), uuid.Nil, models.RoleFarmer)
+	fromStats, err := NewStatisticsService(statsFarmRepo, statsRepo).GetStatistics(context.Background(), farmer, models.RoleFarmer)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -146,14 +201,14 @@ func TestListFarms_ClampsPaginationAndTrimsTheSearchTerm(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if repo.filter.Query != "green acres" {
-		t.Errorf("query = %q, want %q", repo.filter.Query, "green acres")
+	if repo.listFilter.Query != "green acres" {
+		t.Errorf("query = %q, want %q", repo.listFilter.Query, "green acres")
 	}
-	if repo.filter.Limit != MaxPageLimit {
-		t.Errorf("limit = %d, want %d", repo.filter.Limit, MaxPageLimit)
+	if repo.listFilter.Limit != MaxPageLimit {
+		t.Errorf("limit = %d, want %d", repo.listFilter.Limit, MaxPageLimit)
 	}
-	if repo.filter.Offset != 0 {
-		t.Errorf("offset = %d, want 0", repo.filter.Offset)
+	if repo.listFilter.Offset != 0 {
+		t.Errorf("offset = %d, want 0", repo.listFilter.Offset)
 	}
 }
 
@@ -165,14 +220,14 @@ func TestListFarms_PassesThePostalCodeFilterThrough(t *testing.T) {
 	if _, err := svc.ListFarms(context.Background(), models.RoleAdmin, models.FarmListFilter{PostalCode: &code}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if repo.filter.PostalCode == nil || *repo.filter.PostalCode != code {
-		t.Errorf("postal code = %v, want %d", repo.filter.PostalCode, code)
+	if repo.listFilter.PostalCode == nil || *repo.listFilter.PostalCode != code {
+		t.Errorf("postal code = %v, want %d", repo.listFilter.PostalCode, code)
 	}
 }
 
 func TestListFarms_WrapsRepositoryErrors(t *testing.T) {
 	sentinel := errors.New("connection refused")
-	repo := &fakeFarmRepo{err: sentinel}
+	repo := &fakeFarmRepo{listErr: sentinel}
 	svc := NewFarmService(repo)
 
 	_, err := svc.ListFarms(context.Background(), models.RoleAdmin, models.FarmListFilter{})

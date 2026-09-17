@@ -49,7 +49,7 @@ func TestListAccounts_DerivesRoleFromSubtypeMembership(t *testing.T) {
 	queries := database.New(pool)
 	repo := repositories.NewAccountRepository(pool, queries)
 
-	farmer, _, _ := seedFarmWithPlots(t, ctx, pool, 1)
+	farmer, _, _, _ := seedFarmWithPlots(t, ctx, pool, 1)
 	customer := seedCustomer(t, ctx, pool)
 	admin, err := repo.CreateAdmin(ctx, models.Account{
 		FirstName:    "Ann",

@@ -2,15 +2,21 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
+	"github.com/google/uuid"
 )
 
 type FarmService interface {
+	// GetFarm returns public details of the farm with the given id.
+	GetFarm(ctx context.Context, farmID uuid.UUID) (models.Farm, error)
 	// ListFarms returns one page of the platform's farms. Only an admin may
-	// call it; every other role gets ErrForbidden.
+	// call it; every other role gets ErrForbidden. Unlike GetFarm, which is
+	// public, this is a back-office view: it carries the owner and the
+	// holdings, so it is gated.
 	ListFarms(ctx context.Context, role models.Role, filter models.FarmListFilter) (models.Page[models.FarmListing], error)
 }
 
@@ -22,8 +28,21 @@ func NewFarmService(farmRepo FarmRepository) FarmService {
 	return &farmService{farmRepo: farmRepo}
 }
 
+func (s *farmService) GetFarm(ctx context.Context, farmID uuid.UUID) (models.Farm, error) {
+	farm, err := s.farmRepo.GetFarmByID(ctx, farmID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return models.Farm{}, err
+		}
+		return models.Farm{}, fmt.Errorf("getting farm: %w", err)
+	}
+	return farm, nil
+}
+
 func (s *farmService) ListFarms(ctx context.Context, role models.Role, filter models.FarmListFilter) (models.Page[models.FarmListing], error) {
-	// Defence in depth behind RequireRole(admin); see accountService.
+	// The route is gated by RequireRole(admin), so this is defence in depth --
+	// the same belt-and-braces as statisticsService.GetStatistics. The scope is
+	// the caller's role and nothing else: there is no parameter that widens it.
 	if role != models.RoleAdmin {
 		return models.Page[models.FarmListing]{}, ErrForbidden
 	}

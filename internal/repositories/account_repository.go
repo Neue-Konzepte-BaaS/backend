@@ -108,13 +108,23 @@ func (r *accountRepository) CreateAdmin(ctx context.Context, account models.Acco
 	})
 }
 
-func (r *accountRepository) CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32) (models.Account, error) {
+// CreateFarmer atomically inserts the account, its farmer subtype row, and
+// the farm it runs — a farmer never exists without exactly one farm.
+func (r *accountRepository) CreateFarmer(ctx context.Context, account models.Account, farmName string, postalCode int32, address string, description string) (models.Account, error) {
 	return r.createAccountWithSubtype(ctx, account, models.RoleFarmer, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
-		return q.InsertFarmer(ctx, database.InsertFarmerParams{
+		if err := q.InsertFarmer(ctx, database.InsertFarmerParams{
 			AccountID:  id,
-			FarmName:   farmName,
 			PostalCode: postalCode,
+		}); err != nil {
+			return err
+		}
+		_, err := q.InsertFarm(ctx, database.InsertFarmParams{
+			FarmerID:    id,
+			Name:        farmName,
+			Address:     address,
+			Description: description,
 		})
+		return err
 	})
 }
 

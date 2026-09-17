@@ -200,19 +200,18 @@ func (q *Queries) InsertCustomer(ctx context.Context, arg InsertCustomerParams) 
 }
 
 const insertFarmer = `-- name: InsertFarmer :exec
-INSERT INTO farmer (account_id, farm_name, postal_code) VALUES ($1, $2, $3)
+INSERT INTO farmer (account_id, postal_code) VALUES ($1, $2)
 `
 
 type InsertFarmerParams struct {
 	AccountID  uuid.UUID
-	FarmName   string
 	PostalCode int32
 }
 
 // Links an account to the farmer subtype table. The account's role is derived
 // from this membership; see GetAccountByEmail.
 func (q *Queries) InsertFarmer(ctx context.Context, arg InsertFarmerParams) error {
-	_, err := q.db.Exec(ctx, insertFarmer, arg.AccountID, arg.FarmName, arg.PostalCode)
+	_, err := q.db.Exec(ctx, insertFarmer, arg.AccountID, arg.PostalCode)
 	return err
 }
 

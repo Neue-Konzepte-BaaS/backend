@@ -40,7 +40,7 @@ func (f *fakeAccountListRepo) CreateAdmin(context.Context, models.Account) (mode
 	panic("the account listing does not create accounts")
 }
 
-func (f *fakeAccountListRepo) CreateFarmer(context.Context, models.Account, string, int32) (models.Account, error) {
+func (f *fakeAccountListRepo) CreateFarmer(context.Context, models.Account, string, int32, string, string) (models.Account, error) {
 	panic("the account listing does not create accounts")
 }
 

@@ -31,13 +31,15 @@ type loginRequest struct {
 }
 
 type registerRequest struct {
-	FirstName  string `json:"first_name"`
-	LastName   string `json:"last_name"`
-	Email      string `json:"email"`
-	Password   string `json:"password"`
-	Role       string `json:"role"`
-	FarmName   string `json:"farm_name"`
-	PostalCode int32  `json:"postal_code"`
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	Role        string `json:"role"`
+	FarmName    string `json:"farm_name"`
+	Address     string `json:"address"`
+	Description string `json:"description"`
+	PostalCode  int32  `json:"postal_code"`
 }
 
 type meResponse struct {
@@ -88,13 +90,15 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	account, pair, err := h.authService.Register(r.Context(), services.RegisterInput{
-		FirstName:  req.FirstName,
-		LastName:   req.LastName,
-		Email:      req.Email,
-		Password:   req.Password,
-		Role:       models.Role(strings.TrimSpace(req.Role)),
-		FarmName:   req.FarmName,
-		PostalCode: req.PostalCode,
+		FirstName:   req.FirstName,
+		LastName:    req.LastName,
+		Email:       req.Email,
+		Password:    req.Password,
+		Role:        models.Role(strings.TrimSpace(req.Role)),
+		FarmName:    req.FarmName,
+		Address:     req.Address,
+		Description: req.Description,
+		PostalCode:  req.PostalCode,
 	})
 	if errors.Is(err, services.ErrInvalidRegistration) {
 		// Strip the sentinel prefix so the client sees only the human-readable detail.

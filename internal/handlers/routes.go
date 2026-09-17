@@ -42,7 +42,10 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 	})
 
 	// Everything an admin reaches that is not an admin-only variant of an
-	// existing route lives here, under one gate.
+	// existing route lives here, under one gate. The farm listing is here
+	// rather than under /api/farms because it is a back-office view: it
+	// carries the owner and the holdings, where GET /api/farms/{farmID} is
+	// public and carries neither.
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(appmiddleware.RequireAuth(authService))
 		r.Use(appmiddleware.RequireRole(models.RoleAdmin))
@@ -65,6 +68,10 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			r.Use(appmiddleware.RequireAnyRole(models.RoleFarmer, models.RoleCustomer))
 			r.Get("/", announcementHandler.List)
 		})
+	})
+
+	r.Route("/api/farms", func(r chi.Router) {
+		r.Get("/{farmID}", farmHandler.GetFarm)
 	})
 
 	r.Route("/api/fields", func(r chi.Router) {

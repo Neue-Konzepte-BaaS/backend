@@ -85,7 +85,7 @@ func (f *fakeRecipientRepo) CreateAdmin(context.Context, models.Account) (models
 	panic("notification service does not create accounts")
 }
 
-func (f *fakeRecipientRepo) CreateFarmer(context.Context, models.Account, string, int32) (models.Account, error) {
+func (f *fakeRecipientRepo) CreateFarmer(context.Context, models.Account, string, int32, string, string) (models.Account, error) {
 	panic("notification service does not create accounts")
 }
 

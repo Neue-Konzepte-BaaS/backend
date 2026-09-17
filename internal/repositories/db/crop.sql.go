@@ -11,21 +11,21 @@ import (
 	"github.com/google/uuid"
 )
 
-const deletePlotCrops = `-- name: DeletePlotCrops :exec
-DELETE FROM plot_crop WHERE plot = $1
-`
-
-func (q *Queries) DeletePlotCrops(ctx context.Context, plot uuid.UUID) error {
-	_, err := q.db.Exec(ctx, deletePlotCrops, plot)
-	return err
-}
-
 const deleteCrop = `-- name: DeleteCrop :exec
 DELETE FROM crop WHERE id = $1
 `
 
 func (q *Queries) DeleteCrop(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, deleteCrop, id)
+	return err
+}
+
+const deletePlotCrops = `-- name: DeletePlotCrops :exec
+DELETE FROM plot_crop WHERE plot = $1
+`
+
+func (q *Queries) DeletePlotCrops(ctx context.Context, plot uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deletePlotCrops, plot)
 	return err
 }
 

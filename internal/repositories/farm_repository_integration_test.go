@@ -2,6 +2,7 @@ package repositories_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
@@ -12,22 +13,116 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// seedFarmWithoutFields creates a farmer who owns nothing at all -- the case
-// the LEFT JOIN LATERALs in ListFarms exist for.
+func TestFarmRepository_GetFarmByID(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	farmRepo := repositories.NewFarmRepository(database.New(pool))
+
+	t.Run("farmer with no fields or plots gets zero total, not an error", func(t *testing.T) {
+		farmer, farmID, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
+
+		farm, err := farmRepo.GetFarmByID(ctx, farmID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if farm.ID != farmID {
+			t.Errorf("farm id = %v, want %v", farm.ID, farmID)
+		}
+		if farm.FarmerID != farmer {
+			t.Errorf("farmer id = %v, want %v", farm.FarmerID, farmer)
+		}
+		if farm.Name != "Green Acres" {
+			t.Errorf("name = %q, want Green Acres", farm.Name)
+		}
+		if farm.Address != "1 Farm Lane" {
+			t.Errorf("address = %q, want '1 Farm Lane'", farm.Address)
+		}
+		if farm.TotalSquareMeters != 0 {
+			t.Errorf("total square meters = %v, want 0", farm.TotalSquareMeters)
+		}
+		if farm.FoundedAt != nil {
+			t.Errorf("founded at = %v, want nil", farm.FoundedAt)
+		}
+	})
+
+	t.Run("total square meters sums plots across fields", func(t *testing.T) {
+		_, farmID, _, _ := seedFarmWithPlots(t, ctx, pool, 3)
+
+		farm, err := farmRepo.GetFarmByID(ctx, farmID)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if farm.TotalSquareMeters <= 0 {
+			t.Errorf("total square meters = %v, want > 0", farm.TotalSquareMeters)
+		}
+	})
+
+	t.Run("unknown farm id returns ErrNotFound", func(t *testing.T) {
+		_, err := farmRepo.GetFarmByID(ctx, uuid.New())
+		if err == nil {
+			t.Fatal("expected an error for an unknown farm id")
+		}
+		if !errors.Is(err, services.ErrNotFound) {
+			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+func TestFarmRepository_GetFarmIDByFarmerID(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	farmRepo := repositories.NewFarmRepository(database.New(pool))
+
+	t.Run("resolves the farmer's own farm id", func(t *testing.T) {
+		farmer, farmID, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
+
+		got, err := farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != farmID {
+			t.Errorf("farm id = %v, want %v", got, farmID)
+		}
+	})
+
+	t.Run("unknown farmer id returns ErrNotFound", func(t *testing.T) {
+		_, err := farmRepo.GetFarmIDByFarmerID(ctx, uuid.New())
+		if err == nil {
+			t.Fatal("expected an error for an unknown farmer id")
+		}
+		if !errors.Is(err, services.ErrNotFound) {
+			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+// seedFarmWithoutFields creates a farm that owns nothing at all -- the case the
+// LEFT JOIN LATERALs in ListFarms exist for. seedFarmWithPlots(…, 0) is not the
+// same thing: that farm still has a field.
 func seedFarmWithoutFields(t *testing.T, ctx context.Context, pool *pgxpool.Pool, farmName string, postalCode int32) uuid.UUID {
 	t.Helper()
 
-	accountRepo := repositories.NewAccountRepository(pool, database.New(pool))
+	queries := database.New(pool)
+	accountRepo := repositories.NewAccountRepository(pool, queries)
+	farmRepo := repositories.NewFarmRepository(queries)
+
 	farmer, err := accountRepo.CreateFarmer(ctx, models.Account{
 		FirstName:    "Bare",
 		LastName:     "Acres",
 		Email:        uuid.NewString() + "@example.com",
 		PasswordHash: "irrelevant",
-	}, farmName, postalCode)
+	}, farmName, postalCode, "2 Empty Road", "")
 	if err != nil {
 		t.Fatalf("creating farmer: %v", err)
 	}
-	return farmer.ID
+
+	farmID, err := farmRepo.GetFarmIDByFarmerID(ctx, farmer.ID)
+	if err != nil {
+		t.Fatalf("looking up farm: %v", err)
+	}
+	return farmID
 }
 
 // expireRental backdates a rental so its period no longer covers now. The
@@ -55,21 +150,21 @@ func listAllFarms(t *testing.T, ctx context.Context, repo services.FarmRepositor
 	return page
 }
 
-func findFarm(t *testing.T, page models.Page[models.FarmListing], account uuid.UUID) models.FarmListing {
+func findFarm(t *testing.T, page models.Page[models.FarmListing], farmID uuid.UUID) models.FarmListing {
 	t.Helper()
 
 	for _, farm := range page.Items {
-		if farm.Account == account {
+		if farm.ID == farmID {
 			return farm
 		}
 	}
-	t.Fatalf("farm %v is not in the listing", account)
+	t.Fatalf("farm %v is not in the listing", farmID)
 	return models.FarmListing{}
 }
 
 // A farm that owns nothing must still be listed, as a row of zeros. Getting
-// this wrong -- by aggregating through an inner join -- makes every new farmer
-// invisible to the admin until they create their first field.
+// this wrong -- by aggregating through an inner join -- makes every new farm
+// invisible to the admin until it creates its first field.
 func TestListFarms_IncludesAFarmThatOwnsNothing(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
@@ -79,8 +174,11 @@ func TestListFarms_IncludesAFarmThatOwnsNothing(t *testing.T) {
 
 	farm := findFarm(t, listAllFarms(t, ctx, repo), bare)
 
-	if farm.FarmName != "Aardvark Farm" || farm.PostalCode != 10115 {
-		t.Errorf("farm = %q/%d, want %q/%d", farm.FarmName, farm.PostalCode, "Aardvark Farm", 10115)
+	if farm.Name != "Aardvark Farm" || farm.PostalCode != 10115 {
+		t.Errorf("farm = %q/%d, want %q/%d", farm.Name, farm.PostalCode, "Aardvark Farm", 10115)
+	}
+	if farm.Address != "2 Empty Road" {
+		t.Errorf("address = %q, want %q", farm.Address, "2 Empty Road")
 	}
 	if farm.Fields.Total != 0 || farm.Fields.AreaSquareMeters != 0 {
 		t.Errorf("fields = %+v, want zeros", farm.Fields)
@@ -106,7 +204,7 @@ func TestListFarms_ReconcilesWithPlatformStatistics(t *testing.T) {
 
 	// Three farms with different shapes, so the sums are not trivially equal:
 	// one with rentals, one with plots but none rented, one with nothing.
-	busy, busyPlots, busyCrop := seedFarmWithPlots(t, ctx, pool, 3)
+	_, busyFarmID, busyPlots, busyCrop := seedFarmWithPlots(t, ctx, pool, 3)
 	seedFarmWithPlots(t, ctx, pool, 2)
 	seedFarmWithoutFields(t, ctx, pool, "Aardvark Farm", 10115)
 
@@ -140,7 +238,7 @@ func TestListFarms_ReconcilesWithPlatformStatistics(t *testing.T) {
 
 	// And the busy farm is actually busy, so the equality above is not three
 	// zeros agreeing with three zeros.
-	busyFarm := findFarm(t, page, busy)
+	busyFarm := findFarm(t, page, busyFarmID)
 	if busyFarm.Plots.Rented != 1 || busyFarm.ActiveRentals != 1 {
 		t.Errorf("busy farm rented = %d, activeRentals = %d, want 1 and 1", busyFarm.Plots.Rented, busyFarm.ActiveRentals)
 	}
@@ -155,7 +253,7 @@ func TestListFarms_ExpiredRentalsStopCounting(t *testing.T) {
 	farmRepo := repositories.NewFarmRepository(queries)
 	rentalRepo := repositories.NewRentalRepository(queries)
 
-	farmer, plotIDs, crop := seedFarmWithPlots(t, ctx, pool, 2)
+	_, farmID, plotIDs, crop := seedFarmWithPlots(t, ctx, pool, 2)
 	customer := seedCustomer(t, ctx, pool)
 
 	live, err := rentalRepo.CreateRental(ctx, plotIDs[0], customer, crop, 6)
@@ -168,7 +266,7 @@ func TestListFarms_ExpiredRentalsStopCounting(t *testing.T) {
 	}
 	expireRental(t, ctx, pool, expired.ID)
 
-	farm := findFarm(t, listAllFarms(t, ctx, farmRepo), farmer)
+	farm := findFarm(t, listAllFarms(t, ctx, farmRepo), farmID)
 
 	if farm.Plots.Total != 2 {
 		t.Errorf("plot count = %d, want 2", farm.Plots.Total)
@@ -202,16 +300,16 @@ func TestListFarms_PagesStablyAndReportsTheFullTotal(t *testing.T) {
 			t.Errorf("total at offset %d = %d, want 3", offset, page.Total)
 		}
 		for _, farm := range page.Items {
-			seen[farm.Account]++
+			seen[farm.ID]++
 		}
 	}
 
 	if len(seen) != 3 {
 		t.Errorf("saw %d distinct farms across the pages, want 3", len(seen))
 	}
-	for account, count := range seen {
+	for farmID, count := range seen {
 		if count != 1 {
-			t.Errorf("farm %v appeared %d times across the pages, want once", account, count)
+			t.Errorf("farm %v appeared %d times across the pages, want once", farmID, count)
 		}
 	}
 }

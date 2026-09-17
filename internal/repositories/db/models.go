@@ -43,17 +43,25 @@ type Customer struct {
 	PostalCode int32
 }
 
+type Farm struct {
+	ID          uuid.UUID
+	FarmerID    uuid.UUID
+	Name        string
+	Address     string
+	Description string
+	FoundedAt   pgtype.Date
+}
+
 type Farmer struct {
 	AccountID  uuid.UUID
-	FarmName   string
 	PostalCode int32
 }
 
 type Field struct {
 	ID          uuid.UUID
 	Name        string
-	Farmer      uuid.UUID
 	Coordinates *geom.Polygon
+	Farm        uuid.UUID
 }
 
 type Plot struct {

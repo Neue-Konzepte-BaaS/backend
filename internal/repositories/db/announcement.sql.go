@@ -13,9 +13,9 @@ import (
 )
 
 const getAnnouncementsByFarmer = `-- name: GetAnnouncementsByFarmer :many
-SELECT a.id, a.farmer, a.subject, a.body, a.created_at, f.farm_name
+SELECT a.id, a.farmer, a.subject, a.body, a.created_at, farm.name AS farm_name
 FROM announcement a
-JOIN farmer f ON f.account_id = a.farmer
+JOIN farm ON farm.farmer_id = a.farmer
 WHERE a.farmer = $1
 ORDER BY a.created_at DESC
 `
@@ -58,10 +58,10 @@ func (q *Queries) GetAnnouncementsByFarmer(ctx context.Context, farmer uuid.UUID
 }
 
 const getAnnouncementsForCustomer = `-- name: GetAnnouncementsForCustomer :many
-SELECT DISTINCT a.id, a.farmer, a.subject, a.body, a.created_at, f.farm_name
+SELECT DISTINCT a.id, a.farmer, a.subject, a.body, a.created_at, farm.name AS farm_name
 FROM announcement a
-JOIN farmer f ON f.account_id = a.farmer
-JOIN field fi ON fi.farmer = f.account_id
+JOIN farm ON farm.farmer_id = a.farmer
+JOIN field fi ON fi.farm = farm.id
 JOIN plot p ON p.field = fi.id
 JOIN rental r ON r.plot = p.id
 WHERE r.customer = $1 AND r.period @> CURRENT_TIMESTAMP
@@ -118,7 +118,8 @@ JOIN customer c ON c.account_id = a.id
 JOIN rental r ON r.customer = c.account_id
 JOIN plot p ON p.id = r.plot
 JOIN field f ON f.id = p.field
-WHERE f.farmer = $1 AND r.period @> CURRENT_TIMESTAMP
+JOIN farm ON farm.id = f.farm
+WHERE farm.farmer_id = $1 AND r.period @> CURRENT_TIMESTAMP
 ORDER BY a.email
 `
 
@@ -132,8 +133,8 @@ type GetCustomersOfFarmerRow struct {
 // Everyone a farmer may address: the customers currently renting one of his
 // plots. DISTINCT is load-bearing — a customer renting three plots from the
 // same farmer is one person and must be mailed once.
-func (q *Queries) GetCustomersOfFarmer(ctx context.Context, farmer uuid.UUID) ([]GetCustomersOfFarmerRow, error) {
-	rows, err := q.db.Query(ctx, getCustomersOfFarmer, farmer)
+func (q *Queries) GetCustomersOfFarmer(ctx context.Context, farmerID uuid.UUID) ([]GetCustomersOfFarmerRow, error) {
+	rows, err := q.db.Query(ctx, getCustomersOfFarmer, farmerID)
 	if err != nil {
 		return nil, err
 	}
@@ -163,9 +164,9 @@ WITH inserted AS (
     VALUES ($1, $2, $3)
     RETURNING id, farmer, subject, body, created_at
 )
-SELECT i.id, i.farmer, i.subject, i.body, i.created_at, f.farm_name
+SELECT i.id, i.farmer, i.subject, i.body, i.created_at, farm.name AS farm_name
 FROM inserted i
-JOIN farmer f ON f.account_id = i.farmer
+JOIN farm ON farm.farmer_id = i.farmer
 `
 
 type InsertAnnouncementParams struct {

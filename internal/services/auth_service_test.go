@@ -40,7 +40,7 @@ func (f *fakeAccountRepo) GetCustomersOfFarmer(context.Context, uuid.UUID) ([]mo
 	panic("auth service does not send notifications")
 }
 
-func (f *fakeAccountRepo) CreateFarmer(_ context.Context, account models.Account, farmName string, postalCode int32) (models.Account, error) {
+func (f *fakeAccountRepo) CreateFarmer(_ context.Context, account models.Account, farmName string, postalCode int32, address string, description string) (models.Account, error) {
 	if f.createFarmerErr != nil {
 		return models.Account{}, f.createFarmerErr
 	}
@@ -122,6 +122,24 @@ func TestRegister_Farmer_RequiresFarmName(t *testing.T) {
 	}
 }
 
+func TestRegister_Farmer_RequiresAddress(t *testing.T) {
+	repo := &fakeAccountRepo{}
+	svc := newTestService(repo)
+
+	in := validCustomerInput()
+	in.Role = models.RoleFarmer
+	in.FarmName = "Green Acres"
+	in.Address = ""
+
+	_, _, err := svc.Register(context.Background(), in)
+	if err == nil {
+		t.Fatal("expected an error for a farmer without an address")
+	}
+	if repo.createdRole != "" {
+		t.Error("repository should not be called when validation fails")
+	}
+}
+
 func TestRegister_Farmer_OK(t *testing.T) {
 	repo := &fakeAccountRepo{}
 	svc := newTestService(repo)
@@ -129,6 +147,8 @@ func TestRegister_Farmer_OK(t *testing.T) {
 	in := validCustomerInput()
 	in.Role = models.RoleFarmer
 	in.FarmName = "Green Acres"
+	in.Address = "1 Farm Lane"
+	in.Description = "A small family farm"
 
 	account, _, err := svc.Register(context.Background(), in)
 	if err != nil {

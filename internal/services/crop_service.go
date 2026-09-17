@@ -23,13 +23,14 @@ type CropService interface {
 }
 
 type cropService struct {
+	farmRepo  FarmRepository
 	fieldRepo FieldRepository
 	plotRepo  PlotRepository
 	cropRepo  CropRepository
 }
 
-func NewCropService(fieldRepo FieldRepository, plotRepo PlotRepository, cropRepo CropRepository) CropService {
-	return &cropService{fieldRepo: fieldRepo, plotRepo: plotRepo, cropRepo: cropRepo}
+func NewCropService(farmRepo FarmRepository, fieldRepo FieldRepository, plotRepo PlotRepository, cropRepo CropRepository) CropService {
+	return &cropService{farmRepo: farmRepo, fieldRepo: fieldRepo, plotRepo: plotRepo, cropRepo: cropRepo}
 }
 
 func (s *cropService) CreateCrop(ctx context.Context, name string, durationMonths int32) (models.Crop, error) {
@@ -62,6 +63,11 @@ func (s *cropService) GetAllCrops(ctx context.Context) ([]models.Crop, error) {
 }
 
 func (s *cropService) SetPlotCrops(ctx context.Context, farmer, plot uuid.UUID, cropIDs []uuid.UUID) ([]models.Crop, error) {
+	callerFarm, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+	if err != nil {
+		return nil, fmt.Errorf("looking up farm: %w", err)
+	}
+
 	field, err := s.plotRepo.GetPlotField(ctx, plot)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -70,14 +76,14 @@ func (s *cropService) SetPlotCrops(ctx context.Context, farmer, plot uuid.UUID, 
 		return nil, fmt.Errorf("looking up plot field: %w", err)
 	}
 
-	owner, err := s.fieldRepo.GetFieldOwner(ctx, field)
+	fieldFarm, err := s.fieldRepo.GetFieldFarm(ctx, field)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("looking up field owner: %w", err)
+		return nil, fmt.Errorf("looking up field farm: %w", err)
 	}
-	if owner != farmer {
+	if fieldFarm != callerFarm {
 		return nil, ErrForbidden
 	}
 

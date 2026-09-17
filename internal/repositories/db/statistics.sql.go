@@ -25,14 +25,14 @@ WITH farm_plot_rows AS (
         ) AS is_rented
     FROM plot p
     JOIN field f ON f.id = p.field
-    WHERE f.farmer = $1
+    WHERE f.farm = $1
 ),
 farm_fields AS (
     SELECT
         COUNT(*)::bigint AS total,
         COALESCE(SUM(ST_Area(coordinates::geography)::float8), 0)::float8 AS area
     FROM field
-    WHERE farmer = $1
+    WHERE farm = $1
 ),
 farm_plots AS (
     SELECT
@@ -49,7 +49,7 @@ farm_rentals AS (
     FROM rental r
     JOIN plot p ON p.id = r.plot
     JOIN field f ON f.id = p.field
-    WHERE f.farmer = $1
+    WHERE f.farm = $1
 )
 SELECT
     CURRENT_TIMESTAMP::timestamptz AS generated_at,
@@ -90,10 +90,10 @@ type GetFarmStatisticsRow struct {
 // references. Adding a statistic means adding a CTE and a line below. Keep
 // every cross-joined CTE free of GROUP BY: a CTE returning no rows would empty
 // the whole result.
-// Aggregates one farmer's own fields, plots and rentals. Every CTE is scoped by
-// farmer; a farmer who owns nothing gets zeros rather than no row.
-func (q *Queries) GetFarmStatistics(ctx context.Context, farmer uuid.UUID) (GetFarmStatisticsRow, error) {
-	row := q.db.QueryRow(ctx, getFarmStatistics, farmer)
+// Aggregates one farm's own fields, plots and rentals. Every CTE is scoped by
+// farm; a farm that owns nothing gets zeros rather than no row.
+func (q *Queries) GetFarmStatistics(ctx context.Context, farm uuid.UUID) (GetFarmStatisticsRow, error) {
+	row := q.db.QueryRow(ctx, getFarmStatistics, farm)
 	var i GetFarmStatisticsRow
 	err := row.Scan(
 		&i.GeneratedAt,

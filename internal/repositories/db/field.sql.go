@@ -13,58 +13,72 @@ import (
 )
 
 const getFieldByID = `-- name: GetFieldByID :one
-SELECT id, name, farmer, coordinates
+SELECT id, name, farm, coordinates
 FROM field
 WHERE id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetFieldByID(ctx context.Context, id uuid.UUID) (Field, error) {
+type GetFieldByIDRow struct {
+	ID          uuid.UUID
+	Name        string
+	Farm        uuid.UUID
+	Coordinates *geom.Polygon
+}
+
+func (q *Queries) GetFieldByID(ctx context.Context, id uuid.UUID) (GetFieldByIDRow, error) {
 	row := q.db.QueryRow(ctx, getFieldByID, id)
-	var i Field
+	var i GetFieldByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
-		&i.Farmer,
+		&i.Farm,
 		&i.Coordinates,
 	)
 	return i, err
 }
 
-const getFieldOwner = `-- name: GetFieldOwner :one
-SELECT farmer
+const getFieldFarm = `-- name: GetFieldFarm :one
+SELECT farm
 FROM field
 WHERE id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetFieldOwner(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getFieldOwner, id)
-	var farmer uuid.UUID
-	err := row.Scan(&farmer)
-	return farmer, err
+func (q *Queries) GetFieldFarm(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getFieldFarm, id)
+	var farm uuid.UUID
+	err := row.Scan(&farm)
+	return farm, err
 }
 
-const getFieldsByFarmer = `-- name: GetFieldsByFarmer :many
-SELECT id, name, farmer, coordinates
+const getFieldsByFarm = `-- name: GetFieldsByFarm :many
+SELECT id, name, farm, coordinates
 FROM field
-WHERE farmer = $1
+WHERE farm = $1
 ORDER BY name
 `
 
-func (q *Queries) GetFieldsByFarmer(ctx context.Context, farmer uuid.UUID) ([]Field, error) {
-	rows, err := q.db.Query(ctx, getFieldsByFarmer, farmer)
+type GetFieldsByFarmRow struct {
+	ID          uuid.UUID
+	Name        string
+	Farm        uuid.UUID
+	Coordinates *geom.Polygon
+}
+
+func (q *Queries) GetFieldsByFarm(ctx context.Context, farm uuid.UUID) ([]GetFieldsByFarmRow, error) {
+	rows, err := q.db.Query(ctx, getFieldsByFarm, farm)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Field
+	var items []GetFieldsByFarmRow
 	for rows.Next() {
-		var i Field
+		var i GetFieldsByFarmRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
-			&i.Farmer,
+			&i.Farm,
 			&i.Coordinates,
 		); err != nil {
 			return nil, err
@@ -78,17 +92,17 @@ func (q *Queries) GetFieldsByFarmer(ctx context.Context, farmer uuid.UUID) ([]Fi
 }
 
 const insertField = `-- name: InsertField :one
-INSERT INTO field (name, farmer, coordinates) VALUES ($1, $2, $3) RETURNING id
+INSERT INTO field (name, farm, coordinates) VALUES ($1, $2, $3) RETURNING id
 `
 
 type InsertFieldParams struct {
 	Name        string
-	Farmer      uuid.UUID
+	Farm        uuid.UUID
 	Coordinates *geom.Polygon
 }
 
 func (q *Queries) InsertField(ctx context.Context, arg InsertFieldParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, insertField, arg.Name, arg.Farmer, arg.Coordinates)
+	row := q.db.QueryRow(ctx, insertField, arg.Name, arg.Farm, arg.Coordinates)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err

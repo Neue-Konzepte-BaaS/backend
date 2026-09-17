@@ -63,15 +63,18 @@ var ErrInvalidRegistration = errors.New("invalid registration")
 
 // RegisterInput is the validated shape the service needs to create an account.
 // Role must be farmer or customer; admins are created by DB seed, not here.
-// FarmName applies only to farmers; PostalCode applies to both.
+// FarmName, Address and Description apply only to farmers; PostalCode applies
+// to both.
 type RegisterInput struct {
-	FirstName  string
-	LastName   string
-	Email      string
-	Password   string
-	Role       models.Role
-	FarmName   string
-	PostalCode int32
+	FirstName   string
+	LastName    string
+	Email       string
+	Password    string
+	Role        models.Role
+	FarmName    string
+	Address     string
+	Description string
+	PostalCode  int32
 }
 
 type authService struct {
@@ -116,6 +119,8 @@ func (s *authService) Register(ctx context.Context, input RegisterInput) (models
 	input.LastName = strings.TrimSpace(input.LastName)
 	input.Email = strings.TrimSpace(input.Email)
 	input.FarmName = strings.TrimSpace(input.FarmName)
+	input.Address = strings.TrimSpace(input.Address)
+	input.Description = strings.TrimSpace(input.Description)
 
 	if input.FirstName == "" || input.LastName == "" || input.Email == "" || input.Password == "" {
 		return models.Account{}, TokenPair{}, fmt.Errorf("%w: first name, last name, email and password are required", ErrInvalidRegistration)
@@ -142,7 +147,10 @@ func (s *authService) Register(ctx context.Context, input RegisterInput) (models
 		if input.FarmName == "" {
 			return models.Account{}, TokenPair{}, fmt.Errorf("%w: farm name is required for farmers", ErrInvalidRegistration)
 		}
-		account, err = s.accountRepo.CreateFarmer(ctx, base, input.FarmName, input.PostalCode)
+		if input.Address == "" {
+			return models.Account{}, TokenPair{}, fmt.Errorf("%w: address is required for farmers", ErrInvalidRegistration)
+		}
+		account, err = s.accountRepo.CreateFarmer(ctx, base, input.FarmName, input.PostalCode, input.Address, input.Description)
 	case models.RoleCustomer:
 		account, err = s.accountRepo.CreateCustomer(ctx, base, input.PostalCode)
 	default:

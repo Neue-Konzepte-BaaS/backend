@@ -12,15 +12,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// seedFarmWithPlots creates a farmer with one field containing plotCount
-// plots (each a distinct rectangle, so their areas don't overlap), offers a
-// crop on each of those plots, and returns the farmer id, the created plot
-// ids, and the crop id.
-func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plotCount int) (uuid.UUID, []uuid.UUID, uuid.UUID) {
+// seedFarmWithPlots creates a farmer with one farm and one field containing
+// plotCount plots (each a distinct rectangle, so their areas don't overlap),
+// offers a crop on each of those plots, and returns the farmer id, the farm
+// id, the created plot ids, and the crop id.
+func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plotCount int) (uuid.UUID, uuid.UUID, []uuid.UUID, uuid.UUID) {
 	t.Helper()
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
+	farmRepo := repositories.NewFarmRepository(queries)
 	fieldRepo := repositories.NewFieldRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
@@ -30,14 +31,19 @@ func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pl
 		LastName:     "MacDonald",
 		Email:        uuid.NewString() + "@example.com",
 		PasswordHash: "irrelevant",
-	}, "Green Acres", 76133)
+	}, "Green Acres", 76133, "1 Farm Lane", "A small family farm")
 	if err != nil {
 		t.Fatalf("creating farmer: %v", err)
 	}
 
+	farmID, err := farmRepo.GetFarmIDByFarmerID(ctx, farmer.ID)
+	if err != nil {
+		t.Fatalf("looking up farm: %v", err)
+	}
+
 	fieldID, err := fieldRepo.CreateField(ctx, models.Field{
 		Name:        "Field 1",
-		Farmer:      farmer.ID,
+		Farm:        farmID,
 		Coordinates: rectangle(0, 0, 100, 100),
 	})
 	if err != nil {
@@ -66,7 +72,7 @@ func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pl
 		plotIDs[i] = plot.ID
 	}
 
-	return farmer.ID, plotIDs, crop.ID
+	return farmer.ID, farmID, plotIDs, crop.ID
 }
 
 // TestStatisticsRepository_FarmAndPlatformScope walks through the scenarios
@@ -80,9 +86,9 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 	rentalRepo := repositories.NewRentalRepository(database.New(pool))
 
 	t.Run("fresh farmer with nothing gets all zeros, not an error", func(t *testing.T) {
-		farmer, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
+		_, farmID, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
 
-		stats, err := statsRepo.GetFarmStatistics(ctx, farmer)
+		stats, err := statsRepo.GetFarmStatistics(ctx, farmID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -104,14 +110,14 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 	})
 
 	t.Run("counts and areas for a farmer with plots, one rented", func(t *testing.T) {
-		farmer, plots, crop := seedFarmWithPlots(t, ctx, pool, 2)
+		_, farmID, plots, crop := seedFarmWithPlots(t, ctx, pool, 2)
 		customer := seedCustomer(t, ctx, pool)
 
 		if _, err := rentalRepo.CreateRental(ctx, plots[0], customer, crop, 6); err != nil {
 			t.Fatalf("renting plot: %v", err)
 		}
 
-		stats, err := statsRepo.GetFarmStatistics(ctx, farmer)
+		stats, err := statsRepo.GetFarmStatistics(ctx, farmID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -136,21 +142,21 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 	})
 
 	t.Run("isolation: a second farmer's data does not affect the first", func(t *testing.T) {
-		firstFarmer, _, _ := seedFarmWithPlots(t, ctx, pool, 3)
+		_, firstFarmID, _, _ := seedFarmWithPlots(t, ctx, pool, 3)
 
-		before, err := statsRepo.GetFarmStatistics(ctx, firstFarmer)
+		before, err := statsRepo.GetFarmStatistics(ctx, firstFarmID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
 		// A second, unrelated farmer with its own field, plots and rental.
-		secondFarmer, secondPlots, secondCrop := seedFarmWithPlots(t, ctx, pool, 5)
+		_, secondFarmID, secondPlots, secondCrop := seedFarmWithPlots(t, ctx, pool, 5)
 		secondCustomer := seedCustomer(t, ctx, pool)
 		if _, err := rentalRepo.CreateRental(ctx, secondPlots[0], secondCustomer, secondCrop, 6); err != nil {
 			t.Fatalf("renting second farmer's plot: %v", err)
 		}
 
-		after, err := statsRepo.GetFarmStatistics(ctx, firstFarmer)
+		after, err := statsRepo.GetFarmStatistics(ctx, firstFarmID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -164,7 +170,7 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 		// Sanity check the second farmer really did get their own numbers,
 		// so a bug that returns the SAME farmer's data for both ids doesn't
 		// pass this test by accident.
-		secondStats, err := statsRepo.GetFarmStatistics(ctx, secondFarmer)
+		secondStats, err := statsRepo.GetFarmStatistics(ctx, secondFarmID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -182,7 +188,7 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		farmer, plots, crop := seedFarmWithPlots(t, ctx, pool, 1)
+		_, farmID, plots, crop := seedFarmWithPlots(t, ctx, pool, 1)
 		customer := seedCustomer(t, ctx, pool)
 		if _, err := rentalRepo.CreateRental(ctx, plots[0], customer, crop, 6); err != nil {
 			t.Fatalf("renting plot: %v", err)
@@ -215,7 +221,7 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 
 		// Consistency: the farm-scoped view of the farmer just created must
 		// agree with what went into the platform totals above.
-		farmStats, err := statsRepo.GetFarmStatistics(ctx, farmer)
+		farmStats, err := statsRepo.GetFarmStatistics(ctx, farmID)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

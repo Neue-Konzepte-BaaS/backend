@@ -238,6 +238,7 @@ graph TD
 
     G --> AD["/api/admin<br/>RequireAuth + RequireRole(admin)"]
     G --> A["/api/auth"]
+    G --> FA["/api/farms<br/>— public —"]
     G --> F["/api/fields<br/>RequireAuth + RequireRole(farmer)"]
     G --> P["/api/plots<br/>— public —"]
     G --> RE["/api/rentals<br/>RequireAuth + RequireRole(customer)"]
@@ -247,6 +248,8 @@ graph TD
 
     AD --> AD1["GET /farms"]
     AD --> AD2["GET /accounts"]
+
+    FA --> FA1["GET /{farmID}"]
 
     A --> A1["POST /login"]
     A --> A2["POST /register"]
@@ -278,6 +281,7 @@ graph TD
 | `POST /api/auth/login` | – | – | [auth_handler.go:48](internal/handlers/auth_handler.go#L48) |
 | `POST /api/auth/logout` | – | – | [auth_handler.go:137](internal/handlers/auth_handler.go#L137) |
 | `GET /api/auth/me` | cookie | any | [auth_handler.go:125](internal/handlers/auth_handler.go#L125) |
+| `GET /api/farms/{farmID}` | – | – | [farm_handler.go](internal/handlers/farm_handler.go) |
 | `POST /api/fields` | cookie | farmer | [field_handler.go:85](internal/handlers/field_handler.go#L85) |
 | `GET /api/fields` | cookie | farmer | [field_handler.go:128](internal/handlers/field_handler.go#L128) |
 | `POST /api/fields/{fieldID}/plots` | cookie | farmer | [field_handler.go:163](internal/handlers/field_handler.go#L163) |
@@ -732,9 +736,16 @@ not allowed to hold any; `NotificationService` is an interface owned by
 
 `GET /api/admin/farms` and `GET /api/admin/accounts` ([§5](#5-http-surface)) are the
 same design applied to lists. The caller's role is the whole of the scope — both are
-admin-only and always platform-wide, and there is deliberately **no farmer-id filter**
-on the farm list, so there is no identity parameter to tamper with should a second role
-ever reach these routes.
+admin-only and always platform-wide, and there is deliberately **no farm-id or
+farmer-id filter** on the farm list, so there is no identity parameter to tamper with
+should a second role ever reach these routes.
+
+`GET /api/admin/farms` and the public `GET /api/farms/{farmID}` are two views of the
+same `farm` row, split by audience rather than by entity: the public one carries the
+description and founding date a visitor reads, the admin one the owner and the holdings
+an operator scans. Both key on the same farm id, and both live on `FarmService` — which
+is why the farm listing is a domain service rather than an "AdminService": the audience
+is a routing concern, not a domain one.
 
 The farm list computes its per-farm figures with the predicates
 [statistics.sql](sql/queries/statistics.sql) uses, unchanged: `ST_Area` over

@@ -16,17 +16,22 @@ type StatisticsService interface {
 }
 
 type statisticsService struct {
+	farmRepo       FarmRepository
 	statisticsRepo StatisticsRepository
 }
 
-func NewStatisticsService(statisticsRepo StatisticsRepository) StatisticsService {
-	return &statisticsService{statisticsRepo: statisticsRepo}
+func NewStatisticsService(farmRepo FarmRepository, statisticsRepo StatisticsRepository) StatisticsService {
+	return &statisticsService{farmRepo: farmRepo, statisticsRepo: statisticsRepo}
 }
 
 func (s *statisticsService) GetStatistics(ctx context.Context, account uuid.UUID, role models.Role) (models.Statistics, error) {
 	switch role {
 	case models.RoleFarmer:
-		stats, err := s.statisticsRepo.GetFarmStatistics(ctx, account)
+		farmID, err := s.farmRepo.GetFarmIDByFarmerID(ctx, account)
+		if err != nil {
+			return models.Statistics{}, fmt.Errorf("looking up farm: %w", err)
+		}
+		stats, err := s.statisticsRepo.GetFarmStatistics(ctx, farmID)
 		if err != nil {
 			return models.Statistics{}, fmt.Errorf("getting farm statistics: %w", err)
 		}

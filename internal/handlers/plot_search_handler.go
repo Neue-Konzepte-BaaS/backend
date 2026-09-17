@@ -25,6 +25,7 @@ type nearbyPlotResponse struct {
 	ID               string          `json:"id"`
 	Name             string          `json:"name"`
 	Field            string          `json:"field"`
+	Farm             string          `json:"farm"`
 	Coordinates      json.RawMessage `json:"coordinates"`
 	AreaSquareMeters float64         `json:"areaSquareMeters"`
 	DistanceMeters   float64         `json:"distanceMeters"`
@@ -81,6 +82,7 @@ func (h *PlotSearchHandler) FindNearestPlots(w http.ResponseWriter, r *http.Requ
 			ID:               plot.ID.String(),
 			Name:             plot.Name,
 			Field:            plot.Field.String(),
+			Farm:             plot.Farm.String(),
 			Coordinates:      encodePolygon(plot.Coordinates),
 			AreaSquareMeters: plot.AreaSquareMeters,
 			DistanceMeters:   plot.DistanceMeters,
