@@ -217,7 +217,7 @@ func (q *Queries) GetRentalsByFarm(ctx context.Context, farm uuid.UUID) ([]GetRe
 
 const insertRentalRequest = `-- name: InsertRentalRequest :one
 
-INSERT INTO rental (plot, customer, crop, period, message)
+INSERT INTO rental (plot, customer, crop, period, message, status)
 VALUES (
     $1,
     $2,
@@ -226,7 +226,8 @@ VALUES (
         $4::timestamptz,
         $4::timestamptz + make_interval(months => $5::int)
     ),
-    $6
+    $6,
+    'requested'
 )
 RETURNING id, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at
 `

@@ -14,7 +14,6 @@ import (
 // layer without a database.
 type fakeRentalRepo struct {
 	createErr  error
-	created    models.Rental
 	rentalByID map[uuid.UUID]models.RentalWithField
 	getErr     error
 	updateErr  error

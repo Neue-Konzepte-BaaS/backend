@@ -2,7 +2,7 @@
 -- pgtype.Range, so the bounds are read out as plain timestamps instead.
 
 -- name: InsertRentalRequest :one
-INSERT INTO rental (plot, customer, crop, period, message)
+INSERT INTO rental (plot, customer, crop, period, message, status)
 VALUES (
     sqlc.arg(plot),
     sqlc.arg(customer),
@@ -11,7 +11,8 @@ VALUES (
         sqlc.arg(start_at)::timestamptz,
         sqlc.arg(start_at)::timestamptz + make_interval(months => sqlc.arg(duration_months)::int)
     ),
-    sqlc.arg(message)
+    sqlc.arg(message),
+    'requested'
 )
 RETURNING id, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at;
 
