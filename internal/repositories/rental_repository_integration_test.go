@@ -157,23 +157,27 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 	return plot.ID, cropID
 }
 
-// rentNow requests a rental starting tomorrow (the earliest a customer may
-// request) and immediately approves it, for tests that need an occupied
-// plot rather than the request/approval flow itself.
+// rentNow books an approved rental that started today, for tests that need
+// an occupied plot rather than the request/approval flow itself. The
+// repository only ever requests a rental starting at least a day out, so a
+// currently-active one has to be written directly.
 func rentNow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plot, customer, crop uuid.UUID, durationMonths int32) models.Rental {
 	t.Helper()
 
-	rentalRepo := repositories.NewRentalRepository(database.New(pool))
-	requested, err := rentalRepo.CreateRentalRequest(ctx, plot, customer, crop, time.Now().Add(24*time.Hour), durationMonths, "please")
+	var rental models.Rental
+	err := pool.QueryRow(ctx, `
+		INSERT INTO rental (plot, customer, crop, period, status, message, decided_at)
+		VALUES ($1, $2, $3, tstzrange(CURRENT_TIMESTAMP - interval '1 day', CURRENT_TIMESTAMP + make_interval(months => $4::int)), 'approved', 'please', CURRENT_TIMESTAMP)
+		RETURNING id, lower(period)::timestamptz, upper(period)::timestamptz, status`,
+		plot, customer, crop, durationMonths,
+	).Scan(&rental.ID, &rental.StartAt, &rental.EndAt, &rental.Status)
 	if err != nil {
-		t.Fatalf("requesting rental: %v", err)
+		t.Fatalf("inserting active rental: %v", err)
 	}
-
-	approved, err := rentalRepo.UpdateRentalStatus(ctx, requested.ID, models.RentalStatusApproved)
-	if err != nil {
-		t.Fatalf("approving rental: %v", err)
-	}
-	return approved
+	rental.PlotID = plot
+	rental.CropID = crop
+	rental.Customer = customer
+	return rental
 }
 
 // seedCustomer creates a bare customer account and returns its id.
