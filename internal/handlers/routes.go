@@ -129,6 +129,8 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
 			r.Get("/farm", rentalHandler.GetFarmRentals)
+			r.Post("/{rentalID}/approve", rentalHandler.ApproveRental)
+			r.Post("/{rentalID}/decline", rentalHandler.DeclineRental)
 		})
 	})
 

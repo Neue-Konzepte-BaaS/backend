@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/google/uuid"
@@ -89,11 +90,20 @@ type PlotRepository interface {
 }
 
 type RentalRepository interface {
-	// CreateRental books the plot for the customer, starting at the database's
-	// current time and running for durationMonths. Returns ErrPlotUnavailable
-	// if an existing rental overlaps that period, and ErrNotFound if the plot,
-	// crop, or customer does not exist.
-	CreateRental(ctx context.Context, plot, customer, crop uuid.UUID, durationMonths int32) (models.Rental, error)
+	// CreateRentalRequest records the customer's request to book the plot
+	// starting at startAt and running for durationMonths, in the Requested
+	// state. Returns ErrPlotUnavailable if an existing non-declined rental
+	// overlaps that period, and ErrNotFound if the plot, crop, or customer
+	// does not exist.
+	CreateRentalRequest(ctx context.Context, plot, customer, crop uuid.UUID, startAt time.Time, durationMonths int32, message string) (models.Rental, error)
+	// UpdateRentalStatus decides a still-Requested rental into status.
+	// Returns ErrRentalAlreadyDecided if the rental is not in the Requested
+	// state (including if the id does not exist).
+	UpdateRentalStatus(ctx context.Context, id uuid.UUID, status models.RentalStatus) (models.Rental, error)
+	// GetRentalWithFieldByID returns the rental together with the id of the
+	// field its plot belongs to, so callers can check field ownership before
+	// deciding it. Returns ErrNotFound if the id does not exist.
+	GetRentalWithFieldByID(ctx context.Context, id uuid.UUID) (models.RentalWithField, error)
 	// GetRentalsByCustomer returns the customer's rentals, newest first,
 	// each with the plot and crop it books.
 	GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error)

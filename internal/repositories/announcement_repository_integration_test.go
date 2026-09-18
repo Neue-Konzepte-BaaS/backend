@@ -74,15 +74,15 @@ func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	return farmer.ID, farmID, plots, crop.ID
 }
 
-// rentPast books a plot for a period that has already ended. The repository
-// always starts a rental at CURRENT_TIMESTAMP, so an expired one has to be
-// written directly.
+// rentPast books an approved, already-ended rental on plot. The repository
+// only ever requests a rental starting in the future, so an expired one has
+// to be written directly.
 func rentPast(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plot, customer, crop uuid.UUID) {
 	t.Helper()
 
 	_, err := pool.Exec(ctx, `
-		INSERT INTO rental (plot, customer, crop, period)
-		VALUES ($1, $2, $3, tstzrange(CURRENT_TIMESTAMP - interval '2 months', CURRENT_TIMESTAMP - interval '1 month'))`,
+		INSERT INTO rental (plot, customer, crop, period, status, message, decided_at)
+		VALUES ($1, $2, $3, tstzrange(CURRENT_TIMESTAMP - interval '2 months', CURRENT_TIMESTAMP - interval '1 month'), 'approved', 'please', CURRENT_TIMESTAMP - interval '2 months')`,
 		plot, customer, crop)
 	if err != nil {
 		t.Fatalf("inserting expired rental: %v", err)
@@ -100,15 +100,12 @@ func TestGetCustomersOfFarmer_CountsEachCustomerOnce(t *testing.T) {
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
-	rentalRepo := repositories.NewRentalRepository(queries)
 
 	farmer, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 3)
 	customer := seedCustomer(t, ctx, pool)
 
 	for _, plot := range plots {
-		if _, err := rentalRepo.CreateRental(ctx, plot, customer, cropID, 6); err != nil {
-			t.Fatalf("renting plot: %v", err)
-		}
+		rentNow(t, ctx, pool, plot, customer, cropID, 6)
 	}
 
 	recipients, err := accountRepo.GetCustomersOfFarmer(ctx, farmer)
@@ -133,7 +130,6 @@ func TestGetCustomersOfFarmer_OnlyCurrentRenters(t *testing.T) {
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
-	rentalRepo := repositories.NewRentalRepository(queries)
 
 	farmer, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
 	otherFarmer, _, otherPlots, otherCrop := seedFarmerWithPlots(t, ctx, pool, 1)
@@ -142,13 +138,9 @@ func TestGetCustomersOfFarmer_OnlyCurrentRenters(t *testing.T) {
 	expired := seedCustomer(t, ctx, pool)
 	somebodyElses := seedCustomer(t, ctx, pool)
 
-	if _, err := rentalRepo.CreateRental(ctx, plots[0], current, cropID, 6); err != nil {
-		t.Fatalf("renting plot: %v", err)
-	}
+	rentNow(t, ctx, pool, plots[0], current, cropID, 6)
 	rentPast(t, ctx, pool, plots[1], expired, cropID)
-	if _, err := rentalRepo.CreateRental(ctx, otherPlots[0], somebodyElses, otherCrop, 6); err != nil {
-		t.Fatalf("renting other farmer's plot: %v", err)
-	}
+	rentNow(t, ctx, pool, otherPlots[0], somebodyElses, otherCrop, 6)
 
 	recipients, err := accountRepo.GetCustomersOfFarmer(ctx, farmer)
 	if err != nil {
@@ -186,7 +178,6 @@ func TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom(t *testi
 	ctx := context.Background()
 
 	queries := database.New(pool)
-	rentalRepo := repositories.NewRentalRepository(queries)
 	announcementRepo := repositories.NewAnnouncementRepository(queries)
 
 	farmer, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
@@ -195,9 +186,7 @@ func TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom(t *testi
 
 	// Renting two plots from the same farmer must not double his notices.
 	for _, plot := range plots {
-		if _, err := rentalRepo.CreateRental(ctx, plot, customer, cropID, 6); err != nil {
-			t.Fatalf("renting plot: %v", err)
-		}
+		rentNow(t, ctx, pool, plot, customer, cropID, 6)
 	}
 
 	if _, err := announcementRepo.CreateAnnouncement(ctx, farmer, "Ernte", "Samstag um 9"); err != nil {

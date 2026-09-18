@@ -97,4 +97,7 @@ type Rental struct {
 	Period    pgtype.Range[pgtype.Timestamptz]
 	CreatedAt pgtype.Timestamptz
 	Crop      uuid.UUID
+	Status    string
+	Message   string
+	DecidedAt pgtype.Timestamptz
 }

@@ -64,7 +64,7 @@ JOIN farm ON farm.farmer_id = a.farmer
 JOIN field fi ON fi.farm = farm.id
 JOIN plot p ON p.field = fi.id
 JOIN rental r ON r.plot = p.id
-WHERE r.customer = $1 AND r.period @> CURRENT_TIMESTAMP
+WHERE r.customer = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
 ORDER BY a.created_at DESC
 `
 
@@ -119,7 +119,7 @@ JOIN rental r ON r.customer = c.account_id
 JOIN plot p ON p.id = r.plot
 JOIN field f ON f.id = p.field
 JOIN farm ON farm.id = f.farm
-WHERE farm.farmer_id = $1 AND r.period @> CURRENT_TIMESTAMP
+WHERE farm.farmer_id = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
 ORDER BY a.email
 `
 

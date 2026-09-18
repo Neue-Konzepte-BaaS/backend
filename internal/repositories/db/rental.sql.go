@@ -13,6 +13,39 @@ import (
 	geom "github.com/twpayne/go-geom"
 )
 
+const getRentalWithFieldByID = `-- name: GetRentalWithFieldByID :one
+SELECT r.id, r.plot, r.customer, r.crop, r.status, p.field
+FROM rental r
+JOIN plot p ON p.id = r.plot
+WHERE r.id = $1
+`
+
+type GetRentalWithFieldByIDRow struct {
+	ID       uuid.UUID
+	Plot     uuid.UUID
+	Customer uuid.UUID
+	Crop     uuid.UUID
+	Status   string
+	Field    uuid.UUID
+}
+
+// Fetches the rental together with the field its plot belongs to, so the
+// service can check the deciding farmer owns that field before approving or
+// declining.
+func (q *Queries) GetRentalWithFieldByID(ctx context.Context, id uuid.UUID) (GetRentalWithFieldByIDRow, error) {
+	row := q.db.QueryRow(ctx, getRentalWithFieldByID, id)
+	var i GetRentalWithFieldByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Plot,
+		&i.Customer,
+		&i.Crop,
+		&i.Status,
+		&i.Field,
+	)
+	return i, err
+}
+
 const getRentalsByCustomer = `-- name: GetRentalsByCustomer :many
 SELECT
     r.id,
@@ -21,6 +54,9 @@ SELECT
     r.crop,
     lower(r.period)::timestamptz AS start_at,
     upper(r.period)::timestamptz AS end_at,
+    r.status,
+    r.message,
+    r.decided_at,
     p.name AS plot_name,
     p.field,
     p.coordinates,
@@ -41,6 +77,9 @@ type GetRentalsByCustomerRow struct {
 	Crop                 uuid.UUID
 	StartAt              pgtype.Timestamptz
 	EndAt                pgtype.Timestamptz
+	Status               string
+	Message              string
+	DecidedAt            pgtype.Timestamptz
 	PlotName             string
 	Field                uuid.UUID
 	Coordinates          *geom.Polygon
@@ -65,6 +104,9 @@ func (q *Queries) GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) 
 			&i.Crop,
 			&i.StartAt,
 			&i.EndAt,
+			&i.Status,
+			&i.Message,
+			&i.DecidedAt,
 			&i.PlotName,
 			&i.Field,
 			&i.Coordinates,
@@ -90,6 +132,9 @@ SELECT
     r.crop,
     lower(r.period)::timestamptz AS start_at,
     upper(r.period)::timestamptz AS end_at,
+    r.status,
+    r.message,
+    r.decided_at,
     p.name AS plot_name,
     p.field,
     p.coordinates,
@@ -114,6 +159,9 @@ type GetRentalsByFarmRow struct {
 	Crop                 uuid.UUID
 	StartAt              pgtype.Timestamptz
 	EndAt                pgtype.Timestamptz
+	Status               string
+	Message              string
+	DecidedAt            pgtype.Timestamptz
 	PlotName             string
 	Field                uuid.UUID
 	Coordinates          *geom.Polygon
@@ -144,6 +192,9 @@ func (q *Queries) GetRentalsByFarm(ctx context.Context, farm uuid.UUID) ([]GetRe
 			&i.Crop,
 			&i.StartAt,
 			&i.EndAt,
+			&i.Status,
+			&i.Message,
+			&i.DecidedAt,
 			&i.PlotName,
 			&i.Field,
 			&i.Coordinates,
@@ -164,49 +215,100 @@ func (q *Queries) GetRentalsByFarm(ctx context.Context, farm uuid.UUID) ([]GetRe
 	return items, nil
 }
 
-const insertRental = `-- name: InsertRental :one
+const insertRentalRequest = `-- name: InsertRentalRequest :one
 
-
-INSERT INTO rental (plot, customer, crop, period)
+INSERT INTO rental (plot, customer, crop, period, message, status)
 VALUES (
     $1,
     $2,
     $3,
     tstzrange(
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP + make_interval(months => $4::int)
-    )
+        $4::timestamptz,
+        $4::timestamptz + make_interval(months => $5::int)
+    ),
+    $6,
+    'requested'
 )
-RETURNING id, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at
+RETURNING id, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at
 `
 
-type InsertRentalParams struct {
+type InsertRentalRequestParams struct {
 	Plot           uuid.UUID
 	Customer       uuid.UUID
 	Crop           uuid.UUID
+	StartAt        pgtype.Timestamptz
 	DurationMonths int32
+	Message        string
 }
 
-type InsertRentalRow struct {
+type InsertRentalRequestRow struct {
 	ID      uuid.UUID
+	Status  string
 	StartAt pgtype.Timestamptz
 	EndAt   pgtype.Timestamptz
 }
 
 // The period column is never selected as a whole: sqlc maps tstzrange to a
 // pgtype.Range, so the bounds are read out as plain timestamps instead.
-// The period starts at the database's clock rather than one supplied by the
-// caller: the availability filter compares against CURRENT_TIMESTAMP, so a
-// start time from a host whose clock runs ahead would leave the plot looking
-// available for the difference.
-func (q *Queries) InsertRental(ctx context.Context, arg InsertRentalParams) (InsertRentalRow, error) {
-	row := q.db.QueryRow(ctx, insertRental,
+func (q *Queries) InsertRentalRequest(ctx context.Context, arg InsertRentalRequestParams) (InsertRentalRequestRow, error) {
+	row := q.db.QueryRow(ctx, insertRentalRequest,
 		arg.Plot,
 		arg.Customer,
 		arg.Crop,
+		arg.StartAt,
 		arg.DurationMonths,
+		arg.Message,
 	)
-	var i InsertRentalRow
-	err := row.Scan(&i.ID, &i.StartAt, &i.EndAt)
+	var i InsertRentalRequestRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.StartAt,
+		&i.EndAt,
+	)
+	return i, err
+}
+
+const updateRentalStatus = `-- name: UpdateRentalStatus :one
+UPDATE rental
+SET status = $1, decided_at = CURRENT_TIMESTAMP
+WHERE id = $2 AND status = 'requested'
+RETURNING id, plot, customer, crop, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at, message, decided_at
+`
+
+type UpdateRentalStatusParams struct {
+	Status string
+	ID     uuid.UUID
+}
+
+type UpdateRentalStatusRow struct {
+	ID        uuid.UUID
+	Plot      uuid.UUID
+	Customer  uuid.UUID
+	Crop      uuid.UUID
+	Status    string
+	StartAt   pgtype.Timestamptz
+	EndAt     pgtype.Timestamptz
+	Message   string
+	DecidedAt pgtype.Timestamptz
+}
+
+// Only a still-requested rental can be decided: the WHERE guard makes this
+// idempotent-safe, since a second approve/decline on the same row returns no
+// rows instead of silently overwriting an earlier decision.
+func (q *Queries) UpdateRentalStatus(ctx context.Context, arg UpdateRentalStatusParams) (UpdateRentalStatusRow, error) {
+	row := q.db.QueryRow(ctx, updateRentalStatus, arg.Status, arg.ID)
+	var i UpdateRentalStatusRow
+	err := row.Scan(
+		&i.ID,
+		&i.Plot,
+		&i.Customer,
+		&i.Crop,
+		&i.Status,
+		&i.StartAt,
+		&i.EndAt,
+		&i.Message,
+		&i.DecidedAt,
+	)
 	return i, err
 }
