@@ -22,6 +22,10 @@ type Account struct {
 	Email        string
 	PasswordHash string
 	Role         Role
+	// PostalCode is 0 for an admin (no farmer/customer subtype row to carry
+	// one) -- treat 0 as "unknown", not literally postal code zero, same
+	// convention the frontend already applies to it.
+	PostalCode int32
 }
 
 // AccountListing is one row of the admin account list.

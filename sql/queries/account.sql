@@ -17,6 +17,9 @@ INSERT INTO admin (account_id, role) VALUES ($1, $2);
 -- name: GetAccountByEmail :one
 -- Role is not stored on account; it is implied by which subtype table the
 -- account joins to. admin.role is an admin-internal tier, not the account role.
+-- postal_code lives on whichever subtype table matches (farmer/customer); an
+-- admin has neither, hence the 0 default -- mirrors the frontend's own
+-- "0 means unknown" convention for postalCode.
 SELECT
     a.id,
     a.first_name,
@@ -28,7 +31,8 @@ SELECT
         WHEN f.account_id IS NOT NULL THEN 'farmer'
         WHEN c.account_id IS NOT NULL THEN 'customer'
         ELSE ''
-    END AS role
+    END AS role,
+    COALESCE(f.postal_code, c.postal_code, 0)::int AS postal_code
 FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id
@@ -47,7 +51,8 @@ SELECT
         WHEN f.account_id IS NOT NULL THEN 'farmer'
         WHEN c.account_id IS NOT NULL THEN 'customer'
         ELSE ''
-    END AS role
+    END AS role,
+    COALESCE(f.postal_code, c.postal_code, 0)::int AS postal_code
 FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id

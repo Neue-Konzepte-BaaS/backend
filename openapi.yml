@@ -172,7 +172,9 @@ paths:
     get:
       tags: [auth]
       summary: Get the authenticated account
-      description: Returns the id and role resolved from the `access_token` cookie.
+      description: |
+        Resolves the account id and role from the `access_token` cookie, then
+        looks up the full account (name, postal code) fresh from the database.
       operationId: getCurrentAccount
       responses:
         '200':
@@ -1539,8 +1541,11 @@ components:
 
     SessionAccount:
       type: object
-      description: The minimal identity returned after authenticating.
-      required: [id, role]
+      description: |
+        The identity returned after authenticating. `postal_code` is 0 for an
+        admin (no farmer/customer subtype row carries one) -- treat 0 as
+        "unknown", not literally postal code zero.
+      required: [id, role, first_name, last_name, postal_code]
       properties:
         id:
           type: string
@@ -1548,6 +1553,16 @@ components:
           example: 6f1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8
         role:
           $ref: '#/components/schemas/Role'
+        first_name:
+          type: string
+          example: Ada
+        last_name:
+          type: string
+          example: Lovelace
+        postal_code:
+          type: integer
+          format: int32
+          example: 76133
 
     Role:
       type: string

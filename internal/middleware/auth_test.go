@@ -32,6 +32,10 @@ func (s *stubAuthService) Register(context.Context, services.RegisterInput) (mod
 	panic("middleware does not call Register")
 }
 
+func (s *stubAuthService) Me(context.Context, uuid.UUID) (models.Account, error) {
+	panic("middleware does not call Me")
+}
+
 func (s *stubAuthService) Authenticate(_ context.Context, accessToken string) (credentials.Claims, error) {
 	s.gotToken = accessToken
 	s.callCount++

@@ -43,8 +43,21 @@ type registerRequest struct {
 }
 
 type meResponse struct {
-	ID   string `json:"id"`
-	Role string `json:"role"`
+	ID         string `json:"id"`
+	Role       string `json:"role"`
+	FirstName  string `json:"first_name"`
+	LastName   string `json:"last_name"`
+	PostalCode int32  `json:"postal_code"`
+}
+
+func toMeResponse(account models.Account) meResponse {
+	return meResponse{
+		ID:         account.ID.String(),
+		Role:       string(account.Role),
+		FirstName:  account.FirstName,
+		LastName:   account.LastName,
+		PostalCode: account.PostalCode,
+	}
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -74,10 +87,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	h.setCookie(w, middleware.AccessCookieName, pair.Access, "/", credentials.AccessTTL)
 	h.setCookie(w, middleware.RefreshCookieName, pair.Refresh, "/api/auth/refresh", credentials.RefreshTTL)
 
-	webutils.WriteJSON(w, http.StatusOK, meResponse{
-		ID:   account.ID.String(),
-		Role: string(account.Role),
-	})
+	webutils.WriteJSON(w, http.StatusOK, toMeResponse(account))
 }
 
 // Register creates a farmer or customer account and, on success, signs the new
@@ -119,20 +129,27 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	h.setCookie(w, middleware.AccessCookieName, pair.Access, "/", credentials.AccessTTL)
 	h.setCookie(w, middleware.RefreshCookieName, pair.Refresh, "/api/auth/refresh", credentials.RefreshTTL)
 
-	webutils.WriteJSON(w, http.StatusCreated, meResponse{
-		ID:   account.ID.String(),
-		Role: string(account.Role),
-	})
+	webutils.WriteJSON(w, http.StatusCreated, toMeResponse(account))
 }
 
 // Me reports the authenticated account. It must be mounted behind RequireAuth.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	accountClaims := middleware.MustClaimsFromContext(r.Context())
 
-	webutils.WriteJSON(w, http.StatusOK, meResponse{
-		ID:   accountClaims.UserID.String(),
-		Role: string(accountClaims.Role),
-	})
+	account, err := h.authService.Me(r.Context(), accountClaims.UserID)
+	if errors.Is(err, services.ErrNotFound) {
+		// The account behind a still-valid token was deleted after it was
+		// issued -- treat it the same as any other invalid session.
+		webutils.WriteError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if err != nil {
+		slog.Error("me failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, toMeResponse(account))
 }
 
 // Logout clears the auth cookies. The tokens are HttpOnly, so the browser can't
