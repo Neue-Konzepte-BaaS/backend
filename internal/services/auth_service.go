@@ -40,6 +40,11 @@ var (
 	// silently answering with an empty page, which reads as "no such accounts"
 	// when it actually means "no such role".
 	ErrInvalidFilter = errors.New("invalid filter")
+	// ErrInvalidCareInstruction is returned when a care instruction's week
+	// falls outside the range the table accepts. The handler rejects the same
+	// input first; this covers the path where the database is the one to
+	// notice, so it surfaces as a 400 rather than a 500.
+	ErrInvalidCareInstruction = errors.New("invalid care instruction")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

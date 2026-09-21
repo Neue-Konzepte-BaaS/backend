@@ -57,6 +57,24 @@ type AnnouncementRepository interface {
 	GetAnnouncementsForCustomer(ctx context.Context, customer uuid.UUID) ([]models.AnnouncementWithFarm, error)
 }
 
+type CareInstructionRepository interface {
+	// CreateCareInstruction adds one task to a crop's weekly guide. Returns
+	// ErrNotFound if no crop has that id.
+	CreateCareInstruction(ctx context.Context, crop uuid.UUID, week int32, title, body string) (models.CareInstruction, error)
+	// UpdateCareInstruction rewrites an instruction's week, title and body.
+	// Returns ErrNotFound if no instruction has that id.
+	UpdateCareInstruction(ctx context.Context, id uuid.UUID, week int32, title, body string) (models.CareInstruction, error)
+	// DeleteCareInstruction removes one instruction, reporting ErrNotFound
+	// rather than succeeding silently when the id is unknown.
+	DeleteCareInstruction(ctx context.Context, id uuid.UUID) error
+	// GetCareInstructionsByCrop returns one crop's guide in week order.
+	GetCareInstructionsByCrop(ctx context.Context, crop uuid.UUID) ([]models.CareInstruction, error)
+	// GetCareInstructionsByCrops returns the guides for several crops at once,
+	// keyed by crop id, each in week order. A crop with no guide is absent
+	// from the map rather than mapping to an empty slice.
+	GetCareInstructionsByCrops(ctx context.Context, crops []uuid.UUID) (map[uuid.UUID][]models.CareInstruction, error)
+}
+
 type FarmRepository interface {
 	// GetFarmByID returns ErrNotFound if no farm has that id.
 	GetFarmByID(ctx context.Context, farmID uuid.UUID) (models.Farm, error)
@@ -97,6 +115,10 @@ type RentalRepository interface {
 	// GetRentalsByCustomer returns the customer's rentals, newest first,
 	// each with the plot and crop it books.
 	GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error)
+	// GetActiveRentalsByCustomer returns only the customer's rentals covering
+	// right now, each with the plot's and field's names, the crop, and which
+	// week of the rental today falls in.
+	GetActiveRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.ActiveRental, error)
 	// GetRentalsByFarm returns every rental on the farm's own plots,
 	// active and historic, newest first, each with its plot, field name, and
 	// customer.

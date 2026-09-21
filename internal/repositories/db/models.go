@@ -39,6 +39,16 @@ type BroadcastNotification struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type CareInstruction struct {
+	ID        uuid.UUID
+	Crop      uuid.UUID
+	Week      int32
+	Title     string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
 type Crop struct {
 	ID             uuid.UUID
 	Name           string

@@ -159,6 +159,7 @@ func main() {
 	postalCodeRepo := repositories.NewPostalCodeRepository(queries)
 	rentalRepo := repositories.NewRentalRepository(queries)
 	announcementRepo := repositories.NewAnnouncementRepository(queries)
+	careInstructionRepo := repositories.NewCareInstructionRepository(queries)
 	broadcastNotificationRepo := repositories.NewBroadcastNotificationRepository(queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
@@ -171,6 +172,7 @@ func main() {
 	fieldService := services.NewFieldService(farmRepo, fieldRepo, plotRepo, cropRepo)
 	notificationService := services.NewNotificationService(newEmailSender(c), accountRepo, broadcastNotificationRepo, emailtemplates.FS, dispatcher)
 	announcementService := services.NewAnnouncementService(announcementRepo, notificationService)
+	careGuideService := services.NewCareGuideService(careInstructionRepo, rentalRepo)
 	inboxService := services.NewInboxService(broadcastNotificationRepo, announcementRepo)
 	plotService := services.NewPlotService(farmRepo, fieldRepo, plotRepo)
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo, cropRepo)
@@ -183,6 +185,7 @@ func main() {
 	farmHandler := handlers.NewFarmHandler(farmService)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
 	announcementHandler := handlers.NewAnnouncementHandler(announcementService)
+	careGuideHandler := handlers.NewCareGuideHandler(careGuideService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	inboxHandler := handlers.NewInboxHandler(inboxService)
 	plotSearchHandler := handlers.NewPlotSearchHandler(plotSearchService)
@@ -190,7 +193,7 @@ func main() {
 	cropHandler := handlers.NewCropHandler(cropService)
 	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
 
-	router := handlers.NewRouter(accountHandler, authHandler, announcementHandler, farmHandler, fieldHandler, notificationHandler, inboxHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
+	router := handlers.NewRouter(accountHandler, authHandler, announcementHandler, careGuideHandler, farmHandler, fieldHandler, notificationHandler, inboxHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, authService, c)
 
 	// Shutdown is graceful because notifications are delivered after the
 	// response is written: killing the process on SIGTERM would drop mail that
