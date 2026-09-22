@@ -31,7 +31,7 @@ func (r *announcementRepository) CreateAnnouncement(ctx context.Context, farmer 
 		// here, so a FK violation at this point means the field or plot was
 		// deleted in between — report it the same way as any other missing
 		// resource rather than as a raw SQL error.
-		return models.AnnouncementWithFarm{}, mapCropError(err)
+		return models.AnnouncementWithFarm{}, mapForeignKeyError(err)
 	}
 
 	return toModelAnnouncement(row.ID, row.Farmer, row.Subject, row.Body, row.CreatedAt, row.Field, row.Plot, row.FarmName), nil

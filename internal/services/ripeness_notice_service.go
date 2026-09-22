@@ -37,20 +37,8 @@ func NewRipenessNoticeService(farmRepo FarmRepository, fieldRepo FieldRepository
 }
 
 func (s *ripenessNoticeService) CreateRipenessNotice(ctx context.Context, farmer, field, crop uuid.UUID) (models.RipenessNoticeWithDetails, int, error) {
-	callerFarm, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
-	if err != nil {
-		return models.RipenessNoticeWithDetails{}, 0, fmt.Errorf("looking up farm: %w", err)
-	}
-
-	fieldFarm, err := s.fieldRepo.GetFieldFarm(ctx, field)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return models.RipenessNoticeWithDetails{}, 0, err
-		}
-		return models.RipenessNoticeWithDetails{}, 0, fmt.Errorf("looking up field farm: %w", err)
-	}
-	if fieldFarm != callerFarm {
-		return models.RipenessNoticeWithDetails{}, 0, ErrForbidden
+	if err := checkFieldOwnership(ctx, s.farmRepo, s.fieldRepo, farmer, field); err != nil {
+		return models.RipenessNoticeWithDetails{}, 0, err
 	}
 
 	notice, err := s.ripenessNoticeRepo.CreateRipenessNotice(ctx, farmer, field, crop)

@@ -27,7 +27,7 @@ func (r *ripenessNoticeRepository) CreateRipenessNotice(ctx context.Context, far
 	if err != nil {
 		// The caller already checked field ownership before reaching here, so
 		// a FK violation at this point means an unknown crop id.
-		return models.RipenessNoticeWithDetails{}, mapCropError(err)
+		return models.RipenessNoticeWithDetails{}, mapForeignKeyError(err)
 	}
 
 	return toModelRipenessNotice(row.ID, row.Farmer, row.Field, row.Crop, row.CreatedAt, row.FarmName, row.FieldName, row.CropName), nil

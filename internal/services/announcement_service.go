@@ -95,15 +95,8 @@ func (s *announcementService) CreateAnnouncement(ctx context.Context, farmer uui
 }
 
 // checkScopeOwnership verifies that the farmer owns the field, or the field
-// that the plot belongs to. It mirrors plotService.CreatePlot's ownership
-// check: resolve the caller's own farm, resolve the scope's farm, and
-// compare.
+// that the plot belongs to, via the shared checkFieldOwnership.
 func (s *announcementService) checkScopeOwnership(ctx context.Context, farmer uuid.UUID, field, plot *uuid.UUID) error {
-	callerFarm, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
-	if err != nil {
-		return fmt.Errorf("looking up farm: %w", err)
-	}
-
 	scopedField := field
 	if scopedField == nil {
 		resolvedField, err := s.plotRepo.GetPlotField(ctx, *plot)
@@ -116,17 +109,7 @@ func (s *announcementService) checkScopeOwnership(ctx context.Context, farmer uu
 		scopedField = &resolvedField
 	}
 
-	fieldFarm, err := s.fieldRepo.GetFieldFarm(ctx, *scopedField)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return err
-		}
-		return fmt.Errorf("looking up field farm: %w", err)
-	}
-	if fieldFarm != callerFarm {
-		return ErrForbidden
-	}
-	return nil
+	return checkFieldOwnership(ctx, s.farmRepo, s.fieldRepo, farmer, *scopedField)
 }
 
 func (s *announcementService) GetAnnouncementsForFarmer(ctx context.Context, farmer uuid.UUID) ([]models.AnnouncementWithFarm, error) {
