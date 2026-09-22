@@ -39,6 +39,21 @@ func (f *fakeInboxAnnouncementRepo) GetAnnouncementsForCustomer(context.Context,
 	return f.forCustomer, nil
 }
 
+// fakeInboxRipenessNoticeRepo answers the ripeness half of an inbox. Only
+// GetRipenessNoticesForCustomer is reachable from InboxService.
+type fakeInboxRipenessNoticeRepo struct {
+	RipenessNoticeRepository
+	forCustomer []models.RipenessNoticeWithDetails
+	err         error
+}
+
+func (f *fakeInboxRipenessNoticeRepo) GetRipenessNoticesForCustomer(context.Context, uuid.UUID) ([]models.RipenessNoticeWithDetails, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.forCustomer, nil
+}
+
 func TestGetInboxForCustomer_MergesAndSortsNewestFirst(t *testing.T) {
 	now := time.Now()
 
@@ -51,32 +66,46 @@ func TestGetInboxForCustomer_MergesAndSortsNewestFirst(t *testing.T) {
 			FarmName:     "Hof Grünwald",
 		},
 	}}
-	svc := NewInboxService(broadcastRepo, announcementRepo)
+	ripenessRepo := &fakeInboxRipenessNoticeRepo{forCustomer: []models.RipenessNoticeWithDetails{
+		{
+			RipenessNotice: models.RipenessNotice{ID: uuid.New(), CreatedAt: now.Add(-1 * time.Hour)},
+			FarmName:       "Hof Grünwald",
+			FieldName:      "Feld Nord",
+			CropName:       "Zucchini",
+		},
+	}}
+	svc := NewInboxService(broadcastRepo, announcementRepo, ripenessRepo)
 
 	items, err := svc.GetInboxForCustomer(context.Background(), uuid.New())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("got %d items, want 2", len(items))
+	if len(items) != 3 {
+		t.Fatalf("got %d items, want 3", len(items))
 	}
 	if items[0].Kind != models.InboxItemAnnouncement || items[0].Subject != "Ernte" {
-		t.Errorf("first item = %+v, want the newer announcement first", items[0])
+		t.Errorf("first item = %+v, want the newest announcement first", items[0])
 	}
 	if items[0].FarmName != "Hof Grünwald" {
 		t.Errorf("first item farm name = %q, want it carried through", items[0].FarmName)
 	}
-	if items[1].Kind != models.InboxItemBroadcast || items[1].Subject != "Wartung" {
-		t.Errorf("second item = %+v, want the older broadcast second", items[1])
+	if items[1].Kind != models.InboxItemRipenessNotice {
+		t.Errorf("second item = %+v, want the ripeness notice second", items[1])
 	}
-	if items[1].FarmName != "" {
-		t.Errorf("broadcast farm name = %q, want empty", items[1].FarmName)
+	if items[1].FieldName != "Feld Nord" || items[1].CropName != "Zucchini" {
+		t.Errorf("second item = %+v, want field and crop carried through", items[1])
+	}
+	if items[2].Kind != models.InboxItemBroadcast || items[2].Subject != "Wartung" {
+		t.Errorf("third item = %+v, want the oldest broadcast last", items[2])
+	}
+	if items[2].FarmName != "" {
+		t.Errorf("broadcast farm name = %q, want empty", items[2].FarmName)
 	}
 }
 
 func TestGetInboxForCustomer_BroadcastFailureIsReturned(t *testing.T) {
 	boom := errors.New("db exploded")
-	svc := NewInboxService(&fakeInboxBroadcastRepo{err: boom}, &fakeInboxAnnouncementRepo{})
+	svc := NewInboxService(&fakeInboxBroadcastRepo{err: boom}, &fakeInboxAnnouncementRepo{}, &fakeInboxRipenessNoticeRepo{})
 
 	if _, err := svc.GetInboxForCustomer(context.Background(), uuid.New()); !errors.Is(err, boom) {
 		t.Errorf("error = %v, want it to wrap the broadcast repository failure", err)
@@ -85,15 +114,24 @@ func TestGetInboxForCustomer_BroadcastFailureIsReturned(t *testing.T) {
 
 func TestGetInboxForCustomer_AnnouncementFailureIsReturned(t *testing.T) {
 	boom := errors.New("db exploded")
-	svc := NewInboxService(&fakeInboxBroadcastRepo{}, &fakeInboxAnnouncementRepo{err: boom})
+	svc := NewInboxService(&fakeInboxBroadcastRepo{}, &fakeInboxAnnouncementRepo{err: boom}, &fakeInboxRipenessNoticeRepo{})
 
 	if _, err := svc.GetInboxForCustomer(context.Background(), uuid.New()); !errors.Is(err, boom) {
 		t.Errorf("error = %v, want it to wrap the announcement repository failure", err)
 	}
 }
 
+func TestGetInboxForCustomer_RipenessNoticeFailureIsReturned(t *testing.T) {
+	boom := errors.New("db exploded")
+	svc := NewInboxService(&fakeInboxBroadcastRepo{}, &fakeInboxAnnouncementRepo{}, &fakeInboxRipenessNoticeRepo{err: boom})
+
+	if _, err := svc.GetInboxForCustomer(context.Background(), uuid.New()); !errors.Is(err, boom) {
+		t.Errorf("error = %v, want it to wrap the ripeness notice repository failure", err)
+	}
+}
+
 func TestGetInboxForCustomer_EmptyIsNotAnError(t *testing.T) {
-	svc := NewInboxService(&fakeInboxBroadcastRepo{}, &fakeInboxAnnouncementRepo{})
+	svc := NewInboxService(&fakeInboxBroadcastRepo{}, &fakeInboxAnnouncementRepo{}, &fakeInboxRipenessNoticeRepo{})
 
 	items, err := svc.GetInboxForCustomer(context.Background(), uuid.New())
 	if err != nil {

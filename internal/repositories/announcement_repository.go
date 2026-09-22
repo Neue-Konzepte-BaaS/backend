@@ -18,17 +18,23 @@ func NewAnnouncementRepository(queries *database.Queries) services.AnnouncementR
 	return &announcementRepository{queries: queries}
 }
 
-func (r *announcementRepository) CreateAnnouncement(ctx context.Context, farmer uuid.UUID, subject, body string) (models.AnnouncementWithFarm, error) {
+func (r *announcementRepository) CreateAnnouncement(ctx context.Context, farmer uuid.UUID, subject, body string, field, plot *uuid.UUID) (models.AnnouncementWithFarm, error) {
 	row, err := r.queries.InsertAnnouncement(ctx, database.InsertAnnouncementParams{
 		Farmer:  farmer,
 		Subject: subject,
 		Body:    body,
+		Field:   field,
+		Plot:    plot,
 	})
 	if err != nil {
-		return models.AnnouncementWithFarm{}, err
+		// The caller already checked field/plot ownership before reaching
+		// here, so a FK violation at this point means the field or plot was
+		// deleted in between — report it the same way as any other missing
+		// resource rather than as a raw SQL error.
+		return models.AnnouncementWithFarm{}, mapCropError(err)
 	}
 
-	return toModelAnnouncement(row.ID, row.Farmer, row.Subject, row.Body, row.CreatedAt, row.FarmName), nil
+	return toModelAnnouncement(row.ID, row.Farmer, row.Subject, row.Body, row.CreatedAt, row.Field, row.Plot, row.FarmName), nil
 }
 
 func (r *announcementRepository) GetAnnouncementsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.AnnouncementWithFarm, error) {
@@ -39,7 +45,7 @@ func (r *announcementRepository) GetAnnouncementsByFarmer(ctx context.Context, f
 
 	announcements := make([]models.AnnouncementWithFarm, len(rows))
 	for i, row := range rows {
-		announcements[i] = toModelAnnouncement(row.ID, row.Farmer, row.Subject, row.Body, row.CreatedAt, row.FarmName)
+		announcements[i] = toModelAnnouncement(row.ID, row.Farmer, row.Subject, row.Body, row.CreatedAt, row.Field, row.Plot, row.FarmName)
 	}
 	return announcements, nil
 }
@@ -52,7 +58,7 @@ func (r *announcementRepository) GetAnnouncementsForCustomer(ctx context.Context
 
 	announcements := make([]models.AnnouncementWithFarm, len(rows))
 	for i, row := range rows {
-		announcements[i] = toModelAnnouncement(row.ID, row.Farmer, row.Subject, row.Body, row.CreatedAt, row.FarmName)
+		announcements[i] = toModelAnnouncement(row.ID, row.Farmer, row.Subject, row.Body, row.CreatedAt, row.Field, row.Plot, row.FarmName)
 	}
 	return announcements, nil
 }
@@ -60,7 +66,7 @@ func (r *announcementRepository) GetAnnouncementsForCustomer(ctx context.Context
 // toModelAnnouncement maps one announcement row to the domain model. The three
 // queries return identical but distinct generated row types, so the fields are
 // passed individually rather than the row itself.
-func toModelAnnouncement(id, farmer uuid.UUID, subject, body string, createdAt pgtype.Timestamptz, farmName string) models.AnnouncementWithFarm {
+func toModelAnnouncement(id, farmer uuid.UUID, subject, body string, createdAt pgtype.Timestamptz, field, plot *uuid.UUID, farmName string) models.AnnouncementWithFarm {
 	return models.AnnouncementWithFarm{
 		Announcement: models.Announcement{
 			ID:        id,
@@ -68,6 +74,8 @@ func toModelAnnouncement(id, farmer uuid.UUID, subject, body string, createdAt p
 			Subject:   subject,
 			Body:      body,
 			CreatedAt: createdAt.Time,
+			Field:     field,
+			Plot:      plot,
 		},
 		FarmName: farmName,
 	}

@@ -36,6 +36,16 @@ type AccountRepository interface {
 	// customer whose rental has ended is not included: the farmer's licence to
 	// mail them is the rental itself.
 	GetCustomersOfFarmer(ctx context.Context, farmer uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForField narrows GetCustomersOfFarmer to the
+	// customers currently renting a plot of one specific field.
+	GetCustomersOfFarmerForField(ctx context.Context, field uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForPlot narrows GetCustomersOfFarmer to the
+	// customer currently renting one specific plot.
+	GetCustomersOfFarmerForPlot(ctx context.Context, plot uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForFieldAndCrop is the audience for a ripeness
+	// notice: customers with an active rental on a plot of the given field,
+	// growing the given crop.
+	GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, field, crop uuid.UUID) ([]models.Recipient, error)
 }
 
 type BroadcastNotificationRepository interface {
@@ -47,14 +57,25 @@ type BroadcastNotificationRepository interface {
 
 type AnnouncementRepository interface {
 	// CreateAnnouncement stores one notice by a farmer and returns it with the
-	// farm name already resolved.
-	CreateAnnouncement(ctx context.Context, farmer uuid.UUID, subject, body string) (models.AnnouncementWithFarm, error)
+	// farm name already resolved. field and plot are the optional scope — at
+	// most one is non-nil; both nil reaches every current renter.
+	CreateAnnouncement(ctx context.Context, farmer uuid.UUID, subject, body string, field, plot *uuid.UUID) (models.AnnouncementWithFarm, error)
 	// GetAnnouncementsByFarmer returns the farmer's own notices, newest first.
 	GetAnnouncementsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.AnnouncementWithFarm, error)
 	// GetAnnouncementsForCustomer returns the notices of every farmer the
 	// customer currently rents from, newest first, each carrying the farm name
-	// it came from.
+	// it came from. A scoped notice is only included if the customer's active
+	// rental actually covers that field/plot.
 	GetAnnouncementsForCustomer(ctx context.Context, customer uuid.UUID) ([]models.AnnouncementWithFarm, error)
+}
+
+type RipenessNoticeRepository interface {
+	// CreateRipenessNotice stores one notice by a farmer and returns it with
+	// the farm, field and crop names already resolved.
+	CreateRipenessNotice(ctx context.Context, farmer, field, crop uuid.UUID) (models.RipenessNoticeWithDetails, error)
+	// GetRipenessNoticesForCustomer returns the notices for fields the
+	// customer currently rents a matching plot on, newest first.
+	GetRipenessNoticesForCustomer(ctx context.Context, customer uuid.UUID) ([]models.RipenessNoticeWithDetails, error)
 }
 
 type FarmRepository interface {

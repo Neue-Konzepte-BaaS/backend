@@ -56,6 +56,18 @@ func (f *fakeAccountListRepo) GetCustomersOfFarmer(context.Context, uuid.UUID) (
 	panic("the account listing does not send notifications")
 }
 
+func (f *fakeAccountListRepo) GetCustomersOfFarmerForField(context.Context, uuid.UUID) ([]models.Recipient, error) {
+	panic("the account listing does not send notifications")
+}
+
+func (f *fakeAccountListRepo) GetCustomersOfFarmerForPlot(context.Context, uuid.UUID) ([]models.Recipient, error) {
+	panic("the account listing does not send notifications")
+}
+
+func (f *fakeAccountListRepo) GetCustomersOfFarmerForFieldAndCrop(context.Context, uuid.UUID, uuid.UUID) ([]models.Recipient, error) {
+	panic("the account listing does not send notifications")
+}
+
 func TestListAccounts_OnlyAdminReachesTheRepository(t *testing.T) {
 	tests := []struct {
 		name      string
