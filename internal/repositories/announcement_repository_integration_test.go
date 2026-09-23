@@ -253,7 +253,6 @@ func TestGetAnnouncementsForCustomer_ScopedToFieldOnlyReachesThatFieldsRenters(t
 	ctx := context.Background()
 
 	queries := database.New(pool)
-	rentalRepo := repositories.NewRentalRepository(queries)
 	announcementRepo := repositories.NewAnnouncementRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
 
@@ -263,12 +262,8 @@ func TestGetAnnouncementsForCustomer_ScopedToFieldOnlyReachesThatFieldsRenters(t
 	inField := seedCustomer(t, ctx, pool)
 	outsideField := seedCustomer(t, ctx, pool)
 
-	if _, err := rentalRepo.CreateRentalRequest(ctx, plots[0], inField, cropID, time.Now(), 6, ""); err != nil {
-		t.Fatalf("renting scoped field's plot: %v", err)
-	}
-	if _, err := rentalRepo.CreateRentalRequest(ctx, otherPlot, outsideField, cropID, time.Now(), 6, ""); err != nil {
-		t.Fatalf("renting other field's plot: %v", err)
-	}
+	rentNow(t, ctx, pool, plots[0], inField, cropID, 6)
+	rentNow(t, ctx, pool, otherPlot, outsideField, cropID, 6)
 
 	// seedFarmerWithPlots does not return its field id directly, so resolve
 	// the field to scope the announcement to via the plot it seeded.
