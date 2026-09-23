@@ -3,6 +3,7 @@ package repositories_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
 	database "github.com/Neue-Konzepte-BaaS/backend/internal/repositories/db"
@@ -70,16 +71,16 @@ func TestGetCustomersOfFarmerForFieldAndCrop_DedupsMatchesFieldAndCropOnly(t *te
 
 	// Two plots of the target field, growing the target crop: must count once.
 	for _, plot := range plots[:2] {
-		if _, err := rentalRepo.CreateRental(ctx, plot, matchingTwice, cropID, 6); err != nil {
+		if _, err := rentalRepo.CreateRentalRequest(ctx, plot, matchingTwice, cropID, time.Now(), 6, ""); err != nil {
 			t.Fatalf("renting matching plot: %v", err)
 		}
 	}
 	// Same field, different crop: must be excluded.
-	if _, err := rentalRepo.CreateRental(ctx, plots[2], wrongCrop, otherCrop.ID, 6); err != nil {
+	if _, err := rentalRepo.CreateRentalRequest(ctx, plots[2], wrongCrop, otherCrop.ID, time.Now(), 6, ""); err != nil {
 		t.Fatalf("renting wrong-crop plot: %v", err)
 	}
 	// Different field, same crop: must be excluded.
-	if _, err := rentalRepo.CreateRental(ctx, otherFieldPlot, wrongField, cropID, 6); err != nil {
+	if _, err := rentalRepo.CreateRentalRequest(ctx, otherFieldPlot, wrongField, cropID, time.Now(), 6, ""); err != nil {
 		t.Fatalf("renting other field's plot: %v", err)
 	}
 
@@ -118,10 +119,10 @@ func TestGetRipenessNoticesForCustomer_OnlyMatchingFieldAndCrop(t *testing.T) {
 	matching := seedCustomer(t, ctx, pool)
 	wrongField := seedCustomer(t, ctx, pool)
 
-	if _, err := rentalRepo.CreateRental(ctx, plots[0], matching, cropID, 6); err != nil {
+	if _, err := rentalRepo.CreateRentalRequest(ctx, plots[0], matching, cropID, time.Now(), 6, ""); err != nil {
 		t.Fatalf("renting matching plot: %v", err)
 	}
-	if _, err := rentalRepo.CreateRental(ctx, otherFieldPlot, wrongField, cropID, 6); err != nil {
+	if _, err := rentalRepo.CreateRentalRequest(ctx, otherFieldPlot, wrongField, cropID, time.Now(), 6, ""); err != nil {
 		t.Fatalf("renting other field's plot: %v", err)
 	}
 

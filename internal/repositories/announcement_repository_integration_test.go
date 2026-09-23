@@ -3,6 +3,7 @@ package repositories_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
@@ -262,10 +263,10 @@ func TestGetAnnouncementsForCustomer_ScopedToFieldOnlyReachesThatFieldsRenters(t
 	inField := seedCustomer(t, ctx, pool)
 	outsideField := seedCustomer(t, ctx, pool)
 
-	if _, err := rentalRepo.CreateRental(ctx, plots[0], inField, cropID, 6); err != nil {
+	if _, err := rentalRepo.CreateRentalRequest(ctx, plots[0], inField, cropID, time.Now(), 6, ""); err != nil {
 		t.Fatalf("renting scoped field's plot: %v", err)
 	}
-	if _, err := rentalRepo.CreateRental(ctx, otherPlot, outsideField, cropID, 6); err != nil {
+	if _, err := rentalRepo.CreateRentalRequest(ctx, otherPlot, outsideField, cropID, time.Now(), 6, ""); err != nil {
 		t.Fatalf("renting other field's plot: %v", err)
 	}
 
@@ -317,11 +318,11 @@ func TestGetCustomersOfFarmerForField_DedupsAndExcludesOtherFields(t *testing.T)
 	elsewhere := seedCustomer(t, ctx, pool)
 
 	for _, plot := range plots {
-		if _, err := rentalRepo.CreateRental(ctx, plot, twicePlotted, cropID, 6); err != nil {
+		if _, err := rentalRepo.CreateRentalRequest(ctx, plot, twicePlotted, cropID, time.Now(), 6, ""); err != nil {
 			t.Fatalf("renting plot: %v", err)
 		}
 	}
-	if _, err := rentalRepo.CreateRental(ctx, otherPlot, elsewhere, cropID, 6); err != nil {
+	if _, err := rentalRepo.CreateRentalRequest(ctx, otherPlot, elsewhere, cropID, time.Now(), 6, ""); err != nil {
 		t.Fatalf("renting other field's plot: %v", err)
 	}
 
