@@ -38,7 +38,9 @@ var (
 	// ErrInvalidFilter is returned when a listing filter cannot be satisfied
 	// as written, e.g. a role that is not one of the three. Returning it beats
 	// silently answering with an empty page, which reads as "no such accounts"
-	// when it actually means "no such role".
+	// when it actually means "no such role". Also covers a caller-supplied
+	// selector that is invalid on its own terms rather than unowned or
+	// missing, e.g. an announcement scoped to both a field and a plot at once.
 	ErrInvalidFilter = errors.New("invalid filter")
 	// ErrInvalidRentalRequest is returned when a rental request fails a
 	// business rule: a blank message, or a start date outside the window a

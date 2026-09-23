@@ -27,8 +27,10 @@ tags:
     description: Platform-wide notifications sent by an admin
   - name: announcements
     description: The Schwarzes Brett — notices a farmer posts for his current customers
+  - name: ripeness
+    description: Ready-to-harvest notices a farmer posts for a field's current growers
   - name: inbox
-    description: A customer's merged feed of platform broadcasts and announcements
+    description: A customer's merged feed of platform broadcasts, announcements, and ripeness notices
   - name: statistics
     description: Aggregate statistics for farmers and admins
   - name: admin
@@ -448,6 +450,100 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: field not found
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/fields/{fieldID}/ripeness:
+    post:
+      tags: [ripeness]
+      summary: Post a ripeness notice for a field
+      description: |
+        Stores the notice and emails it to the customers currently renting a
+        plot of this field with the given crop. The field must be owned by
+        the authenticated farmer. Requires the `farmer` role.
+
+        Unlike the announcement board, a ripeness notice has no separate
+        read endpoint of its own — it appears in the recipients'
+        `GET /api/inbox` feed as a `ripeness_notice` item, mail-only
+        otherwise.
+
+        `recipients` is how many customers the message was queued for, not
+        how many were reached, for the same reason as
+        `POST /api/announcements`: delivery happens after this response,
+        nothing is retried, and a customer growing this crop on several
+        matching plots is counted and mailed once.
+      operationId: createRipenessNotice
+      parameters:
+        - name: fieldID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRipenessNoticeRequest'
+      responses:
+        '201':
+          description: The ripeness notice was stored and queued for delivery.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedRipenessNotice'
+        '400':
+          description: Malformed body, invalid field id, or a missing/invalid `crop_id`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidFieldId:
+                  value:
+                    error: invalid field id
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidCropId:
+                  value:
+                    error: crop_id is required and must be a valid id
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer, or the field is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                insufficientPermissions:
+                  value:
+                    error: insufficient permissions
+                notOwner:
+                  value:
+                    error: field is not owned by this farmer
+        '404':
+          description: Field or crop not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: field or crop not found
         '500':
           description: Internal error.
           content:
@@ -1161,6 +1257,14 @@ paths:
         Stores the notice and emails it to the customers currently renting one
         of this farmer's plots. Farmers only — a customer or admin receives 403.
 
+        By default the audience is every current renter. Setting `field_id` or
+        `plot_id` (never both) narrows it to the customers currently renting a
+        plot of that field, or that one plot — the board (`GET
+        /api/announcements`) applies the same scope when a customer reads it.
+        The field or plot must belong to this farmer, or the request is
+        rejected the same way `POST /api/fields/{fieldID}/plots` rejects one
+        it does not own.
+
         Unlike the platform broadcast this answers **201**, because the
         announcement itself is stored before the response is written. The board
         keeps it, so a customer who never receives the mail can still read it.
@@ -1168,8 +1272,8 @@ paths:
         `recipients` is how many customers the message was queued for, not how
         many were reached: delivery happens after the response, nothing is
         retried, and an address the relay rejects is logged and otherwise lost.
-        A customer renting several plots from this farmer is counted and mailed
-        once.
+        A customer renting several matching plots from this farmer is counted
+        and mailed once.
 
         Delivery failing does not fail the request — the announcement is
         already on the board, and `recipients` is then `0`. A `0` is therefore
@@ -1214,6 +1318,15 @@ paths:
                 bodyTooLong:
                   value:
                     error: body is too long
+                bothScoped:
+                  value:
+                    error: at most one of field_id, plot_id may be set
+                invalidFieldId:
+                  value:
+                    error: invalid field id
+                invalidPlotId:
+                  value:
+                    error: invalid plot id
         '401':
           description: Not authenticated.
           content:
@@ -1223,13 +1336,26 @@ paths:
               example:
                 error: not authenticated
         '403':
-          description: The authenticated account is not a farmer.
+          description: The authenticated account is not a farmer, or `field_id`/`plot_id` is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                insufficientPermissions:
+                  value:
+                    error: insufficient permissions
+                notOwner:
+                  value:
+                    error: field or plot is not owned by this farmer
+        '404':
+          description: The given `field_id`/`plot_id` does not exist.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                error: insufficient permissions
+                error: field or plot not found
         '500':
           description: Internal error.
           content:
@@ -1248,11 +1374,16 @@ paths:
         is currently renting from, each notice once however many plots he rents
         from that farmer.
 
+        A notice posted with `field_id`/`plot_id` set only appears for a
+        customer whose active rental actually covers that field/plot — not
+        merely for being that farmer's customer.
+
         The rental decides *which farmers* a customer reads, not *which
         notices*, so the board is not a record of the mail he received: a
         customer who starts renting today also reads everything that farmer
-        posted before, and when a rental ends that farmer's notices leave the
-        board even if the customer was mailed them at the time.
+        posted before (subject to the scope above), and when a rental ends
+        that farmer's notices leave the board even if the customer was mailed
+        them at the time.
 
         Newest first. An admin receives 403: the board belongs to the farms and
         their customers.
@@ -1296,18 +1427,24 @@ paths:
       tags: [inbox]
       summary: Read the authenticated customer's inbox
       description: |
-        A merged, newest-first feed of every platform broadcast plus the
-        announcements of every farmer this customer currently rents from.
-        Customers only — a farmer or admin receives 403.
+        A merged, newest-first feed of every platform broadcast, the
+        announcements of every farmer this customer currently rents from, and
+        the ripeness notices for the crops this customer is currently
+        growing. Customers only — a farmer or admin receives 403.
 
-        Each item carries its `kind` (`broadcast` or `announcement`) so a
-        client can render one feed instead of two. `farm_name` is only present
-        on announcement items; broadcasts have no farm to attribute.
+        Each item carries its `kind` (`broadcast`, `announcement`, or
+        `ripeness_notice`) so a client can render one feed instead of three.
+        `farm_name` is present on announcement and ripeness items; broadcasts
+        have no farm to attribute. `field_name`/`crop_name` are present only
+        on ripeness items.
 
         As with `GET /api/announcements`, the rental decides which farmers'
-        announcements appear, not which notices were mailed to this customer:
-        a new renter also reads that farmer's older notices, and an ended
-        rental removes that farmer's notices from the feed.
+        announcements and ripeness notices appear, not which notices were
+        mailed to this customer: a new renter also reads that farmer's older
+        notices (subject to any `field_id`/`plot_id` scope), and an ended
+        rental removes that farmer's notices from the feed. A ripeness notice
+        additionally requires the active rental's crop to match the notice's
+        crop.
       operationId: getInbox
       responses:
         '200':
@@ -2176,6 +2313,21 @@ components:
             not bytes.
           example: |
             Am Samstag ab 9 Uhr wird geerntet. Bringt bitte eigene Kisten mit.
+        field_id:
+          type: string
+          format: uuid
+          description: |
+            Narrows the audience to the customers currently renting a plot of
+            this field. Must be owned by the authenticated farmer. At most one
+            of `field_id`/`plot_id` may be set; omitting both reaches every
+            current renter.
+        plot_id:
+          type: string
+          format: uuid
+          description: |
+            Narrows the audience to the customer currently renting this one
+            plot. Must belong to a field owned by the authenticated farmer. At
+            most one of `field_id`/`plot_id` may be set.
 
     Announcement:
       type: object
@@ -2200,6 +2352,14 @@ components:
           example: Ernte am Samstag
         body:
           type: string
+        field_id:
+          type: string
+          format: uuid
+          description: Present when the notice was scoped to one field.
+        plot_id:
+          type: string
+          format: uuid
+          description: Present when the notice was scoped to one plot.
         created_at:
           type: string
           format: date-time
@@ -2255,7 +2415,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [broadcast, announcement]
+          enum: [broadcast, announcement, ripeness_notice]
           description: Which stored record this item came from.
         id:
           type: string
@@ -2268,12 +2428,77 @@ components:
         farm_name:
           type: string
           description: |
-            The farm the notice came from. Present only on `announcement`
-            items; a `broadcast` has no farm to attribute and omits this field.
+            The farm the notice came from. Present on `announcement` and
+            `ripeness_notice` items; a `broadcast` has no farm to attribute
+            and omits this field.
           example: Hof Grünwald
+        field_name:
+          type: string
+          description: The field the notice is about. Present only on `ripeness_notice` items.
+          example: Feld Nord
+        crop_name:
+          type: string
+          description: The crop that is ready. Present only on `ripeness_notice` items.
+          example: Zucchini
         created_at:
           type: string
           format: date-time
+
+    CreateRipenessNoticeRequest:
+      type: object
+      required: [crop_id]
+      properties:
+        crop_id:
+          type: string
+          format: uuid
+          description: The crop that is ready to harvest.
+
+    RipenessNotice:
+      type: object
+      required: [id, farmer, farm_name, field, field_name, crop, crop_name, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        farmer:
+          type: string
+          format: uuid
+          description: The account id of the farmer who posted it.
+        farm_name:
+          type: string
+          example: Hof Grünwald
+        field:
+          type: string
+          format: uuid
+        field_name:
+          type: string
+          example: Feld Nord
+        crop:
+          type: string
+          format: uuid
+        crop_name:
+          type: string
+          example: Zucchini
+        created_at:
+          type: string
+          format: date-time
+
+    CreatedRipenessNotice:
+      allOf:
+        - $ref: '#/components/schemas/RipenessNotice'
+        - type: object
+          required: [recipients]
+          properties:
+            recipients:
+              type: integer
+              format: int64
+              description: |
+                How many customers currently growing this crop on this field
+                the notice was queued for. Delivery happens after this
+                response, so it is not a count of successful sends, and it is
+                `0` if the mail could not be queued at all — the notice is
+                stored either way.
+              example: 3
 
 security:
   - accessTokenCookie: []

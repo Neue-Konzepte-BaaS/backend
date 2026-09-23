@@ -32,11 +32,17 @@ type NotificationService interface {
 	// outcome. Delivery itself happens in the background: the returned count is
 	// how many people were queued, not how many were reached.
 	NotifyAllUsers(ctx context.Context, subject, body string) (int, error)
-	// NotifyFarmerCustomers delivers a message to the customers currently
-	// renting one of the farmer's plots. It behaves like NotifyAllUsers:
+	// NotifyFarmerCustomers delivers a message to the customers the scope
+	// selects: every current renter of the farmer when field and plot are
+	// both nil, or only the renters of that field/plot when one of them is
+	// set (the caller must not set both). It behaves like NotifyAllUsers:
 	// recipients are resolved before returning, delivery happens afterwards,
 	// and the count is how many were queued.
-	NotifyFarmerCustomers(ctx context.Context, farmer uuid.UUID, farmName, subject, body string) (int, error)
+	NotifyFarmerCustomers(ctx context.Context, farmer uuid.UUID, field, plot *uuid.UUID, farmName, subject, body string) (int, error)
+	// NotifyRipeness delivers a ripeness notice to the customers currently
+	// growing the given crop on a plot of the given field. It behaves like
+	// NotifyAllUsers.
+	NotifyRipeness(ctx context.Context, field, crop uuid.UUID, farmName, fieldName, cropName string) (int, error)
 }
 
 // RecipientData is what a notification template is executed against: the
@@ -62,9 +68,19 @@ type announcementData struct {
 	Body     string
 }
 
+// ripenessData is the payload for a ripeness notice. It carries the field
+// name for the same reason announcementData carries the farm name: a
+// customer may rent several fields from the same farmer.
+type ripenessData struct {
+	FarmName  string
+	FieldName string
+	CropName  string
+}
+
 const (
 	broadcastTemplate    = "broadcast"
 	announcementTemplate = "announcement"
+	ripenessTemplate     = "ripeness"
 )
 
 type templateEntry struct {
@@ -175,8 +191,19 @@ func (s *notificationService) NotifyAllUsers(ctx context.Context, subject, body 
 	return len(recipients), nil
 }
 
-func (s *notificationService) NotifyFarmerCustomers(ctx context.Context, farmer uuid.UUID, farmName, subject, body string) (int, error) {
-	recipients, err := s.accountRepo.GetCustomersOfFarmer(ctx, farmer)
+func (s *notificationService) NotifyFarmerCustomers(ctx context.Context, farmer uuid.UUID, field, plot *uuid.UUID, farmName, subject, body string) (int, error) {
+	var (
+		recipients []models.Recipient
+		err        error
+	)
+	switch {
+	case field != nil:
+		recipients, err = s.accountRepo.GetCustomersOfFarmerForField(ctx, *field)
+	case plot != nil:
+		recipients, err = s.accountRepo.GetCustomersOfFarmerForPlot(ctx, *plot)
+	default:
+		recipients, err = s.accountRepo.GetCustomersOfFarmer(ctx, farmer)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("loading customers of farmer %s: %w", farmer, err)
 	}
@@ -186,6 +213,22 @@ func (s *notificationService) NotifyFarmerCustomers(ctx context.Context, farmer 
 
 	s.deliverInBackground(recipients, subject, announcementTemplate,
 		announcementData{FarmName: farmName, Subject: subject, Body: body}, "announcement")
+
+	return len(recipients), nil
+}
+
+func (s *notificationService) NotifyRipeness(ctx context.Context, field, crop uuid.UUID, farmName, fieldName, cropName string) (int, error) {
+	recipients, err := s.accountRepo.GetCustomersOfFarmerForFieldAndCrop(ctx, field, crop)
+	if err != nil {
+		return 0, fmt.Errorf("loading customers for field %s crop %s: %w", field, crop, err)
+	}
+	if len(recipients) == 0 {
+		return 0, nil
+	}
+
+	subject := fmt.Sprintf("%s ist reif", cropName)
+	s.deliverInBackground(recipients, subject, ripenessTemplate,
+		ripenessData{FarmName: farmName, FieldName: fieldName, CropName: cropName}, "ripeness")
 
 	return len(recipients), nil
 }

@@ -118,20 +118,8 @@ func NewPlotService(farmRepo FarmRepository, fieldRepo FieldRepository, plotRepo
 }
 
 func (s *plotService) CreatePlot(ctx context.Context, farmer uuid.UUID, fieldID uuid.UUID, name string, coordinates *geom.Polygon) (models.Plot, error) {
-	callerFarm, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
-	if err != nil {
-		return models.Plot{}, fmt.Errorf("looking up farm: %w", err)
-	}
-
-	fieldFarm, err := s.fieldRepo.GetFieldFarm(ctx, fieldID)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return models.Plot{}, err
-		}
-		return models.Plot{}, fmt.Errorf("looking up field farm: %w", err)
-	}
-	if fieldFarm != callerFarm {
-		return models.Plot{}, ErrForbidden
+	if err := checkFieldOwnership(ctx, s.farmRepo, s.fieldRepo, farmer, fieldID); err != nil {
+		return models.Plot{}, err
 	}
 
 	plot := models.Plot{

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/webutils"
+	"github.com/google/uuid"
 )
 
 type AnnouncementHandler struct {
@@ -34,8 +36,10 @@ const (
 )
 
 type createAnnouncementRequest struct {
-	Subject string `json:"subject"`
-	Body    string `json:"body"`
+	Subject string  `json:"subject"`
+	Body    string  `json:"body"`
+	FieldID *string `json:"field_id,omitempty"`
+	PlotID  *string `json:"plot_id,omitempty"`
 }
 
 type announcementResponse struct {
@@ -44,6 +48,8 @@ type announcementResponse struct {
 	FarmName  string    `json:"farm_name"`
 	Subject   string    `json:"subject"`
 	Body      string    `json:"body"`
+	FieldID   *string   `json:"field_id,omitempty"`
+	PlotID    *string   `json:"plot_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -53,7 +59,7 @@ type createAnnouncementResponse struct {
 }
 
 func toAnnouncementResponse(announcement models.AnnouncementWithFarm) announcementResponse {
-	return announcementResponse{
+	res := announcementResponse{
 		ID:        announcement.ID.String(),
 		Farmer:    announcement.Farmer.String(),
 		FarmName:  announcement.FarmName,
@@ -61,6 +67,15 @@ func toAnnouncementResponse(announcement models.AnnouncementWithFarm) announceme
 		Body:      announcement.Body,
 		CreatedAt: announcement.CreatedAt,
 	}
+	if announcement.Field != nil {
+		id := announcement.Field.String()
+		res.FieldID = &id
+	}
+	if announcement.Plot != nil {
+		id := announcement.Plot.String()
+		res.PlotID = &id
+	}
+	return res
 }
 
 // Create posts an announcement to the farmer's board and mails it to the
@@ -98,8 +113,45 @@ func (h *AnnouncementHandler) Create(w http.ResponseWriter, r *http.Request) {
 		webutils.WriteError(w, http.StatusBadRequest, "body is too long")
 		return
 	}
+	if req.FieldID != nil && req.PlotID != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "at most one of field_id, plot_id may be set")
+		return
+	}
 
-	announcement, recipients, err := h.announcementService.CreateAnnouncement(r.Context(), claims.UserID, req.Subject, req.Body)
+	var fieldID, plotID *uuid.UUID
+	if req.FieldID != nil {
+		id, err := uuid.Parse(*req.FieldID)
+		if err != nil {
+			webutils.WriteError(w, http.StatusBadRequest, "invalid field id")
+			return
+		}
+		fieldID = &id
+	}
+	if req.PlotID != nil {
+		id, err := uuid.Parse(*req.PlotID)
+		if err != nil {
+			webutils.WriteError(w, http.StatusBadRequest, "invalid plot id")
+			return
+		}
+		plotID = &id
+	}
+
+	announcement, recipients, err := h.announcementService.CreateAnnouncement(r.Context(), claims.UserID, req.Subject, req.Body, fieldID, plotID)
+	// The service re-checks the mutual-exclusion the parsing above already
+	// enforced — this branch exists for it, not for a request this handler
+	// itself can produce.
+	if errors.Is(err, services.ErrInvalidFilter) {
+		webutils.WriteError(w, http.StatusBadRequest, "at most one of field_id, plot_id may be set")
+		return
+	}
+	if errors.Is(err, services.ErrNotFound) {
+		webutils.WriteError(w, http.StatusNotFound, "field or plot not found")
+		return
+	}
+	if errors.Is(err, services.ErrForbidden) {
+		webutils.WriteError(w, http.StatusForbidden, "field or plot is not owned by this farmer")
+		return
+	}
 	if err != nil {
 		slog.Error("creating announcement failed", "error", err)
 		webutils.WriteError(w, http.StatusInternalServerError, "internal error")

@@ -189,10 +189,10 @@ func TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom(t *testi
 		rentNow(t, ctx, pool, plot, customer, cropID, 6)
 	}
 
-	if _, err := announcementRepo.CreateAnnouncement(ctx, farmer, "Ernte", "Samstag um 9"); err != nil {
+	if _, err := announcementRepo.CreateAnnouncement(ctx, farmer, "Ernte", "Samstag um 9", nil, nil); err != nil {
 		t.Fatalf("creating announcement: %v", err)
 	}
-	if _, err := announcementRepo.CreateAnnouncement(ctx, otherFarmer, "Fremd", "Nicht sichtbar"); err != nil {
+	if _, err := announcementRepo.CreateAnnouncement(ctx, otherFarmer, "Fremd", "Nicht sichtbar", nil, nil); err != nil {
 		t.Fatalf("creating the other farmer's announcement: %v", err)
 	}
 
@@ -209,5 +209,135 @@ func TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom(t *testi
 	}
 	if board[0].FarmName != "Green Acres" {
 		t.Errorf("farm name = %q, want it resolved for the reader", board[0].FarmName)
+	}
+}
+
+// addField creates one more field with one plot on an existing farm, and
+// returns their ids. Used to prove a scoped announcement/audience does not
+// leak across fields belonging to the same farmer.
+func addField(t *testing.T, ctx context.Context, pool *pgxpool.Pool, farmID uuid.UUID) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+
+	queries := database.New(pool)
+	fieldRepo := repositories.NewFieldRepository(queries)
+	plotRepo := repositories.NewPlotRepository(queries)
+
+	fieldID, err := fieldRepo.CreateField(ctx, models.Field{
+		Name:        "Field 2",
+		Farm:        farmID,
+		Coordinates: rectangle(200, 200, 300, 300),
+	})
+	if err != nil {
+		t.Fatalf("creating second field: %v", err)
+	}
+
+	plot, err := plotRepo.CreatePlot(ctx, models.Plot{
+		Name:        "Plot",
+		Field:       fieldID,
+		Coordinates: rectangle(201, 201, 205, 205),
+	})
+	if err != nil {
+		t.Fatalf("creating plot on second field: %v", err)
+	}
+
+	return fieldID, plot.ID
+}
+
+// TestGetAnnouncementsForCustomer_ScopedToFieldOnlyReachesThatFieldsRenters
+// checks the property the whole scoping feature rests on: a renter of a
+// different field of the same farm must not see a notice scoped to a field
+// he does not rent on, even though he is a current customer of the farmer.
+func TestGetAnnouncementsForCustomer_ScopedToFieldOnlyReachesThatFieldsRenters(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	queries := database.New(pool)
+	rentalRepo := repositories.NewRentalRepository(queries)
+	announcementRepo := repositories.NewAnnouncementRepository(queries)
+	plotRepo := repositories.NewPlotRepository(queries)
+
+	farmer, farmID, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 1)
+	_, otherPlot := addField(t, ctx, pool, farmID)
+
+	inField := seedCustomer(t, ctx, pool)
+	outsideField := seedCustomer(t, ctx, pool)
+
+	if _, err := rentalRepo.CreateRental(ctx, plots[0], inField, cropID, 6); err != nil {
+		t.Fatalf("renting scoped field's plot: %v", err)
+	}
+	if _, err := rentalRepo.CreateRental(ctx, otherPlot, outsideField, cropID, 6); err != nil {
+		t.Fatalf("renting other field's plot: %v", err)
+	}
+
+	// seedFarmerWithPlots does not return its field id directly, so resolve
+	// the field to scope the announcement to via the plot it seeded.
+	targetField, err := plotRepo.GetPlotField(ctx, plots[0])
+	if err != nil {
+		t.Fatalf("looking up scoped field: %v", err)
+	}
+
+	if _, err := announcementRepo.CreateAnnouncement(ctx, farmer, "Nur Feld 1", "Sichtbar nur hier", &targetField, nil); err != nil {
+		t.Fatalf("creating scoped announcement: %v", err)
+	}
+
+	board, err := announcementRepo.GetAnnouncementsForCustomer(ctx, inField)
+	if err != nil {
+		t.Fatalf("getting in-field customer's board: %v", err)
+	}
+	if len(board) != 1 {
+		t.Fatalf("in-field renter's board has %d notices, want 1: %+v", len(board), board)
+	}
+
+	otherBoard, err := announcementRepo.GetAnnouncementsForCustomer(ctx, outsideField)
+	if err != nil {
+		t.Fatalf("getting outside-field customer's board: %v", err)
+	}
+	if len(otherBoard) != 0 {
+		t.Fatalf("outside-field renter's board has %d notices, want 0 (scope must exclude him): %+v", len(otherBoard), otherBoard)
+	}
+}
+
+// TestGetCustomersOfFarmerForField_DedupsAndExcludesOtherFields is the
+// GetCustomersOfFarmer DISTINCT test's counterpart for the scoped audience
+// query: a customer renting two plots of the scoped field is mailed once,
+// and a customer of a different field of the same farm is not mailed at all.
+func TestGetCustomersOfFarmerForField_DedupsAndExcludesOtherFields(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	queries := database.New(pool)
+	rentalRepo := repositories.NewRentalRepository(queries)
+	accountRepo := repositories.NewAccountRepository(pool, queries)
+	plotRepo := repositories.NewPlotRepository(queries)
+
+	_, farmID, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
+	_, otherPlot := addField(t, ctx, pool, farmID)
+
+	twicePlotted := seedCustomer(t, ctx, pool)
+	elsewhere := seedCustomer(t, ctx, pool)
+
+	for _, plot := range plots {
+		if _, err := rentalRepo.CreateRental(ctx, plot, twicePlotted, cropID, 6); err != nil {
+			t.Fatalf("renting plot: %v", err)
+		}
+	}
+	if _, err := rentalRepo.CreateRental(ctx, otherPlot, elsewhere, cropID, 6); err != nil {
+		t.Fatalf("renting other field's plot: %v", err)
+	}
+
+	targetField, err := plotRepo.GetPlotField(ctx, plots[0])
+	if err != nil {
+		t.Fatalf("looking up field: %v", err)
+	}
+
+	recipients, err := accountRepo.GetCustomersOfFarmerForField(ctx, targetField)
+	if err != nil {
+		t.Fatalf("getting customers of field: %v", err)
+	}
+	if len(recipients) != 1 {
+		t.Fatalf("got %d recipients for one customer renting 2 plots of the field, want 1: %+v", len(recipients), recipients)
+	}
+	if recipients[0].AccountID != twicePlotted {
+		t.Errorf("recipient = %v, want %v", recipients[0].AccountID, twicePlotted)
 	}
 }

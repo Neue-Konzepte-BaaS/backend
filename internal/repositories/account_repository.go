@@ -104,6 +104,63 @@ func (r *accountRepository) GetCustomersOfFarmer(ctx context.Context, farmer uui
 	return recipients, nil
 }
 
+func (r *accountRepository) GetCustomersOfFarmerForField(ctx context.Context, field uuid.UUID) ([]models.Recipient, error) {
+	rows, err := r.queries.GetCustomersOfFarmerForField(ctx, field)
+	if err != nil {
+		return nil, err
+	}
+
+	recipients := make([]models.Recipient, len(rows))
+	for i, row := range rows {
+		recipients[i] = models.Recipient{
+			AccountID: row.ID,
+			Email:     row.Email,
+			FirstName: row.FirstName,
+			LastName:  row.LastName,
+		}
+	}
+	return recipients, nil
+}
+
+func (r *accountRepository) GetCustomersOfFarmerForPlot(ctx context.Context, plot uuid.UUID) ([]models.Recipient, error) {
+	rows, err := r.queries.GetCustomersOfFarmerForPlot(ctx, plot)
+	if err != nil {
+		return nil, err
+	}
+
+	recipients := make([]models.Recipient, len(rows))
+	for i, row := range rows {
+		recipients[i] = models.Recipient{
+			AccountID: row.ID,
+			Email:     row.Email,
+			FirstName: row.FirstName,
+			LastName:  row.LastName,
+		}
+	}
+	return recipients, nil
+}
+
+func (r *accountRepository) GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, field, crop uuid.UUID) ([]models.Recipient, error) {
+	rows, err := r.queries.GetCustomersOfFarmerForFieldAndCrop(ctx, database.GetCustomersOfFarmerForFieldAndCropParams{
+		Field: field,
+		Crop:  crop,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	recipients := make([]models.Recipient, len(rows))
+	for i, row := range rows {
+		recipients[i] = models.Recipient{
+			AccountID: row.ID,
+			Email:     row.Email,
+			FirstName: row.FirstName,
+			LastName:  row.LastName,
+		}
+	}
+	return recipients, nil
+}
+
 func (r *accountRepository) CreateAdmin(ctx context.Context, account models.Account) (models.Account, error) {
 	return r.createAccountWithSubtype(ctx, account, models.RoleAdmin, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
 		return q.InsertAdmin(ctx, database.InsertAdminParams{AccountID: id, Role: 1})
