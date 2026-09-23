@@ -1,23 +1,38 @@
 -- The period column is never selected as a whole: sqlc maps tstzrange to a
 -- pgtype.Range, so the bounds are read out as plain timestamps instead.
 
--- The period starts at the database's clock rather than one supplied by the
--- caller: the availability filter compares against CURRENT_TIMESTAMP, so a
--- start time from a host whose clock runs ahead would leave the plot looking
--- available for the difference.
-
--- name: InsertRental :one
-INSERT INTO rental (plot, customer, crop, period)
+-- name: InsertRentalRequest :one
+INSERT INTO rental (plot, customer, crop, period, message, status)
 VALUES (
     sqlc.arg(plot),
     sqlc.arg(customer),
     sqlc.arg(crop),
     tstzrange(
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP + make_interval(months => sqlc.arg(duration_months)::int)
-    )
+        sqlc.arg(start_at)::timestamptz,
+        sqlc.arg(start_at)::timestamptz + make_interval(months => sqlc.arg(duration_months)::int)
+    ),
+    sqlc.arg(message),
+    'requested'
 )
-RETURNING id, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at;
+RETURNING id, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at;
+
+-- name: UpdateRentalStatus :one
+-- Only a still-requested rental can be decided: the WHERE guard makes this
+-- idempotent-safe, since a second approve/decline on the same row returns no
+-- rows instead of silently overwriting an earlier decision.
+UPDATE rental
+SET status = sqlc.arg(status), decided_at = CURRENT_TIMESTAMP
+WHERE id = sqlc.arg(id) AND status = 'requested'
+RETURNING id, plot, customer, crop, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at, message, decided_at;
+
+-- name: GetRentalWithFieldByID :one
+-- Fetches the rental together with the field its plot belongs to, so the
+-- service can check the deciding farmer owns that field before approving or
+-- declining.
+SELECT r.id, r.plot, r.customer, r.crop, r.status, p.field
+FROM rental r
+JOIN plot p ON p.id = r.plot
+WHERE r.id = $1;
 
 -- name: GetRentalsByCustomer :many
 SELECT
@@ -27,6 +42,9 @@ SELECT
     r.crop,
     lower(r.period)::timestamptz AS start_at,
     upper(r.period)::timestamptz AS end_at,
+    r.status,
+    r.message,
+    r.decided_at,
     p.name AS plot_name,
     p.field,
     p.coordinates,
@@ -50,6 +68,9 @@ SELECT
     r.crop,
     lower(r.period)::timestamptz AS start_at,
     upper(r.period)::timestamptz AS end_at,
+    r.status,
+    r.message,
+    r.decided_at,
     p.name AS plot_name,
     p.field,
     p.coordinates,

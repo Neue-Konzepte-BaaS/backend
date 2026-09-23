@@ -18,12 +18,13 @@
 -- farm; a farm that owns nothing gets zeros rather than no row.
 WITH farm_plot_rows AS (
     -- Same "rented right now" test as plot.sql: containment of the current
-    -- instant, so an expired rental stops counting with no cleanup job.
+    -- instant, so an expired rental stops counting with no cleanup job. Only
+    -- an approved rental counts as rented; a still-undecided request does not.
     SELECT
         p.coordinates,
         EXISTS (
             SELECT 1 FROM rental r
-            WHERE r.plot = p.id AND r.period @> CURRENT_TIMESTAMP
+            WHERE r.plot = p.id AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
         ) AS is_rented
     FROM plot p
     JOIN field f ON f.id = p.field
@@ -46,7 +47,7 @@ farm_plots AS (
 farm_rentals AS (
     SELECT
         COUNT(*)::bigint AS total,
-        (COUNT(*) FILTER (WHERE r.period @> CURRENT_TIMESTAMP))::bigint AS active,
+        (COUNT(*) FILTER (WHERE r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'))::bigint AS active,
         (COUNT(*) FILTER (WHERE r.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'))::bigint AS last_30_days
     FROM rental r
     JOIN plot p ON p.id = r.plot
@@ -73,7 +74,7 @@ WITH platform_plot_rows AS (
         p.coordinates,
         EXISTS (
             SELECT 1 FROM rental r
-            WHERE r.plot = p.id AND r.period @> CURRENT_TIMESTAMP
+            WHERE r.plot = p.id AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
         ) AS is_rented
     FROM plot p
 ),
@@ -93,7 +94,7 @@ platform_plots AS (
 platform_rentals AS (
     SELECT
         COUNT(*)::bigint AS total,
-        (COUNT(*) FILTER (WHERE period @> CURRENT_TIMESTAMP))::bigint AS active,
+        (COUNT(*) FILTER (WHERE period @> CURRENT_TIMESTAMP AND status = 'approved'))::bigint AS active,
         (COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'))::bigint AS last_30_days
     FROM rental
 ),
