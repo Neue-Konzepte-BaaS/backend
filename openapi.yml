@@ -745,7 +745,8 @@ paths:
       summary: List the crop catalog
       description: |
         Returns every crop in the catalog, ordered by name. Public endpoint —
-        no authentication required.
+        no authentication required. Placeholder crops (the migration-seeded
+        `unknown` crop that only backfills legacy rentals) are excluded.
       operationId: getAllCrops
       security: []
       responses:
