@@ -103,8 +103,8 @@ type PlotRepository interface {
 	CreatePlot(ctx context.Context, plot models.Plot) (models.Plot, error)
 	GetPlotsByFields(ctx context.Context, fields []uuid.UUID) ([]models.Plot, error)
 	// GetNearestPlots returns up to limit plots ordered by distance from the
-	// given point (lon, lat), nearest first.
-	GetNearestPlots(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error)
+	// given point (lon, lat), nearest first — only farm's plots when farm is set.
+	GetNearestPlots(ctx context.Context, lon, lat float64, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error)
 	// GetPlotField returns the id of the field a plot belongs to. Returns
 	// ErrNotFound if the plot does not exist.
 	GetPlotField(ctx context.Context, plot uuid.UUID) (uuid.UUID, error)

@@ -42,5 +42,8 @@ WHERE NOT EXISTS (
     SELECT 1 FROM rental r
     WHERE r.plot = plot.id AND r.period @> CURRENT_TIMESTAMP AND r.status <> 'declined'
 )
+-- Optional: only this farm's plots (its detail page), instead of whichever
+-- farms happen to fill the nearest-N.
+AND (sqlc.narg(farm)::uuid IS NULL OR field.farm = sqlc.narg(farm)::uuid)
 ORDER BY plot.coordinates <-> ST_SetSRID(ST_MakePoint(sqlc.arg(lon)::float8, sqlc.arg(lat)::float8), 4326)
 LIMIT sqlc.arg(result_limit);

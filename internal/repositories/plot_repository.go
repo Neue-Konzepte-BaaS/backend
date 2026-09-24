@@ -64,10 +64,11 @@ func (r *plotRepository) GetPlotField(ctx context.Context, plot uuid.UUID) (uuid
 	return field, nil
 }
 
-func (r *plotRepository) GetNearestPlots(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error) {
+func (r *plotRepository) GetNearestPlots(ctx context.Context, lon, lat float64, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error) {
 	rows, err := r.queries.GetNearestPlots(ctx, database.GetNearestPlotsParams{
 		Lon:         lon,
 		Lat:         lat,
+		Farm:        farm,
 		ResultLimit: limit,
 	})
 	if err != nil {

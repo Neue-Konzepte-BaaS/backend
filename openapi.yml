@@ -612,6 +612,15 @@ paths:
             maximum: 100
             default: 20
           example: 10
+        - name: farm
+          in: query
+          description: |
+            Optional farm id. Only that farm's free plots are returned (still
+            nearest first), e.g. for a farm's detail page — otherwise a farm
+            whose plots aren't among the overall nearest `limit` would look empty.
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: The nearest plots, ordered by ascending distance.
