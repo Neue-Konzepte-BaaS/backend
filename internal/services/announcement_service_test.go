@@ -97,7 +97,7 @@ func (f *fakePlotRepo) GetPlotsByFields(context.Context, []uuid.UUID) ([]models.
 	panic("not used by these tests")
 }
 
-func (f *fakePlotRepo) GetNearestPlots(context.Context, float64, float64, int32) ([]models.NearbyPlot, error) {
+func (f *fakePlotRepo) GetNearestPlots(context.Context, float64, float64, *uuid.UUID, int32) ([]models.NearbyPlot, error) {
 	panic("not used by these tests")
 }
 
