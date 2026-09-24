@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/google/uuid"
@@ -36,6 +37,16 @@ type AccountRepository interface {
 	// customer whose rental has ended is not included: the farmer's licence to
 	// mail them is the rental itself.
 	GetCustomersOfFarmer(ctx context.Context, farmer uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForField narrows GetCustomersOfFarmer to the
+	// customers currently renting a plot of one specific field.
+	GetCustomersOfFarmerForField(ctx context.Context, field uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForPlot narrows GetCustomersOfFarmer to the
+	// customer currently renting one specific plot.
+	GetCustomersOfFarmerForPlot(ctx context.Context, plot uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForFieldAndCrop is the audience for a ripeness
+	// notice: customers with an active rental on a plot of the given field,
+	// growing the given crop.
+	GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, field, crop uuid.UUID) ([]models.Recipient, error)
 }
 
 type BroadcastNotificationRepository interface {
@@ -47,13 +58,15 @@ type BroadcastNotificationRepository interface {
 
 type AnnouncementRepository interface {
 	// CreateAnnouncement stores one notice by a farmer and returns it with the
-	// farm name already resolved.
-	CreateAnnouncement(ctx context.Context, farmer uuid.UUID, subject, body string) (models.AnnouncementWithFarm, error)
+	// farm name already resolved. field and plot are the optional scope — at
+	// most one is non-nil; both nil reaches every current renter.
+	CreateAnnouncement(ctx context.Context, farmer uuid.UUID, subject, body string, field, plot *uuid.UUID) (models.AnnouncementWithFarm, error)
 	// GetAnnouncementsByFarmer returns the farmer's own notices, newest first.
 	GetAnnouncementsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.AnnouncementWithFarm, error)
 	// GetAnnouncementsForCustomer returns the notices of every farmer the
 	// customer currently rents from, newest first, each carrying the farm name
-	// it came from.
+	// it came from. A scoped notice is only included if the customer's active
+	// rental actually covers that field/plot.
 	GetAnnouncementsForCustomer(ctx context.Context, customer uuid.UUID) ([]models.AnnouncementWithFarm, error)
 }
 
@@ -73,6 +86,15 @@ type CareInstructionRepository interface {
 	// keyed by crop id, each in week order. A crop with no guide is absent
 	// from the map rather than mapping to an empty slice.
 	GetCareInstructionsByCrops(ctx context.Context, crops []uuid.UUID) (map[uuid.UUID][]models.CareInstruction, error)
+}
+
+type RipenessNoticeRepository interface {
+	// CreateRipenessNotice stores one notice by a farmer and returns it with
+	// the farm, field and crop names already resolved.
+	CreateRipenessNotice(ctx context.Context, farmer, field, crop uuid.UUID) (models.RipenessNoticeWithDetails, error)
+	// GetRipenessNoticesForCustomer returns the notices for fields the
+	// customer currently rents a matching plot on, newest first.
+	GetRipenessNoticesForCustomer(ctx context.Context, customer uuid.UUID) ([]models.RipenessNoticeWithDetails, error)
 }
 
 type FarmRepository interface {
@@ -99,19 +121,28 @@ type PlotRepository interface {
 	CreatePlot(ctx context.Context, plot models.Plot) (models.Plot, error)
 	GetPlotsByFields(ctx context.Context, fields []uuid.UUID) ([]models.Plot, error)
 	// GetNearestPlots returns up to limit plots ordered by distance from the
-	// given point (lon, lat), nearest first.
-	GetNearestPlots(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error)
+	// given point (lon, lat), nearest first — only farm's plots when farm is set.
+	GetNearestPlots(ctx context.Context, lon, lat float64, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error)
 	// GetPlotField returns the id of the field a plot belongs to. Returns
 	// ErrNotFound if the plot does not exist.
 	GetPlotField(ctx context.Context, plot uuid.UUID) (uuid.UUID, error)
 }
 
 type RentalRepository interface {
-	// CreateRental books the plot for the customer, starting at the database's
-	// current time and running for durationMonths. Returns ErrPlotUnavailable
-	// if an existing rental overlaps that period, and ErrNotFound if the plot,
-	// crop, or customer does not exist.
-	CreateRental(ctx context.Context, plot, customer, crop uuid.UUID, durationMonths int32) (models.Rental, error)
+	// CreateRentalRequest records the customer's request to book the plot
+	// starting at startAt and running for durationMonths, in the Requested
+	// state. Returns ErrPlotUnavailable if an existing non-declined rental
+	// overlaps that period, and ErrNotFound if the plot, crop, or customer
+	// does not exist.
+	CreateRentalRequest(ctx context.Context, plot, customer, crop uuid.UUID, startAt time.Time, durationMonths int32, message string) (models.Rental, error)
+	// UpdateRentalStatus decides a still-Requested rental into status.
+	// Returns ErrRentalAlreadyDecided if the rental is not in the Requested
+	// state (including if the id does not exist).
+	UpdateRentalStatus(ctx context.Context, id uuid.UUID, status models.RentalStatus) (models.Rental, error)
+	// GetRentalWithFieldByID returns the rental together with the id of the
+	// field its plot belongs to, so callers can check field ownership before
+	// deciding it. Returns ErrNotFound if the id does not exist.
+	GetRentalWithFieldByID(ctx context.Context, id uuid.UUID) (models.RentalWithField, error)
 	// GetRentalsByCustomer returns the customer's rentals, newest first,
 	// each with the plot and crop it books.
 	GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error)

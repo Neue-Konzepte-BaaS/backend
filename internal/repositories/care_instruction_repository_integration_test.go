@@ -12,20 +12,22 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// rentStartedDaysAgo books a plot for a period that began in the past and is
-// still running. CreateRental always starts at CURRENT_TIMESTAMP, so a rental
-// already some weeks in has to be written directly — which is the only way to
-// observe a current_week other than 1.
-func rentStartedDaysAgo(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plot, customer, crop uuid.UUID, daysAgo int, durationMonths int) {
+// rentStartedDaysAgo writes a rental that began in the past and is still
+// running, in the given status. The repository only ever *requests* a rental
+// starting in the future, so a rental already some weeks in has to be written
+// directly — which is the only way to observe a current_week other than 1.
+// The status is a parameter because the care guide's whole audience rule is
+// that only an approved rental carries one.
+func rentStartedDaysAgo(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plot, customer, crop uuid.UUID, daysAgo int, durationMonths int, status string) {
 	t.Helper()
 
 	_, err := pool.Exec(ctx, `
-		INSERT INTO rental (plot, customer, crop, period)
+		INSERT INTO rental (plot, customer, crop, period, status, message, decided_at)
 		VALUES ($1, $2, $3, tstzrange(
 			CURRENT_TIMESTAMP - make_interval(days => $4::int),
 			CURRENT_TIMESTAMP - make_interval(days => $4::int) + make_interval(months => $5::int)
-		))`,
-		plot, customer, crop, daysAgo, durationMonths)
+		), $6, 'please', CURRENT_TIMESTAMP - make_interval(days => $4::int))`,
+		plot, customer, crop, daysAgo, durationMonths, status)
 	if err != nil {
 		t.Fatalf("inserting running rental: %v", err)
 	}
@@ -189,11 +191,9 @@ func TestGetActiveRentalsByCustomer(t *testing.T) {
 	customer := seedCustomer(t, ctx, pool)
 
 	// Three months, started 15 days ago: day 14 begins week 3.
-	rentStartedDaysAgo(t, ctx, pool, plots[0], customer, cropID, 15, 3)
-	// Fresh today, so week 1.
-	if _, err := rentalRepo.CreateRental(ctx, plots[1], customer, cropID, 3); err != nil {
-		t.Fatalf("renting plot: %v", err)
-	}
+	rentStartedDaysAgo(t, ctx, pool, plots[0], customer, cropID, 15, 3, "approved")
+	// Started yesterday, so week 1.
+	rentNow(t, ctx, pool, plots[1], customer, cropID, 3)
 	// Already over, so not part of the care guide at all.
 	rentPast(t, ctx, pool, plots[2], customer, cropID)
 
@@ -224,5 +224,35 @@ func TestGetActiveRentalsByCustomer(t *testing.T) {
 	}
 	if byPlot[plots[1]] != 1 {
 		t.Errorf("a rental starting today is in week %d, want 1", byPlot[plots[1]])
+	}
+}
+
+// TestGetActiveRentalsByCustomer_OnlyApproved is the rule the care guide's
+// audience rests on since rental requests: a row exists from the moment a
+// customer asks for a plot, and a declined request keeps its row forever. A
+// guide handed out on the period alone would reach both.
+func TestGetActiveRentalsByCustomer_OnlyApproved(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	queries := database.New(pool)
+	rentalRepo := repositories.NewRentalRepository(queries)
+
+	_, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 3)
+	customer := seedCustomer(t, ctx, pool)
+
+	rentStartedDaysAgo(t, ctx, pool, plots[0], customer, cropID, 8, 3, "approved")
+	rentStartedDaysAgo(t, ctx, pool, plots[1], customer, cropID, 8, 3, "requested")
+	rentStartedDaysAgo(t, ctx, pool, plots[2], customer, cropID, 8, 3, "declined")
+
+	rentals, err := rentalRepo.GetActiveRentalsByCustomer(ctx, customer)
+	if err != nil {
+		t.Fatalf("getting active rentals: %v", err)
+	}
+	if len(rentals) != 1 {
+		t.Fatalf("got %d rentals, want only the approved one: %+v", len(rentals), rentals)
+	}
+	if rentals[0].PlotID != plots[0] {
+		t.Errorf("rental is for plot %v, want the approved one %v", rentals[0].PlotID, plots[0])
 	}
 }

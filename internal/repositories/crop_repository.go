@@ -54,7 +54,11 @@ func (r *cropRepository) GetAllCrops(ctx context.Context) ([]models.Crop, error)
 	if err != nil {
 		return nil, err
 	}
-	return toCrops(rows), nil
+	crops := make([]models.Crop, len(rows))
+	for i, row := range rows {
+		crops[i] = models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}
+	}
+	return crops, nil
 }
 
 func (r *cropRepository) GetCropByID(ctx context.Context, id uuid.UUID) (models.Crop, error) {
@@ -85,7 +89,7 @@ func (r *cropRepository) SetPlotCrops(ctx context.Context, plot uuid.UUID, crops
 
 	for _, crop := range crops {
 		if err := qtx.InsertPlotCrop(ctx, database.InsertPlotCropParams{Plot: plot, Crop: crop}); err != nil {
-			return mapCropError(err)
+			return mapForeignKeyError(err)
 		}
 	}
 
@@ -100,7 +104,11 @@ func (r *cropRepository) GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]
 	if err != nil {
 		return nil, err
 	}
-	return toCrops(rows), nil
+	crops := make([]models.Crop, len(rows))
+	for i, row := range rows {
+		crops[i] = models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}
+	}
+	return crops, nil
 }
 
 func (r *cropRepository) GetCropsByPlots(ctx context.Context, plots []uuid.UUID) (map[uuid.UUID][]models.Crop, error) {
@@ -118,23 +126,4 @@ func (r *cropRepository) GetCropsByPlots(ctx context.Context, plots []uuid.UUID)
 		})
 	}
 	return cropsByPlot, nil
-}
-
-// mapCropError turns the foreign key violation raised by inserting an
-// unknown crop id (or a plot id that no longer exists) into ErrNotFound, so
-// handlers can report it as a 404 instead of leaking a raw SQL error as a 500.
-func mapCropError(err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {
-		return fmt.Errorf("%s: %w", pgErr.Message, services.ErrNotFound)
-	}
-	return err
-}
-
-func toCrops(rows []database.Crop) []models.Crop {
-	crops := make([]models.Crop, len(rows))
-	for i, row := range rows {
-		crops[i] = models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}
-	}
-	return crops
 }

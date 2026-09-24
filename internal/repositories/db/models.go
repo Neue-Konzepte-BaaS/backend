@@ -30,6 +30,8 @@ type Announcement struct {
 	Subject   string
 	Body      string
 	CreatedAt pgtype.Timestamptz
+	Field     *uuid.UUID
+	Plot      *uuid.UUID
 }
 
 type BroadcastNotification struct {
@@ -53,6 +55,7 @@ type Crop struct {
 	ID             uuid.UUID
 	Name           string
 	DurationMonths int32
+	IsPlaceholder  bool
 }
 
 type Customer struct {
@@ -107,4 +110,15 @@ type Rental struct {
 	Period    pgtype.Range[pgtype.Timestamptz]
 	CreatedAt pgtype.Timestamptz
 	Crop      uuid.UUID
+	Status    string
+	Message   string
+	DecidedAt pgtype.Timestamptz
+}
+
+type RipenessNotice struct {
+	ID        uuid.UUID
+	Farmer    uuid.UUID
+	Field     uuid.UUID
+	Crop      uuid.UUID
+	CreatedAt pgtype.Timestamptz
 }

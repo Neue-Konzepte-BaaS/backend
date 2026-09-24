@@ -83,7 +83,6 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 	ctx := context.Background()
 
 	statsRepo := repositories.NewStatisticsRepository(database.New(pool))
-	rentalRepo := repositories.NewRentalRepository(database.New(pool))
 
 	t.Run("fresh farmer with nothing gets all zeros, not an error", func(t *testing.T) {
 		_, farmID, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
@@ -113,9 +112,7 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 		_, farmID, plots, crop := seedFarmWithPlots(t, ctx, pool, 2)
 		customer := seedCustomer(t, ctx, pool)
 
-		if _, err := rentalRepo.CreateRental(ctx, plots[0], customer, crop, 6); err != nil {
-			t.Fatalf("renting plot: %v", err)
-		}
+		rentNow(t, ctx, pool, plots[0], customer, crop, 6)
 
 		stats, err := statsRepo.GetFarmStatistics(ctx, farmID)
 		if err != nil {
@@ -152,9 +149,7 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 		// A second, unrelated farmer with its own field, plots and rental.
 		_, secondFarmID, secondPlots, secondCrop := seedFarmWithPlots(t, ctx, pool, 5)
 		secondCustomer := seedCustomer(t, ctx, pool)
-		if _, err := rentalRepo.CreateRental(ctx, secondPlots[0], secondCustomer, secondCrop, 6); err != nil {
-			t.Fatalf("renting second farmer's plot: %v", err)
-		}
+		rentNow(t, ctx, pool, secondPlots[0], secondCustomer, secondCrop, 6)
 
 		after, err := statsRepo.GetFarmStatistics(ctx, firstFarmID)
 		if err != nil {
@@ -190,9 +185,7 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 
 		_, farmID, plots, crop := seedFarmWithPlots(t, ctx, pool, 1)
 		customer := seedCustomer(t, ctx, pool)
-		if _, err := rentalRepo.CreateRental(ctx, plots[0], customer, crop, 6); err != nil {
-			t.Fatalf("renting plot: %v", err)
-		}
+		rentNow(t, ctx, pool, plots[0], customer, crop, 6)
 
 		platformAfter, err := statsRepo.GetPlatformStatistics(ctx)
 		if err != nil {

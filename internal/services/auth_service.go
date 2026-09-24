@@ -38,13 +38,23 @@ var (
 	// ErrInvalidFilter is returned when a listing filter cannot be satisfied
 	// as written, e.g. a role that is not one of the three. Returning it beats
 	// silently answering with an empty page, which reads as "no such accounts"
-	// when it actually means "no such role".
+	// when it actually means "no such role". Also covers a caller-supplied
+	// selector that is invalid on its own terms rather than unowned or
+	// missing, e.g. an announcement scoped to both a field and a plot at once.
 	ErrInvalidFilter = errors.New("invalid filter")
 	// ErrInvalidCareInstruction is returned when a care instruction's week
 	// falls outside the range the table accepts. The handler rejects the same
 	// input first; this covers the path where the database is the one to
 	// notice, so it surfaces as a 400 rather than a 500.
 	ErrInvalidCareInstruction = errors.New("invalid care instruction")
+	// ErrInvalidRentalRequest is returned when a rental request fails a
+	// business rule: a blank message, or a start date outside the window a
+	// customer is allowed to request (1 to 60 days out).
+	ErrInvalidRentalRequest = errors.New("invalid rental request")
+	// ErrRentalAlreadyDecided is returned when approving or declining a
+	// rental that is not (or no longer) in the Requested state, including
+	// when the id does not exist.
+	ErrRentalAlreadyDecided = errors.New("rental already decided")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

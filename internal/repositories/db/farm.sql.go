@@ -125,7 +125,7 @@ WITH listed AS (
             (COUNT(*) FILTER (
                 WHERE EXISTS (
                     SELECT 1 FROM rental r
-                    WHERE r.plot = p.id AND r.period @> CURRENT_TIMESTAMP
+                    WHERE r.plot = p.id AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
                 )
             ))::bigint AS rented,
             COALESCE(SUM(ST_Area(p.coordinates::geography)::float8), 0)::float8 AS area
@@ -134,7 +134,7 @@ WITH listed AS (
         WHERE pf.farm = farm.id
     ) farm_plots ON TRUE
     LEFT JOIN LATERAL (
-        SELECT (COUNT(*) FILTER (WHERE r.period @> CURRENT_TIMESTAMP))::bigint AS active
+        SELECT (COUNT(*) FILTER (WHERE r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'))::bigint AS active
         FROM rental r
         JOIN plot rp ON rp.id = r.plot
         JOIN field rf ON rf.id = rp.field

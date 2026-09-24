@@ -261,6 +261,7 @@ graph TD
     F --> F1["POST /"]
     F --> F2["GET /"]
     F --> F3["POST /{fieldID}/plots"]
+    F --> F4["POST /{fieldID}/ripeness"]
 
     P --> P1["GET /nearest"]
 
@@ -292,6 +293,7 @@ graph TD
 | `POST /api/fields` | cookie | farmer | [field_handler.go:85](internal/handlers/field_handler.go#L85) |
 | `GET /api/fields` | cookie | farmer | [field_handler.go:128](internal/handlers/field_handler.go#L128) |
 | `POST /api/fields/{fieldID}/plots` | cookie | farmer | [field_handler.go:163](internal/handlers/field_handler.go#L163) |
+| `POST /api/fields/{fieldID}/ripeness` | cookie | farmer | [ripeness_notice_handler.go](internal/handlers/ripeness_notice_handler.go) |
 | `GET /api/plots/nearest` | – | – | [plot_search_handler.go:40](internal/handlers/plot_search_handler.go#L40) |
 | `POST /api/rentals` | cookie | customer | [rental_handler.go:43](internal/handlers/rental_handler.go#L43) |
 | `GET /api/rentals` | cookie | customer | [rental_handler.go:78](internal/handlers/rental_handler.go#L78) |
@@ -752,6 +754,54 @@ splitting it across the handler would put ordering logic in the layer that is
 not allowed to hold any; `NotificationService` is an interface owned by
 `services`, so the dependency is still inverted.
 
+### Scoping the board to a field or plot
+
+`announcement` carries two optional columns, `field` and `plot`, constrained
+so at most one is set (`announcement_scope_not_both`). `NULL`/`NULL` is the
+original behaviour — every current renter. Setting one narrows both sides of
+the feature to the same scope:
+
+- **The audience** switches from `GetCustomersOfFarmer` to
+  `GetCustomersOfFarmerForField`/`GetCustomersOfFarmerForPlot` — the same
+  `DISTINCT`-over-`rental` shape, just with the join's `WHERE` swapped from
+  "this farmer's plots" to "this field's plots" or "this plot".
+- **The board read** (`GetAnnouncementsForCustomer`) ties the scope to the
+  *specific* rental that qualifies the customer, not to the farmer's holdings
+  at large: the query already joins `field`/`plot` through the matching
+  rental, so `a.field = fi.id OR a.plot = p.id` (or neither set) reuses those
+  same joined rows rather than adding a second lookup.
+
+A scoped notice is otherwise an ordinary announcement — same table, same
+`NotifyFarmerCustomers` fan-out, same template — so nothing downstream needed
+to learn a new concept.
+
+### Ripeness notices
+
+A third fan-out, `ripeness_notice`, follows the announcement shape closely
+enough to share its infrastructure (`Dispatcher`, `deliverInBackground`) but
+differs in what "the board" means:
+
+- **The audience is field *and* crop, not just field.** A field can grow
+  several crops across its plots, and a ripeness notice is only relevant to
+  the renters growing the one that is ready:
+  `GetCustomersOfFarmerForFieldAndCrop` joins on `rental.crop = crop`
+  alongside `plot.field = field`. The read side
+  (`GetRipenessNoticesForCustomer`) mirrors this with the same join, so a
+  customer only ever sees a notice for a crop his own active rental matches.
+- **It is not a board.** Unlike announcements, a ripeness notice has no
+  `GET /api/ripeness` of its own — it is mail plus one `InboxItem` kind
+  (`ripeness_notice`) in the merged `GET /api/inbox` feed
+  (`InboxService.GetInboxForCustomer`). The subject/body shown there are
+  synthesized in the service (`"<crop> ist reif"` / `"<crop> auf <field> ist
+  bereit zur Ernte."`) rather than stored, since the notice itself only
+  stores the ids and names, not free text — there is nothing for a farmer to
+  write.
+- **Ownership is checked the same way `plotService.CreatePlot` checks a
+  field:** resolve the caller's farm, resolve the target field's farm,
+  compare, `ErrForbidden` on mismatch. `RipenessNoticeService` is the third
+  service (after `announcementService`) to depend on `NotificationService`
+  directly.
+
 ---
 
 ## 9b. Admin listings
@@ -827,11 +877,22 @@ total_weeks  = ceil((upper(period) - lower(period)) / 7 days)
 ```
 
 Both are computed **in the query**, against the database clock, for the same
-reason `InsertRental` takes its bounds from `CURRENT_TIMESTAMP` ([§7](#rental-concurrency)):
+reason `InsertRentalRequest` takes its bounds from it ([§7](#rental-concurrency)):
 an API host whose clock runs ahead would otherwise put a tenant a week further
 into their season than the rental they were sold. `WHERE period @> CURRENT_TIMESTAMP`
 is what makes `current_week` safe to count from 1 — an elapsed time cannot be
 negative for a period that contains now.
+
+**Approval, not just the period, is the audience rule.** Since rental requests
+a `rental` row exists from the moment a customer *asks* for a plot, and a
+declined request keeps its row (the exclusion constraint stops counting it, but
+nothing deletes it). Filtering on the period alone would therefore hand the
+guide to someone still waiting for an answer, or turned down — so the query
+also requires `status = 'approved'`, exactly as `GetAnnouncementsForCustomer`
+does for the board. It is worth knowing that
+`GetRipenessNoticesForCustomer` does **not** filter on status today; if that is
+intentional, the two audiences disagree, and if it is not, it is the same bug
+this line exists to avoid.
 
 **The guide belongs to the crop, and so is admin-owned.** Only an admin may add
 a crop, so only an admin writes the advice hanging off one. A farmer offering
@@ -989,8 +1050,13 @@ they are the things a newcomer will trip over:
     customer is a recipient by virtue of having an account. The Schwarzes Brett
     widens this: a farmer can mail his current renters, and the rental is both
     the audience rule and the only consent signal, so the one way to stop
-    hearing from him is to stop renting from him. Fine at the scale of a
-    university project; the first thing to fix if this ever mails real people.
+    hearing from him is to stop renting from him. Scoping a post to a field or
+    plot ([§9a](#9a-notifications)) narrows the audience but not the consent
+    story — a renter of the scoped field still cannot opt out of it
+    individually. Ripeness notices add a third sender on the same terms: the
+    audience is the rental again, just filtered further by crop. Fine at the
+    scale of a university project; the first thing to fix if this ever mails
+    real people.
 
 ---
 

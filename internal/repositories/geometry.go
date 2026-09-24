@@ -34,3 +34,19 @@ func mapGeometryError(err error) error {
 	}
 	return err
 }
+
+// mapForeignKeyError turns a foreign key violation — inserting a row that
+// references an id which does not exist — into services.ErrNotFound, so
+// handlers can report it as a 404 instead of leaking a raw SQL error as a
+// 500. Shared by every repository that inserts a row referencing an id the
+// caller supplied rather than one it just looked up itself: crop_repository
+// (an unknown crop or plot id), announcement_repository and
+// ripeness_notice_repository (an unknown field, plot or crop id), and
+// care_instruction_repository (an unknown crop id).
+func mapForeignKeyError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {
+		return fmt.Errorf("%s: %w", pgErr.Message, services.ErrNotFound)
+	}
+	return err
+}

@@ -59,16 +59,16 @@ func (f *fakeCareInstructionRepo) GetCareInstructionsByCrops(_ context.Context, 
 	return out, nil
 }
 
-// fakeRentalRepo only has to answer the one read the care guide makes; the
+// fakeCareRentalRepo only has to answer the one read the care guide makes; the
 // embedded interface keeps the other methods off the test's back.
-type fakeRentalRepo struct {
+type fakeCareRentalRepo struct {
 	RentalRepository
 
 	active []models.ActiveRental
 	err    error
 }
 
-func (f *fakeRentalRepo) GetActiveRentalsByCustomer(context.Context, uuid.UUID) ([]models.ActiveRental, error) {
+func (f *fakeCareRentalRepo) GetActiveRentalsByCustomer(context.Context, uuid.UUID) ([]models.ActiveRental, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -105,7 +105,7 @@ func TestGetCareGuideForCustomer(t *testing.T) {
 			tomatoes.ID: {instruction(tomatoes.ID, 1, "Water in"), instruction(tomatoes.ID, 2, "Thin out")},
 			beans.ID:    {instruction(beans.ID, 1, "Set the canes")},
 		}}
-		rentalRepo := &fakeRentalRepo{active: []models.ActiveRental{
+		rentalRepo := &fakeCareRentalRepo{active: []models.ActiveRental{
 			activeRental("Plot 1", tomatoes, 2, 13),
 			activeRental("Plot 2", beans, 2, 13),
 		}}
@@ -133,7 +133,7 @@ func TestGetCareGuideForCustomer(t *testing.T) {
 		careRepo := &fakeCareInstructionRepo{byCrop: map[uuid.UUID][]models.CareInstruction{
 			tomatoes.ID: {instruction(tomatoes.ID, 1, "Water in")},
 		}}
-		rentalRepo := &fakeRentalRepo{active: []models.ActiveRental{
+		rentalRepo := &fakeCareRentalRepo{active: []models.ActiveRental{
 			activeRental("Plot 1", tomatoes, 1, 13),
 			activeRental("Plot 2", tomatoes, 1, 13),
 			activeRental("Plot 3", tomatoes, 1, 13),
@@ -165,7 +165,7 @@ func TestGetCareGuideForCustomer(t *testing.T) {
 				instruction(tomatoes.ID, 30, "Never happens"),
 			},
 		}}
-		rentalRepo := &fakeRentalRepo{active: []models.ActiveRental{activeRental("Plot 1", tomatoes, 1, 13)}}
+		rentalRepo := &fakeCareRentalRepo{active: []models.ActiveRental{activeRental("Plot 1", tomatoes, 1, 13)}}
 		service := NewCareGuideService(careRepo, rentalRepo)
 
 		guides, err := service.GetCareGuideForCustomer(context.Background(), uuid.New())
@@ -184,7 +184,7 @@ func TestGetCareGuideForCustomer(t *testing.T) {
 
 	t.Run("returns a plot whose crop has no guide yet", func(t *testing.T) {
 		careRepo := &fakeCareInstructionRepo{byCrop: map[uuid.UUID][]models.CareInstruction{}}
-		rentalRepo := &fakeRentalRepo{active: []models.ActiveRental{activeRental("Plot 1", tomatoes, 1, 13)}}
+		rentalRepo := &fakeCareRentalRepo{active: []models.ActiveRental{activeRental("Plot 1", tomatoes, 1, 13)}}
 		service := NewCareGuideService(careRepo, rentalRepo)
 
 		guides, err := service.GetCareGuideForCustomer(context.Background(), uuid.New())
@@ -201,7 +201,7 @@ func TestGetCareGuideForCustomer(t *testing.T) {
 
 	t.Run("renting nothing asks for no guides at all", func(t *testing.T) {
 		careRepo := &fakeCareInstructionRepo{}
-		service := NewCareGuideService(careRepo, &fakeRentalRepo{})
+		service := NewCareGuideService(careRepo, &fakeCareRentalRepo{})
 
 		guides, err := service.GetCareGuideForCustomer(context.Background(), uuid.New())
 		if err != nil {
@@ -216,7 +216,7 @@ func TestGetCareGuideForCustomer(t *testing.T) {
 	})
 
 	t.Run("reports a failing rental read", func(t *testing.T) {
-		service := NewCareGuideService(&fakeCareInstructionRepo{}, &fakeRentalRepo{err: errors.New("boom")})
+		service := NewCareGuideService(&fakeCareInstructionRepo{}, &fakeCareRentalRepo{err: errors.New("boom")})
 
 		if _, err := service.GetCareGuideForCustomer(context.Background(), uuid.New()); err == nil {
 			t.Fatal("GetCareGuideForCustomer succeeded, want an error")
@@ -228,7 +228,7 @@ func TestCareInstructionWritesPassSentinelsThrough(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("create reports an unknown crop as not found", func(t *testing.T) {
-		service := NewCareGuideService(&fakeCareInstructionRepo{err: ErrNotFound}, &fakeRentalRepo{})
+		service := NewCareGuideService(&fakeCareInstructionRepo{err: ErrNotFound}, &fakeCareRentalRepo{})
 
 		_, err := service.CreateCareInstruction(ctx, uuid.New(), 1, "Water in", "...")
 		if !errors.Is(err, ErrNotFound) {
@@ -237,7 +237,7 @@ func TestCareInstructionWritesPassSentinelsThrough(t *testing.T) {
 	})
 
 	t.Run("update reports an unknown instruction as not found", func(t *testing.T) {
-		service := NewCareGuideService(&fakeCareInstructionRepo{err: ErrNotFound}, &fakeRentalRepo{})
+		service := NewCareGuideService(&fakeCareInstructionRepo{err: ErrNotFound}, &fakeCareRentalRepo{})
 
 		_, err := service.UpdateCareInstruction(ctx, uuid.New(), 1, "Water in", "...")
 		if !errors.Is(err, ErrNotFound) {
@@ -246,7 +246,7 @@ func TestCareInstructionWritesPassSentinelsThrough(t *testing.T) {
 	})
 
 	t.Run("delete reports an unknown instruction as not found", func(t *testing.T) {
-		service := NewCareGuideService(&fakeCareInstructionRepo{err: ErrNotFound}, &fakeRentalRepo{})
+		service := NewCareGuideService(&fakeCareInstructionRepo{err: ErrNotFound}, &fakeCareRentalRepo{})
 
 		if err := service.DeleteCareInstruction(ctx, uuid.New()); !errors.Is(err, ErrNotFound) {
 			t.Errorf("err = %v, want ErrNotFound", err)
@@ -254,7 +254,7 @@ func TestCareInstructionWritesPassSentinelsThrough(t *testing.T) {
 	})
 
 	t.Run("a rejected week stays ErrInvalidCareInstruction", func(t *testing.T) {
-		service := NewCareGuideService(&fakeCareInstructionRepo{err: ErrInvalidCareInstruction}, &fakeRentalRepo{})
+		service := NewCareGuideService(&fakeCareInstructionRepo{err: ErrInvalidCareInstruction}, &fakeCareRentalRepo{})
 
 		_, err := service.CreateCareInstruction(ctx, uuid.New(), 900, "Water in", "...")
 		if !errors.Is(err, ErrInvalidCareInstruction) {
@@ -263,7 +263,7 @@ func TestCareInstructionWritesPassSentinelsThrough(t *testing.T) {
 	})
 
 	t.Run("an unexpected repository error is wrapped, not classified", func(t *testing.T) {
-		service := NewCareGuideService(&fakeCareInstructionRepo{err: errors.New("boom")}, &fakeRentalRepo{})
+		service := NewCareGuideService(&fakeCareInstructionRepo{err: errors.New("boom")}, &fakeCareRentalRepo{})
 
 		_, err := service.CreateCareInstruction(ctx, uuid.New(), 1, "Water in", "...")
 		if err == nil || errors.Is(err, ErrNotFound) {

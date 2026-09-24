@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	database "github.com/Neue-Konzepte-BaaS/backend/internal/repositories/db"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type rentalRepository struct {
@@ -20,12 +23,14 @@ func NewRentalRepository(queries *database.Queries) services.RentalRepository {
 	return &rentalRepository{queries: queries}
 }
 
-func (r *rentalRepository) CreateRental(ctx context.Context, plot, customer, crop uuid.UUID, durationMonths int32) (models.Rental, error) {
-	row, err := r.queries.InsertRental(ctx, database.InsertRentalParams{
+func (r *rentalRepository) CreateRentalRequest(ctx context.Context, plot, customer, crop uuid.UUID, startAt time.Time, durationMonths int32, message string) (models.Rental, error) {
+	row, err := r.queries.InsertRentalRequest(ctx, database.InsertRentalRequestParams{
 		Plot:           plot,
 		Customer:       customer,
 		Crop:           crop,
+		StartAt:        pgtype.Timestamptz{Time: startAt, Valid: true},
 		DurationMonths: durationMonths,
+		Message:        message,
 	})
 	if err != nil {
 		return models.Rental{}, mapRentalError(err)
@@ -38,6 +43,59 @@ func (r *rentalRepository) CreateRental(ctx context.Context, plot, customer, cro
 		Customer: customer,
 		StartAt:  row.StartAt.Time,
 		EndAt:    row.EndAt.Time,
+		Status:   models.RentalStatus(row.Status),
+		Message:  message,
+	}, nil
+}
+
+func (r *rentalRepository) UpdateRentalStatus(ctx context.Context, id uuid.UUID, status models.RentalStatus) (models.Rental, error) {
+	row, err := r.queries.UpdateRentalStatus(ctx, database.UpdateRentalStatusParams{
+		ID:     id,
+		Status: string(status),
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.Rental{}, services.ErrRentalAlreadyDecided
+		}
+		return models.Rental{}, err
+	}
+
+	var decidedAt *time.Time
+	if row.DecidedAt.Valid {
+		decidedAt = &row.DecidedAt.Time
+	}
+
+	return models.Rental{
+		ID:        row.ID,
+		PlotID:    row.Plot,
+		CropID:    row.Crop,
+		Customer:  row.Customer,
+		StartAt:   row.StartAt.Time,
+		EndAt:     row.EndAt.Time,
+		Status:    models.RentalStatus(row.Status),
+		Message:   row.Message,
+		DecidedAt: decidedAt,
+	}, nil
+}
+
+func (r *rentalRepository) GetRentalWithFieldByID(ctx context.Context, id uuid.UUID) (models.RentalWithField, error) {
+	row, err := r.queries.GetRentalWithFieldByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.RentalWithField{}, services.ErrNotFound
+		}
+		return models.RentalWithField{}, err
+	}
+
+	return models.RentalWithField{
+		Rental: models.Rental{
+			ID:       row.ID,
+			PlotID:   row.Plot,
+			CropID:   row.Crop,
+			Customer: row.Customer,
+			Status:   models.RentalStatus(row.Status),
+		},
+		Field: row.Field,
 	}, nil
 }
 
@@ -49,14 +107,21 @@ func (r *rentalRepository) GetRentalsByCustomer(ctx context.Context, customer uu
 
 	rentals := make([]models.RentalWithPlot, len(rows))
 	for i, row := range rows {
+		var decidedAt *time.Time
+		if row.DecidedAt.Valid {
+			decidedAt = &row.DecidedAt.Time
+		}
 		rentals[i] = models.RentalWithPlot{
 			Rental: models.Rental{
-				ID:       row.ID,
-				PlotID:   row.Plot,
-				CropID:   row.Crop,
-				Customer: row.Customer,
-				StartAt:  row.StartAt.Time,
-				EndAt:    row.EndAt.Time,
+				ID:        row.ID,
+				PlotID:    row.Plot,
+				CropID:    row.Crop,
+				Customer:  row.Customer,
+				StartAt:   row.StartAt.Time,
+				EndAt:     row.EndAt.Time,
+				Status:    models.RentalStatus(row.Status),
+				Message:   row.Message,
+				DecidedAt: decidedAt,
 			},
 			Plot: models.Plot{
 				ID:               row.Plot,
@@ -114,14 +179,21 @@ func (r *rentalRepository) GetRentalsByFarm(ctx context.Context, farm uuid.UUID)
 
 	rentals := make([]models.RentalWithPlotAndCustomer, len(rows))
 	for i, row := range rows {
+		var decidedAt *time.Time
+		if row.DecidedAt.Valid {
+			decidedAt = &row.DecidedAt.Time
+		}
 		rentals[i] = models.RentalWithPlotAndCustomer{
 			Rental: models.Rental{
-				ID:       row.ID,
-				PlotID:   row.Plot,
-				CropID:   row.Crop,
-				Customer: row.Customer,
-				StartAt:  row.StartAt.Time,
-				EndAt:    row.EndAt.Time,
+				ID:        row.ID,
+				PlotID:    row.Plot,
+				CropID:    row.Crop,
+				Customer:  row.Customer,
+				StartAt:   row.StartAt.Time,
+				EndAt:     row.EndAt.Time,
+				Status:    models.RentalStatus(row.Status),
+				Message:   row.Message,
+				DecidedAt: decidedAt,
 			},
 			Plot: models.Plot{
 				ID:               row.Plot,

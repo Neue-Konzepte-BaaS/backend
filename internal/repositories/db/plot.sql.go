@@ -28,15 +28,17 @@ FROM plot
 JOIN field ON field.id = plot.field
 WHERE NOT EXISTS (
     SELECT 1 FROM rental r
-    WHERE r.plot = plot.id AND r.period @> CURRENT_TIMESTAMP
+    WHERE r.plot = plot.id AND r.period @> CURRENT_TIMESTAMP AND r.status <> 'declined'
 )
+AND ($3::uuid IS NULL OR field.farm = $3::uuid)
 ORDER BY plot.coordinates <-> ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)
-LIMIT $3
+LIMIT $4
 `
 
 type GetNearestPlotsParams struct {
 	Lon         float64
 	Lat         float64
+	Farm        *uuid.UUID
 	ResultLimit int32
 }
 
@@ -51,9 +53,18 @@ type GetNearestPlotsRow struct {
 }
 
 // Only plots that are free right now; a rental that has run out stops
-// hiding its plot.
+// hiding its plot. A still-undecided request hides the plot too, same as
+// the rental_no_overlap exclusion constraint -- only a declined request
+// frees it.
+// Optional: only this farm's plots (its detail page), instead of whichever
+// farms happen to fill the nearest-N.
 func (q *Queries) GetNearestPlots(ctx context.Context, arg GetNearestPlotsParams) ([]GetNearestPlotsRow, error) {
-	rows, err := q.db.Query(ctx, getNearestPlots, arg.Lon, arg.Lat, arg.ResultLimit)
+	rows, err := q.db.Query(ctx, getNearestPlots,
+		arg.Lon,
+		arg.Lat,
+		arg.Farm,
+		arg.ResultLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

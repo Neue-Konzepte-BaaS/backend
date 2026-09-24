@@ -3,6 +3,7 @@ package repositories_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
@@ -74,15 +75,15 @@ func seedFarmerWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	return farmer.ID, farmID, plots, crop.ID
 }
 
-// rentPast books a plot for a period that has already ended. The repository
-// always starts a rental at CURRENT_TIMESTAMP, so an expired one has to be
-// written directly.
+// rentPast books an approved, already-ended rental on plot. The repository
+// only ever requests a rental starting in the future, so an expired one has
+// to be written directly.
 func rentPast(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plot, customer, crop uuid.UUID) {
 	t.Helper()
 
 	_, err := pool.Exec(ctx, `
-		INSERT INTO rental (plot, customer, crop, period)
-		VALUES ($1, $2, $3, tstzrange(CURRENT_TIMESTAMP - interval '2 months', CURRENT_TIMESTAMP - interval '1 month'))`,
+		INSERT INTO rental (plot, customer, crop, period, status, message, decided_at)
+		VALUES ($1, $2, $3, tstzrange(CURRENT_TIMESTAMP - interval '2 months', CURRENT_TIMESTAMP - interval '1 month'), 'approved', 'please', CURRENT_TIMESTAMP - interval '2 months')`,
 		plot, customer, crop)
 	if err != nil {
 		t.Fatalf("inserting expired rental: %v", err)
@@ -100,15 +101,12 @@ func TestGetCustomersOfFarmer_CountsEachCustomerOnce(t *testing.T) {
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
-	rentalRepo := repositories.NewRentalRepository(queries)
 
 	farmer, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 3)
 	customer := seedCustomer(t, ctx, pool)
 
 	for _, plot := range plots {
-		if _, err := rentalRepo.CreateRental(ctx, plot, customer, cropID, 6); err != nil {
-			t.Fatalf("renting plot: %v", err)
-		}
+		rentNow(t, ctx, pool, plot, customer, cropID, 6)
 	}
 
 	recipients, err := accountRepo.GetCustomersOfFarmer(ctx, farmer)
@@ -133,7 +131,6 @@ func TestGetCustomersOfFarmer_OnlyCurrentRenters(t *testing.T) {
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
-	rentalRepo := repositories.NewRentalRepository(queries)
 
 	farmer, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
 	otherFarmer, _, otherPlots, otherCrop := seedFarmerWithPlots(t, ctx, pool, 1)
@@ -142,13 +139,9 @@ func TestGetCustomersOfFarmer_OnlyCurrentRenters(t *testing.T) {
 	expired := seedCustomer(t, ctx, pool)
 	somebodyElses := seedCustomer(t, ctx, pool)
 
-	if _, err := rentalRepo.CreateRental(ctx, plots[0], current, cropID, 6); err != nil {
-		t.Fatalf("renting plot: %v", err)
-	}
+	rentNow(t, ctx, pool, plots[0], current, cropID, 6)
 	rentPast(t, ctx, pool, plots[1], expired, cropID)
-	if _, err := rentalRepo.CreateRental(ctx, otherPlots[0], somebodyElses, otherCrop, 6); err != nil {
-		t.Fatalf("renting other farmer's plot: %v", err)
-	}
+	rentNow(t, ctx, pool, otherPlots[0], somebodyElses, otherCrop, 6)
 
 	recipients, err := accountRepo.GetCustomersOfFarmer(ctx, farmer)
 	if err != nil {
@@ -186,7 +179,6 @@ func TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom(t *testi
 	ctx := context.Background()
 
 	queries := database.New(pool)
-	rentalRepo := repositories.NewRentalRepository(queries)
 	announcementRepo := repositories.NewAnnouncementRepository(queries)
 
 	farmer, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
@@ -195,15 +187,13 @@ func TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom(t *testi
 
 	// Renting two plots from the same farmer must not double his notices.
 	for _, plot := range plots {
-		if _, err := rentalRepo.CreateRental(ctx, plot, customer, cropID, 6); err != nil {
-			t.Fatalf("renting plot: %v", err)
-		}
+		rentNow(t, ctx, pool, plot, customer, cropID, 6)
 	}
 
-	if _, err := announcementRepo.CreateAnnouncement(ctx, farmer, "Ernte", "Samstag um 9"); err != nil {
+	if _, err := announcementRepo.CreateAnnouncement(ctx, farmer, "Ernte", "Samstag um 9", nil, nil); err != nil {
 		t.Fatalf("creating announcement: %v", err)
 	}
-	if _, err := announcementRepo.CreateAnnouncement(ctx, otherFarmer, "Fremd", "Nicht sichtbar"); err != nil {
+	if _, err := announcementRepo.CreateAnnouncement(ctx, otherFarmer, "Fremd", "Nicht sichtbar", nil, nil); err != nil {
 		t.Fatalf("creating the other farmer's announcement: %v", err)
 	}
 
@@ -220,5 +210,130 @@ func TestGetAnnouncementsForCustomer_OnlyFromFarmersCurrentlyRentedFrom(t *testi
 	}
 	if board[0].FarmName != "Green Acres" {
 		t.Errorf("farm name = %q, want it resolved for the reader", board[0].FarmName)
+	}
+}
+
+// addField creates one more field with one plot on an existing farm, and
+// returns their ids. Used to prove a scoped announcement/audience does not
+// leak across fields belonging to the same farmer.
+func addField(t *testing.T, ctx context.Context, pool *pgxpool.Pool, farmID uuid.UUID) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+
+	queries := database.New(pool)
+	fieldRepo := repositories.NewFieldRepository(queries)
+	plotRepo := repositories.NewPlotRepository(queries)
+
+	fieldID, err := fieldRepo.CreateField(ctx, models.Field{
+		Name:        "Field 2",
+		Farm:        farmID,
+		Coordinates: rectangle(200, 200, 300, 300),
+	})
+	if err != nil {
+		t.Fatalf("creating second field: %v", err)
+	}
+
+	plot, err := plotRepo.CreatePlot(ctx, models.Plot{
+		Name:        "Plot",
+		Field:       fieldID,
+		Coordinates: rectangle(201, 201, 205, 205),
+	})
+	if err != nil {
+		t.Fatalf("creating plot on second field: %v", err)
+	}
+
+	return fieldID, plot.ID
+}
+
+// TestGetAnnouncementsForCustomer_ScopedToFieldOnlyReachesThatFieldsRenters
+// checks the property the whole scoping feature rests on: a renter of a
+// different field of the same farm must not see a notice scoped to a field
+// he does not rent on, even though he is a current customer of the farmer.
+func TestGetAnnouncementsForCustomer_ScopedToFieldOnlyReachesThatFieldsRenters(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	queries := database.New(pool)
+	announcementRepo := repositories.NewAnnouncementRepository(queries)
+	plotRepo := repositories.NewPlotRepository(queries)
+
+	farmer, farmID, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 1)
+	_, otherPlot := addField(t, ctx, pool, farmID)
+
+	inField := seedCustomer(t, ctx, pool)
+	outsideField := seedCustomer(t, ctx, pool)
+
+	rentNow(t, ctx, pool, plots[0], inField, cropID, 6)
+	rentNow(t, ctx, pool, otherPlot, outsideField, cropID, 6)
+
+	// seedFarmerWithPlots does not return its field id directly, so resolve
+	// the field to scope the announcement to via the plot it seeded.
+	targetField, err := plotRepo.GetPlotField(ctx, plots[0])
+	if err != nil {
+		t.Fatalf("looking up scoped field: %v", err)
+	}
+
+	if _, err := announcementRepo.CreateAnnouncement(ctx, farmer, "Nur Feld 1", "Sichtbar nur hier", &targetField, nil); err != nil {
+		t.Fatalf("creating scoped announcement: %v", err)
+	}
+
+	board, err := announcementRepo.GetAnnouncementsForCustomer(ctx, inField)
+	if err != nil {
+		t.Fatalf("getting in-field customer's board: %v", err)
+	}
+	if len(board) != 1 {
+		t.Fatalf("in-field renter's board has %d notices, want 1: %+v", len(board), board)
+	}
+
+	otherBoard, err := announcementRepo.GetAnnouncementsForCustomer(ctx, outsideField)
+	if err != nil {
+		t.Fatalf("getting outside-field customer's board: %v", err)
+	}
+	if len(otherBoard) != 0 {
+		t.Fatalf("outside-field renter's board has %d notices, want 0 (scope must exclude him): %+v", len(otherBoard), otherBoard)
+	}
+}
+
+// TestGetCustomersOfFarmerForField_DedupsAndExcludesOtherFields is the
+// GetCustomersOfFarmer DISTINCT test's counterpart for the scoped audience
+// query: a customer renting two plots of the scoped field is mailed once,
+// and a customer of a different field of the same farm is not mailed at all.
+func TestGetCustomersOfFarmerForField_DedupsAndExcludesOtherFields(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	queries := database.New(pool)
+	rentalRepo := repositories.NewRentalRepository(queries)
+	accountRepo := repositories.NewAccountRepository(pool, queries)
+	plotRepo := repositories.NewPlotRepository(queries)
+
+	_, farmID, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
+	_, otherPlot := addField(t, ctx, pool, farmID)
+
+	twicePlotted := seedCustomer(t, ctx, pool)
+	elsewhere := seedCustomer(t, ctx, pool)
+
+	for _, plot := range plots {
+		if _, err := rentalRepo.CreateRentalRequest(ctx, plot, twicePlotted, cropID, time.Now(), 6, ""); err != nil {
+			t.Fatalf("renting plot: %v", err)
+		}
+	}
+	if _, err := rentalRepo.CreateRentalRequest(ctx, otherPlot, elsewhere, cropID, time.Now(), 6, ""); err != nil {
+		t.Fatalf("renting other field's plot: %v", err)
+	}
+
+	targetField, err := plotRepo.GetPlotField(ctx, plots[0])
+	if err != nil {
+		t.Fatalf("looking up field: %v", err)
+	}
+
+	recipients, err := accountRepo.GetCustomersOfFarmerForField(ctx, targetField)
+	if err != nil {
+		t.Fatalf("getting customers of field: %v", err)
+	}
+	if len(recipients) != 1 {
+		t.Fatalf("got %d recipients for one customer renting 2 plots of the field, want 1: %+v", len(recipients), recipients)
+	}
+	if recipients[0].AccountID != twicePlotted {
+		t.Errorf("recipient = %v, want %v", recipients[0].AccountID, twicePlotted)
 	}
 }

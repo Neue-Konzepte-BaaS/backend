@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, careGuideHandler *CareGuideHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, careGuideHandler *CareGuideHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, ripenessNoticeHandler *RipenessNoticeHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -101,6 +101,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Post("/", fieldHandler.CreateField)
 		r.Get("/", fieldHandler.GetFields)
 		r.Post("/{fieldID}/plots", fieldHandler.CreatePlot)
+		r.Post("/{fieldID}/ripeness", ripenessNoticeHandler.Create)
 	})
 
 	r.Route("/api/notifications", func(r chi.Router) {
@@ -160,6 +161,8 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
 			r.Get("/farm", rentalHandler.GetFarmRentals)
+			r.Post("/{rentalID}/approve", rentalHandler.ApproveRental)
+			r.Post("/{rentalID}/decline", rentalHandler.DeclineRental)
 		})
 	})
 

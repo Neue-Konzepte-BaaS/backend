@@ -89,22 +89,18 @@ func (r *careInstructionRepository) GetCareInstructionsByCrops(ctx context.Conte
 	return byCrop, nil
 }
 
-// mapCareInstructionError turns the two constraint violations a caller can
-// provoke into sentinels the handler already knows how to classify: an unknown
-// crop id is a 404, and a week outside the table's CHECK a 400. Both are also
-// rejected in the handler; the mapping exists so a request that slips past it
-// (a crop deleted between validation and insert) still reads as what it is.
+// mapCareInstructionError adds the one violation the shared foreign-key
+// mapping does not cover: a week outside the table's CHECK, which is a 400
+// rather than a 404. An unknown crop id is the ordinary foreign-key case, so
+// it falls through to mapForeignKeyError. Both are rejected in the handler
+// first; the mapping exists so a request that slips past it — a crop deleted
+// between validation and insert — still reads as what it is.
 func mapCareInstructionError(err error) error {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		switch pgErr.Code {
-		case foreignKeyViolation:
-			return fmt.Errorf("%s: %w", pgErr.Message, services.ErrNotFound)
-		case checkViolation:
-			return fmt.Errorf("%s: %w", pgErr.Message, services.ErrInvalidCareInstruction)
-		}
+	if errors.As(err, &pgErr) && pgErr.Code == checkViolation {
+		return fmt.Errorf("%s: %w", pgErr.Message, services.ErrInvalidCareInstruction)
 	}
-	return err
+	return mapForeignKeyError(err)
 }
 
 func toCareInstruction(row database.CareInstruction) models.CareInstruction {
