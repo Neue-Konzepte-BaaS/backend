@@ -47,6 +47,18 @@ func (f *fakeAccountRepo) GetCustomersOfFarmer(context.Context, uuid.UUID) ([]mo
 	panic("auth service does not send notifications")
 }
 
+func (f *fakeAccountRepo) GetCustomersOfFarmerForField(context.Context, uuid.UUID) ([]models.Recipient, error) {
+	panic("auth service does not send notifications")
+}
+
+func (f *fakeAccountRepo) GetCustomersOfFarmerForPlot(context.Context, uuid.UUID) ([]models.Recipient, error) {
+	panic("auth service does not send notifications")
+}
+
+func (f *fakeAccountRepo) GetCustomersOfFarmerForFieldAndCrop(context.Context, uuid.UUID, uuid.UUID) ([]models.Recipient, error) {
+	panic("auth service does not send notifications")
+}
+
 func (f *fakeAccountRepo) CreateFarmer(_ context.Context, account models.Account, farmName string, postalCode int32, address string, description string) (models.Account, error) {
 	if f.createFarmerErr != nil {
 		return models.Account{}, f.createFarmerErr

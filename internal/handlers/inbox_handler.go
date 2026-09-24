@@ -25,6 +25,8 @@ type inboxItemResponse struct {
 	Subject   string               `json:"subject"`
 	Body      string               `json:"body"`
 	FarmName  string               `json:"farm_name,omitempty"`
+	FieldName string               `json:"field_name,omitempty"`
+	CropName  string               `json:"crop_name,omitempty"`
 	CreatedAt time.Time            `json:"created_at"`
 }
 
@@ -35,13 +37,16 @@ func toInboxItemResponse(item models.InboxItem) inboxItemResponse {
 		Subject:   item.Subject,
 		Body:      item.Body,
 		FarmName:  item.FarmName,
+		FieldName: item.FieldName,
+		CropName:  item.CropName,
 		CreatedAt: item.CreatedAt,
 	}
 }
 
-// GetInbox returns the caller's merged inbox: every platform-wide broadcast
-// plus the announcements of every farmer he currently rents from, newest
-// first. It must be mounted behind RequireAuth and RequireRole(models.RoleCustomer).
+// GetInbox returns the caller's merged inbox: every platform-wide broadcast,
+// the announcements of every farmer he currently rents from, and the
+// ripeness notices for the crops he is currently growing, newest first. It
+// must be mounted behind RequireAuth and RequireRole(models.RoleCustomer).
 func (h *InboxHandler) GetInbox(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.MustClaimsFromContext(r.Context())
 
