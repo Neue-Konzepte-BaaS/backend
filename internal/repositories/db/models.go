@@ -45,6 +45,7 @@ type Crop struct {
 	ID             uuid.UUID
 	Name           string
 	DurationMonths int32
+	IsPlaceholder  bool
 }
 
 type Customer struct {
