@@ -42,6 +42,10 @@ business rule is enforced, the SQLSTATE-to-HTTP error table, and a step-by-step
 checklist for adding a feature (§14). Read it before adding a new endpoint. This file
 stays the short version — keep the two consistent.
 
+## Important policies
+Only write comments if they are necessary. Comments should only explain something that is not directly visible through the code.
+If you are developing a new feature, name the branch feat/<feature-name>. If it is a bug fix, name it fix/<bug-name>.
+
 ## Commands
 
 ```sh
