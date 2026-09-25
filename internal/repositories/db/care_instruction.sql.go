@@ -9,7 +9,27 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const copyDefaultCareInstructionsToFarm = `-- name: CopyDefaultCareInstructionsToFarm :exec
+INSERT INTO care_instruction (crop, farm, week, title, body, created_at, updated_at, based_on)
+SELECT d.crop, $1::uuid, d.week, d.title, d.body, d.created_at, d.updated_at, d.id
+FROM care_instruction d
+WHERE d.crop = $2::uuid AND d.farm IS NULL
+`
+
+type CopyDefaultCareInstructionsToFarmParams struct {
+	Farm uuid.UUID
+	Crop uuid.UUID
+}
+
+// The farm's starting point is the default guide as it stands. created_at is
+// copied too, so steps sharing a week keep the order an admin gave them.
+func (q *Queries) CopyDefaultCareInstructionsToFarm(ctx context.Context, arg CopyDefaultCareInstructionsToFarmParams) error {
+	_, err := q.db.Exec(ctx, copyDefaultCareInstructionsToFarm, arg.Farm, arg.Crop)
+	return err
+}
 
 const deleteCareInstruction = `-- name: DeleteCareInstruction :execrows
 DELETE FROM care_instruction WHERE id = $1
@@ -25,104 +45,49 @@ func (q *Queries) DeleteCareInstruction(ctx context.Context, id uuid.UUID) (int6
 	return result.RowsAffected(), nil
 }
 
-const getCareInstructionsByCrop = `-- name: GetCareInstructionsByCrop :many
-SELECT id, crop, week, title, body, created_at, updated_at
-FROM care_instruction
-WHERE crop = $1
-ORDER BY week, created_at
+const deleteFarmCareGuide = `-- name: DeleteFarmCareGuide :execrows
+DELETE FROM farm_care_guide WHERE farm = $1 AND crop = $2
 `
 
-func (q *Queries) GetCareInstructionsByCrop(ctx context.Context, crop uuid.UUID) ([]CareInstruction, error) {
-	rows, err := q.db.Query(ctx, getCareInstructionsByCrop, crop)
+type DeleteFarmCareGuideParams struct {
+	Farm uuid.UUID
+	Crop uuid.UUID
+}
+
+// Resets the crop's guide to the default for this farm: the marker's foreign
+// key takes the farm's instructions with it.
+func (q *Queries) DeleteFarmCareGuide(ctx context.Context, arg DeleteFarmCareGuideParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteFarmCareGuide, arg.Farm, arg.Crop)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	defer rows.Close()
-	var items []CareInstruction
-	for rows.Next() {
-		var i CareInstruction
-		if err := rows.Scan(
-			&i.ID,
-			&i.Crop,
-			&i.Week,
-			&i.Title,
-			&i.Body,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+	return result.RowsAffected(), nil
 }
 
-const getCareInstructionsByCrops = `-- name: GetCareInstructionsByCrops :many
-SELECT id, crop, week, title, body, created_at, updated_at
+const getCareInstructionByID = `-- name: GetCareInstructionByID :one
+SELECT id, crop, farm, week, title, body, created_at, updated_at
 FROM care_instruction
-WHERE crop = ANY($1::uuid[])
-ORDER BY week, created_at
+WHERE id = $1
 `
 
-// The customer-facing read: one round trip for every crop the customer is
-// currently growing, grouped by crop in the repository. Several instructions
-// may share a week (a week is a list of tasks, not one task), so created_at
-// breaks the tie and keeps the order an admin entered them in.
-func (q *Queries) GetCareInstructionsByCrops(ctx context.Context, crops []uuid.UUID) ([]CareInstruction, error) {
-	rows, err := q.db.Query(ctx, getCareInstructionsByCrops, crops)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []CareInstruction
-	for rows.Next() {
-		var i CareInstruction
-		if err := rows.Scan(
-			&i.ID,
-			&i.Crop,
-			&i.Week,
-			&i.Title,
-			&i.Body,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type GetCareInstructionByIDRow struct {
+	ID        uuid.UUID
+	Crop      uuid.UUID
+	Farm      *uuid.UUID
+	Week      int32
+	Title     string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
 }
 
-const insertCareInstruction = `-- name: InsertCareInstruction :one
-INSERT INTO care_instruction (crop, week, title, body)
-VALUES ($1, $2, $3, $4)
-RETURNING id, crop, week, title, body, created_at, updated_at
-`
-
-type InsertCareInstructionParams struct {
-	Crop  uuid.UUID
-	Week  int32
-	Title string
-	Body  string
-}
-
-func (q *Queries) InsertCareInstruction(ctx context.Context, arg InsertCareInstructionParams) (CareInstruction, error) {
-	row := q.db.QueryRow(ctx, insertCareInstruction,
-		arg.Crop,
-		arg.Week,
-		arg.Title,
-		arg.Body,
-	)
-	var i CareInstruction
+func (q *Queries) GetCareInstructionByID(ctx context.Context, id uuid.UUID) (GetCareInstructionByIDRow, error) {
+	row := q.db.QueryRow(ctx, getCareInstructionByID, id)
+	var i GetCareInstructionByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.Crop,
+		&i.Farm,
 		&i.Week,
 		&i.Title,
 		&i.Body,
@@ -132,11 +97,258 @@ func (q *Queries) InsertCareInstruction(ctx context.Context, arg InsertCareInstr
 	return i, err
 }
 
+const getDefaultCareInstructionsByCrop = `-- name: GetDefaultCareInstructionsByCrop :many
+SELECT id, crop, farm, week, title, body, created_at, updated_at
+FROM care_instruction
+WHERE crop = $1 AND farm IS NULL
+ORDER BY week, created_at
+`
+
+type GetDefaultCareInstructionsByCropRow struct {
+	ID        uuid.UUID
+	Crop      uuid.UUID
+	Farm      *uuid.UUID
+	Week      int32
+	Title     string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+// The default guide for one crop, the one an admin maintains.
+func (q *Queries) GetDefaultCareInstructionsByCrop(ctx context.Context, crop uuid.UUID) ([]GetDefaultCareInstructionsByCropRow, error) {
+	rows, err := q.db.Query(ctx, getDefaultCareInstructionsByCrop, crop)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDefaultCareInstructionsByCropRow
+	for rows.Next() {
+		var i GetDefaultCareInstructionsByCropRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Crop,
+			&i.Farm,
+			&i.Week,
+			&i.Title,
+			&i.Body,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEffectiveCareInstructions = `-- name: GetEffectiveCareInstructions :many
+SELECT
+    pair.crop::uuid AS for_crop,
+    pair.farm::uuid AS for_farm,
+    ci.id, ci.crop, ci.farm, ci.week, ci.title, ci.body, ci.created_at, ci.updated_at
+FROM (
+    SELECT unnest($1::uuid[]) AS crop, unnest($2::uuid[]) AS farm
+) AS pair
+JOIN care_instruction ci ON ci.crop = pair.crop
+WHERE ci.farm IS NOT DISTINCT FROM (
+    SELECT g.farm FROM farm_care_guide g WHERE g.farm = pair.farm AND g.crop = pair.crop
+)
+ORDER BY ci.week, ci.created_at
+`
+
+type GetEffectiveCareInstructionsParams struct {
+	Crops []uuid.UUID
+	Farms []uuid.UUID
+}
+
+type GetEffectiveCareInstructionsRow struct {
+	ForCrop   uuid.UUID
+	ForFarm   uuid.UUID
+	ID        uuid.UUID
+	Crop      uuid.UUID
+	Farm      *uuid.UUID
+	Week      int32
+	Title     string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+// The guide each (crop, farm) pair's tenants read, in one round trip: the
+// farm's own when its marker exists, the default otherwise. The scalar
+// subquery yields the farm's id or NULL, and IS NOT DISTINCT FROM matches
+// either the farm's steps or the default's NULL farm accordingly. Several
+// instructions may share a week (a week is a list of tasks, not one task), so
+// created_at breaks the tie and keeps the order they were entered in. The two
+// unnest calls in one select list zip the arrays pairwise.
+func (q *Queries) GetEffectiveCareInstructions(ctx context.Context, arg GetEffectiveCareInstructionsParams) ([]GetEffectiveCareInstructionsRow, error) {
+	rows, err := q.db.Query(ctx, getEffectiveCareInstructions, arg.Crops, arg.Farms)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetEffectiveCareInstructionsRow
+	for rows.Next() {
+		var i GetEffectiveCareInstructionsRow
+		if err := rows.Scan(
+			&i.ForCrop,
+			&i.ForFarm,
+			&i.ID,
+			&i.Crop,
+			&i.Farm,
+			&i.Week,
+			&i.Title,
+			&i.Body,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getFarmCopyOfCareInstruction = `-- name: GetFarmCopyOfCareInstruction :one
+SELECT id, crop, farm, week, title, body, created_at, updated_at
+FROM care_instruction
+WHERE farm = $1 AND based_on = $2
+`
+
+type GetFarmCopyOfCareInstructionParams struct {
+	Farm    *uuid.UUID
+	BasedOn *uuid.UUID
+}
+
+type GetFarmCopyOfCareInstructionRow struct {
+	ID        uuid.UUID
+	Crop      uuid.UUID
+	Farm      *uuid.UUID
+	Week      int32
+	Title     string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+// The farm's copy of one default instruction, found through the id the farmer
+// was shown before the farm took the guide over.
+func (q *Queries) GetFarmCopyOfCareInstruction(ctx context.Context, arg GetFarmCopyOfCareInstructionParams) (GetFarmCopyOfCareInstructionRow, error) {
+	row := q.db.QueryRow(ctx, getFarmCopyOfCareInstruction, arg.Farm, arg.BasedOn)
+	var i GetFarmCopyOfCareInstructionRow
+	err := row.Scan(
+		&i.ID,
+		&i.Crop,
+		&i.Farm,
+		&i.Week,
+		&i.Title,
+		&i.Body,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const hasFarmCareGuide = `-- name: HasFarmCareGuide :one
+SELECT EXISTS (
+    SELECT 1 FROM farm_care_guide WHERE farm = $1 AND crop = $2
+)
+`
+
+type HasFarmCareGuideParams struct {
+	Farm uuid.UUID
+	Crop uuid.UUID
+}
+
+func (q *Queries) HasFarmCareGuide(ctx context.Context, arg HasFarmCareGuideParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasFarmCareGuide, arg.Farm, arg.Crop)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const insertCareInstruction = `-- name: InsertCareInstruction :one
+INSERT INTO care_instruction (crop, farm, week, title, body)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, crop, farm, week, title, body, created_at, updated_at
+`
+
+type InsertCareInstructionParams struct {
+	Crop  uuid.UUID
+	Farm  *uuid.UUID
+	Week  int32
+	Title string
+	Body  string
+}
+
+type InsertCareInstructionRow struct {
+	ID        uuid.UUID
+	Crop      uuid.UUID
+	Farm      *uuid.UUID
+	Week      int32
+	Title     string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+// farm is NULL for a step of the default guide, and the farm's id for a step
+// of that farm's own guide — whose farm_care_guide marker must exist first.
+func (q *Queries) InsertCareInstruction(ctx context.Context, arg InsertCareInstructionParams) (InsertCareInstructionRow, error) {
+	row := q.db.QueryRow(ctx, insertCareInstruction,
+		arg.Crop,
+		arg.Farm,
+		arg.Week,
+		arg.Title,
+		arg.Body,
+	)
+	var i InsertCareInstructionRow
+	err := row.Scan(
+		&i.ID,
+		&i.Crop,
+		&i.Farm,
+		&i.Week,
+		&i.Title,
+		&i.Body,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertFarmCareGuide = `-- name: InsertFarmCareGuide :execrows
+INSERT INTO farm_care_guide (farm, crop)
+VALUES ($1, $2)
+ON CONFLICT DO NOTHING
+`
+
+type InsertFarmCareGuideParams struct {
+	Farm uuid.UUID
+	Crop uuid.UUID
+}
+
+// Marks the crop's guide as the farm's own. :execrows, so the caller copies
+// the default guide only when this call is the one that took it over.
+func (q *Queries) InsertFarmCareGuide(ctx context.Context, arg InsertFarmCareGuideParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertFarmCareGuide, arg.Farm, arg.Crop)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateCareInstruction = `-- name: UpdateCareInstruction :one
 UPDATE care_instruction
 SET week = $2, title = $3, body = $4, updated_at = CURRENT_TIMESTAMP
 WHERE id = $1
-RETURNING id, crop, week, title, body, created_at, updated_at
+RETURNING id, crop, farm, week, title, body, created_at, updated_at
 `
 
 type UpdateCareInstructionParams struct {
@@ -146,19 +358,32 @@ type UpdateCareInstructionParams struct {
 	Body  string
 }
 
-// Edits every field but the crop: moving an instruction to another crop is a
-// different guide, not an edit, so it is a delete plus an insert.
-func (q *Queries) UpdateCareInstruction(ctx context.Context, arg UpdateCareInstructionParams) (CareInstruction, error) {
+type UpdateCareInstructionRow struct {
+	ID        uuid.UUID
+	Crop      uuid.UUID
+	Farm      *uuid.UUID
+	Week      int32
+	Title     string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+// Edits every field but the crop and the farm: moving an instruction to
+// another crop or guide is a different guide, not an edit, so it is a delete
+// plus an insert.
+func (q *Queries) UpdateCareInstruction(ctx context.Context, arg UpdateCareInstructionParams) (UpdateCareInstructionRow, error) {
 	row := q.db.QueryRow(ctx, updateCareInstruction,
 		arg.ID,
 		arg.Week,
 		arg.Title,
 		arg.Body,
 	)
-	var i CareInstruction
+	var i UpdateCareInstructionRow
 	err := row.Scan(
 		&i.ID,
 		&i.Crop,
+		&i.Farm,
 		&i.Week,
 		&i.Title,
 		&i.Body,

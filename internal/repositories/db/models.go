@@ -49,6 +49,8 @@ type CareInstruction struct {
 	Body      string
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
+	Farm      *uuid.UUID
+	BasedOn   *uuid.UUID
 }
 
 type Crop struct {
@@ -70,6 +72,12 @@ type Farm struct {
 	Address     string
 	Description string
 	FoundedAt   pgtype.Date
+}
+
+type FarmCareGuide struct {
+	Farm      uuid.UUID
+	Crop      uuid.UUID
+	CreatedAt pgtype.Timestamptz
 }
 
 type Farmer struct {

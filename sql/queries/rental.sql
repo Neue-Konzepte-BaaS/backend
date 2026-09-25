@@ -113,6 +113,7 @@ SELECT
     p.name AS plot_name,
     p.field,
     f.name AS field_name,
+    f.farm,
     c.name AS crop_name,
     c.duration_months AS crop_duration_months,
     (FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - lower(r.period))) / 604800) + 1)::int AS current_week,

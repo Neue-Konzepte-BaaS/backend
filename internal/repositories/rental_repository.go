@@ -159,6 +159,7 @@ func (r *rentalRepository) GetActiveRentalsByCustomer(ctx context.Context, custo
 			},
 			PlotName:  row.PlotName,
 			FieldName: row.FieldName,
+			FarmID:    row.Farm,
 			Crop: models.Crop{
 				ID:             row.Crop,
 				Name:           row.CropName,

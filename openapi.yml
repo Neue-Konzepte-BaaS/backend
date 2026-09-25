@@ -853,11 +853,22 @@ paths:
       summary: Read a crop's care guide
       description: |
         Returns every care instruction for one crop, in week order. This is the
-        authoring and preview view: the whole guide, not scoped to any rental.
-        Requires the `admin` or `farmer` role — an admin writes the guide, a
-        farmer checks what his renters will be told. A customer reads it
-        through `GET /api/care-guide` instead, where it is limited to the crops
-        they are actually growing and paired with their own week.
+        authoring view: the whole guide, not scoped to any rental. Requires the
+        `admin` or `farmer` role. A customer reads it through
+        `GET /api/care-guide` instead, where it is limited to the crops they
+        are actually growing and paired with their own week.
+
+        Which guide comes back depends on the caller:
+
+        - An **admin** reads the crop's **default guide**, the one every farm
+          starts from.
+        - A **farmer** reads the guide their own tenants read: their farm's
+          own version if they have taken the guide over, the default
+          otherwise.
+
+        The `X-Care-Guide-Source` header says which one it is. Each
+        instruction's `farmId` also says it, but an empty farm guide has no
+        instructions to carry it.
 
         An unknown crop id answers `200` with an empty list rather than `404`:
         a crop with no guide and a crop that does not exist are the same empty
@@ -868,6 +879,15 @@ paths:
       responses:
         '200':
           description: The crop's care guide, in week order.
+          headers:
+            X-Care-Guide-Source:
+              description: |
+                `farm` when the instructions are the calling farmer's own
+                version of the guide, `default` otherwise (always `default`
+                for an admin).
+              schema:
+                type: string
+                enum: [farm, default]
           content:
             application/json:
               schema:
@@ -885,13 +905,20 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          description: The authenticated account is neither an admin nor a farmer.
+          description: |
+            The authenticated account is neither an admin nor a farmer, or is
+            a farmer without a farm.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-              example:
-                error: insufficient permissions
+              examples:
+                wrongRole:
+                  value:
+                    error: insufficient permissions
+                noFarm:
+                  value:
+                    error: no farm to write a care guide for
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -900,8 +927,14 @@ paths:
       summary: Add one task to a crop's care guide
       description: |
         Creates a care instruction for the given crop and week. Requires the
-        `admin` role — the crop catalog is admin-owned, and so is the advice
-        attached to it.
+        `admin` or `farmer` role:
+
+        - An **admin** adds the step to the crop's **default guide**.
+        - A **farmer** adds it to their **farm's own version**. If the farm
+          has none yet, this first write takes the guide over: the default
+          guide is copied into the farm, and the new step is added to the
+          copy. From then on the farm's tenants read only the farm's version
+          of this crop's guide.
 
         Several instructions may share a week: a week is a list of tasks, not
         one task. Weeks count from the start of a tenant's rental, not the
@@ -941,7 +974,20 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          $ref: '#/components/responses/NotAnAdmin'
+          description: |
+            The authenticated account is neither an admin nor a farmer, or is
+            a farmer without a farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                wrongRole:
+                  value:
+                    error: insufficient permissions
+                noFarm:
+                  value:
+                    error: no farm to write a care guide for
         '404':
           description: No crop has that id.
           content:
@@ -959,8 +1005,19 @@ paths:
       summary: Edit a care instruction
       description: |
         Rewrites an instruction's week, title and body. Requires the `admin`
-        role. The crop is not editable: moving advice to another crop is a
-        different guide, not an edit, so it is a delete plus a create.
+        or `farmer` role. The crop is not editable: moving advice to another
+        crop is a different guide, not an edit, so it is a delete plus a
+        create.
+
+        - An **admin** may edit any instruction: a default one, or a farm's
+          (as moderation).
+        - A **farmer** may edit their farm's own instructions. If they edit a
+          **default** one (the id they were shown before taking the guide
+          over), the farm takes the guide over first, and the farm's copy of
+          that instruction is what changes. The response is then the copy,
+          with a **different `id`** from the one in the path. The default
+          itself is never changed by a farmer.
+        - Another farm's instruction answers `404`, like an unknown id.
       operationId: updateCareInstruction
       parameters:
         - $ref: '#/components/parameters/CareInstructionID'
@@ -988,9 +1045,22 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          $ref: '#/components/responses/NotAnAdmin'
+          description: |
+            The authenticated account is neither an admin nor a farmer, or is
+            a farmer without a farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                wrongRole:
+                  value:
+                    error: insufficient permissions
+                noFarm:
+                  value:
+                    error: no farm to write a care guide for
         '404':
-          description: No care instruction has that id.
+          description: No care instruction with that id is visible to the caller.
           content:
             application/json:
               schema:
@@ -1004,9 +1074,12 @@ paths:
       tags: [care]
       summary: Remove a care instruction
       description: |
-        Deletes one instruction. Requires the `admin` role. Deleting an id that
-        is already gone answers `404` rather than `204`, so a client can tell a
-        removal from a no-op.
+        Deletes one instruction, under the same rules as the `PUT`: an admin
+        deletes the instruction itself, and a farmer deleting a default
+        instruction takes the guide over and deletes only the farm's copy.
+        Requires the `admin` or `farmer` role. Deleting an id that is already
+        gone answers `404` rather than `204`, so a client can tell a removal
+        from a no-op.
       operationId: deleteCareInstruction
       parameters:
         - $ref: '#/components/parameters/CareInstructionID'
@@ -1024,15 +1097,74 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          $ref: '#/components/responses/NotAnAdmin'
+          description: |
+            The authenticated account is neither an admin nor a farmer, or is
+            a farmer without a farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                wrongRole:
+                  value:
+                    error: insufficient permissions
+                noFarm:
+                  value:
+                    error: no farm to write a care guide for
         '404':
-          description: No care instruction has that id.
+          description: No care instruction with that id is visible to the caller.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
                 error: care instruction not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/crops/{cropID}/farm-care-guide:
+    delete:
+      tags: [care, crops]
+      summary: Reset a crop's care guide to the default
+      description: |
+        Drops the calling farmer's own version of the crop's care guide, so
+        their tenants read the default guide again. Farmers only. Every step
+        of the farm's version is deleted.
+
+        A farm that has not taken this crop's guide over answers `404`: there
+        is nothing to reset.
+      operationId: resetFarmCareGuide
+      parameters:
+        - $ref: '#/components/parameters/CropID'
+      responses:
+        '204':
+          description: Reset; the farm reads the default guide again.
+        '400':
+          description: Invalid crop id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid crop id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a farmer, or has no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: The farm has no version of its own of this crop's guide.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: farm has no care guide of its own for this crop
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -1059,6 +1191,10 @@ paths:
           per crop while rental length comes from that crop's duration in
           months, so a guide running to week 30 against a 13-week rental would
           otherwise promise tasks for weeks the tenant never reaches.
+
+        - **The farm's version wins.** Each plot's guide is the one its farm
+          uses for the crop: the farm's own version if the farmer has taken
+          the guide over, the default otherwise.
 
         A plot whose crop has no guide yet is still returned, with an empty
         `instructions` array: the tenant's week and rental period are worth
@@ -2226,7 +2362,11 @@ components:
         calendar week. Rentals start whenever a customer books, so a guide
         pinned to calendar weeks would tell two tenants of the same crop to do
         different things at the same point in their own growing period.
-      required: [id, cropId, week, title, body, createdAt, updatedAt]
+
+        Every crop has a default guide, which an admin maintains. A farmer may
+        take a crop's guide over for their own farm; the farm's tenants then
+        read the farm's version instead.
+      required: [id, cropId, farmId, week, title, body, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -2234,6 +2374,13 @@ components:
         cropId:
           type: string
           format: uuid
+        farmId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            `null` for a step of the crop's default guide, and the farm's id
+            for a step of that farm's own version.
         week:
           type: integer
           format: int32

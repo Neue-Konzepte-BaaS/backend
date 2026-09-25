@@ -11,11 +11,16 @@ import (
 // after the plot was booked, not a calendar week — see the table comment in
 // sql/migrations/20260921150000_care_instructions.sql.
 //
-// The guide belongs to the crop, not to a farm: the catalog is admin-owned
-// (only an admin may add a crop), and so is the advice attached to it.
+// Every crop has a default guide, which an admin maintains and every farm
+// starts from. A farmer may take a crop's guide over for their own farm; from
+// then on that farm's tenants read the farm's version instead — see
+// sql/migrations/20260925100000_farm_care_guides.sql.
 type CareInstruction struct {
-	ID        uuid.UUID
-	Crop      uuid.UUID
+	ID   uuid.UUID
+	Crop uuid.UUID
+	// Farm is nil for a step of the default guide, and the farm's id for a
+	// step of that farm's own guide.
+	Farm      *uuid.UUID
 	Week      int32
 	Title     string
 	Body      string
@@ -40,5 +45,23 @@ type PlotCareGuide struct {
 	TotalWeeks int32
 	// Instructions are the crop's tasks in week order, limited to the weeks
 	// this rental actually reaches.
+	Instructions []CareInstruction
+}
+
+// CropAtFarm names one guide a tenant can read: a crop as grown on one farm.
+// Which version that is — the farm's own or the default — is the repository's
+// to resolve.
+type CropAtFarm struct {
+	Crop uuid.UUID
+	Farm uuid.UUID
+}
+
+// CropCareGuide is one crop's guide as an editor sees it: the default for an
+// admin, and for a farmer whichever version their tenants read.
+type CropCareGuide struct {
+	// FarmGuide is true when the instructions are the farmer's own version
+	// rather than the default. Separate from the instructions because a
+	// farm's own guide may be empty.
+	FarmGuide    bool
 	Instructions []CareInstruction
 }

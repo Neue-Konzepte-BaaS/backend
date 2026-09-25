@@ -27,6 +27,9 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			AllowedHeaders:   []string{"Content-Type"},
 			AllowCredentials: true,
 			MaxAge:           300,
+			// Response headers a cross-origin client may read beyond the
+			// CORS-safelisted ones; see GetCareInstructions.
+			ExposedHeaders: []string{careGuideSourceHeader},
 		}))
 	}
 
@@ -82,9 +85,11 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 	// Editing one instruction is addressed by its own id rather than through
 	// its crop: the crop is not needed to find it, and a path carrying both
 	// would have to be checked for disagreeing about which crop it belongs to.
+	// An admin edits the default guide, a farmer their farm's own version —
+	// the service decides which guide a write lands in.
 	r.Route("/api/care-instructions", func(r chi.Router) {
 		r.Use(appmiddleware.RequireAuth(authService))
-		r.Use(appmiddleware.RequireRole(models.RoleAdmin))
+		r.Use(appmiddleware.RequireAnyRole(models.RoleAdmin, models.RoleFarmer))
 
 		r.Put("/{instructionID}", careGuideHandler.UpdateCareInstruction)
 		r.Delete("/{instructionID}", careGuideHandler.DeleteCareInstruction)
@@ -135,17 +140,25 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			r.Use(appmiddleware.RequireRole(models.RoleAdmin))
 			r.Post("/", cropHandler.CreateCrop)
 			r.Delete("/{cropID}", cropHandler.DeleteCrop)
-			r.Post("/{cropID}/care-instructions", careGuideHandler.CreateCareInstruction)
 		})
 
-		// A crop's whole guide, unscoped by any rental: the admin's authoring
-		// view, and the farmer's preview of what his renters are told. The
-		// catalog itself is public, but the advice is not — a customer reads
-		// it through /api/care-guide, against their own week.
+		// A crop's whole guide, unscoped by any rental: the admin's view of
+		// the default, and the farmer's view of the version their renters are
+		// told. The catalog itself is public, but the advice is not — a
+		// customer reads it through /api/care-guide, against their own week.
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Use(appmiddleware.RequireAnyRole(models.RoleAdmin, models.RoleFarmer))
 			r.Get("/{cropID}/care-instructions", careGuideHandler.GetCareInstructions)
+			r.Post("/{cropID}/care-instructions", careGuideHandler.CreateCareInstruction)
+		})
+
+		// Resetting is a farmer's alone: the default guide has nothing to be
+		// reset to.
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireAuth(authService))
+			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Delete("/{cropID}/farm-care-guide", careGuideHandler.ResetFarmCareGuide)
 		})
 	})
 

@@ -59,8 +59,11 @@ type RentalWithPlotAndCustomer struct {
 // sql/queries/rental.sql.
 type ActiveRental struct {
 	Rental
-	PlotName    string
-	FieldName   string
+	PlotName  string
+	FieldName string
+	// FarmID is the farm the plot belongs to, which decides whose version of
+	// the crop's care guide the tenant reads.
+	FarmID      uuid.UUID
 	Crop        Crop
 	CurrentWeek int32
 	TotalWeeks  int32

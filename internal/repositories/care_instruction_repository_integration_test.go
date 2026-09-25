@@ -3,8 +3,10 @@ package repositories_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
+	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
 	database "github.com/Neue-Konzepte-BaaS/backend/internal/repositories/db"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
@@ -41,21 +43,21 @@ func TestCareInstructionRoundTrip(t *testing.T) {
 	ctx := context.Background()
 
 	queries := database.New(pool)
-	careRepo := repositories.NewCareInstructionRepository(queries)
+	careRepo := repositories.NewCareInstructionRepository(pool, queries)
 
 	_, _, _, cropID := seedFarmerWithPlots(t, ctx, pool, 1)
 
 	// Inserted out of order, so a guide that came back in insertion order
 	// would fail here.
-	if _, err := careRepo.CreateCareInstruction(ctx, cropID, 3, "Thin out", "Leave the strongest seedling."); err != nil {
+	if _, err := careRepo.CreateCareInstruction(ctx, cropID, nil, 3, "Thin out", "Leave the strongest seedling."); err != nil {
 		t.Fatalf("creating instruction: %v", err)
 	}
-	first, err := careRepo.CreateCareInstruction(ctx, cropID, 1, "Water in", "A full can per plot.")
+	first, err := careRepo.CreateCareInstruction(ctx, cropID, nil, 1, "Water in", "A full can per plot.")
 	if err != nil {
 		t.Fatalf("creating instruction: %v", err)
 	}
 
-	instructions, err := careRepo.GetCareInstructionsByCrop(ctx, cropID)
+	instructions, err := careRepo.GetDefaultCareInstructionsByCrop(ctx, cropID)
 	if err != nil {
 		t.Fatalf("getting instructions: %v", err)
 	}
@@ -92,14 +94,14 @@ func TestCareInstructionRejectsBadInput(t *testing.T) {
 	ctx := context.Background()
 
 	queries := database.New(pool)
-	careRepo := repositories.NewCareInstructionRepository(queries)
+	careRepo := repositories.NewCareInstructionRepository(pool, queries)
 
 	_, _, _, cropID := seedFarmerWithPlots(t, ctx, pool, 1)
 
-	if _, err := careRepo.CreateCareInstruction(ctx, uuid.New(), 1, "Water in", "..."); !errors.Is(err, services.ErrNotFound) {
+	if _, err := careRepo.CreateCareInstruction(ctx, uuid.New(), nil, 1, "Water in", "..."); !errors.Is(err, services.ErrNotFound) {
 		t.Errorf("creating against an unknown crop = %v, want ErrNotFound", err)
 	}
-	if _, err := careRepo.CreateCareInstruction(ctx, cropID, 900, "Water in", "..."); !errors.Is(err, services.ErrInvalidCareInstruction) {
+	if _, err := careRepo.CreateCareInstruction(ctx, cropID, nil, 900, "Water in", "..."); !errors.Is(err, services.ErrInvalidCareInstruction) {
 		t.Errorf("creating with week 900 = %v, want ErrInvalidCareInstruction", err)
 	}
 	if _, err := careRepo.UpdateCareInstruction(ctx, uuid.New(), 1, "Water in", "..."); !errors.Is(err, services.ErrNotFound) {
@@ -107,41 +109,159 @@ func TestCareInstructionRejectsBadInput(t *testing.T) {
 	}
 }
 
-// TestGetCareInstructionsByCrops checks the read the tenant's care guide
-// makes: several crops in one round trip, each keyed by its own crop.
-func TestGetCareInstructionsByCrops(t *testing.T) {
+// TestGetEffectiveCareInstructions checks the read the tenant's care guide
+// makes: several guides in one round trip, each keyed by crop and farm, and
+// each the farm's own version where it has one and the default elsewhere.
+func TestGetEffectiveCareInstructions(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 
 	queries := database.New(pool)
-	careRepo := repositories.NewCareInstructionRepository(queries)
+	careRepo := repositories.NewCareInstructionRepository(pool, queries)
 
-	_, _, _, tomatoes := seedFarmerWithPlots(t, ctx, pool, 1)
-	_, _, _, beans := seedFarmerWithPlots(t, ctx, pool, 1)
+	_, farm, _, tomatoes := seedFarmerWithPlots(t, ctx, pool, 1)
+	_, otherFarm, _, beans := seedFarmerWithPlots(t, ctx, pool, 1)
 
-	if _, err := careRepo.CreateCareInstruction(ctx, tomatoes, 1, "Water in", "..."); err != nil {
+	if _, err := careRepo.CreateCareInstruction(ctx, tomatoes, nil, 2, "Thin out", "..."); err != nil {
 		t.Fatalf("creating instruction: %v", err)
 	}
-	if _, err := careRepo.CreateCareInstruction(ctx, tomatoes, 2, "Thin out", "..."); err != nil {
+	if _, err := careRepo.CreateCareInstruction(ctx, tomatoes, nil, 1, "Water in", "..."); err != nil {
 		t.Fatalf("creating instruction: %v", err)
 	}
-	if _, err := careRepo.CreateCareInstruction(ctx, beans, 1, "Set the canes", "..."); err != nil {
+	if _, err := careRepo.CreateCareInstruction(ctx, beans, nil, 1, "Set the canes", "..."); err != nil {
 		t.Fatalf("creating instruction: %v", err)
 	}
 
-	byCrop, err := careRepo.GetCareInstructionsByCrops(ctx, []uuid.UUID{tomatoes, beans})
+	// farm takes the tomato guide over and adds a step of its own.
+	if err := careRepo.StartFarmCareGuide(ctx, tomatoes, farm); err != nil {
+		t.Fatalf("starting farm guide: %v", err)
+	}
+	if _, err := careRepo.CreateCareInstruction(ctx, tomatoes, &farm, 3, "Stake them", "..."); err != nil {
+		t.Fatalf("creating farm instruction: %v", err)
+	}
+
+	farmTomatoes := models.CropAtFarm{Crop: tomatoes, Farm: farm}
+	otherTomatoes := models.CropAtFarm{Crop: tomatoes, Farm: otherFarm}
+	otherBeans := models.CropAtFarm{Crop: beans, Farm: otherFarm}
+
+	byGuide, err := careRepo.GetEffectiveCareInstructions(ctx, []models.CropAtFarm{farmTomatoes, otherTomatoes, otherBeans})
 	if err != nil {
-		t.Fatalf("getting instructions by crops: %v", err)
+		t.Fatalf("getting effective instructions: %v", err)
 	}
-	if len(byCrop[tomatoes]) != 2 {
-		t.Errorf("tomatoes have %d instructions, want 2", len(byCrop[tomatoes]))
+
+	if got, want := careTitles(byGuide[farmTomatoes]), []string{"Water in", "Thin out", "Stake them"}; !slices.Equal(got, want) {
+		t.Errorf("farm's tomato guide = %v, want its own copy in week order %v", got, want)
 	}
-	if len(byCrop[beans]) != 1 {
-		t.Errorf("beans have %d instructions, want 1", len(byCrop[beans]))
+	for _, instruction := range byGuide[farmTomatoes] {
+		if instruction.Farm == nil || *instruction.Farm != farm {
+			t.Errorf("farm guide step %q has farm %v, want %v", instruction.Title, instruction.Farm, farm)
+		}
 	}
-	if _, ok := byCrop[uuid.New()]; ok {
-		t.Error("a crop nobody asked for turned up in the result")
+	if got, want := careTitles(byGuide[otherTomatoes]), []string{"Water in", "Thin out"}; !slices.Equal(got, want) {
+		t.Errorf("other farm's tomato guide = %v, want the default %v", got, want)
 	}
+	if got, want := careTitles(byGuide[otherBeans]), []string{"Set the canes"}; !slices.Equal(got, want) {
+		t.Errorf("other farm's bean guide = %v, want the default %v", got, want)
+	}
+	if _, ok := byGuide[models.CropAtFarm{Crop: uuid.New(), Farm: farm}]; ok {
+		t.Error("a guide nobody asked for turned up in the result")
+	}
+}
+
+// TestFarmCareGuideLifecycle covers taking a guide over, editing through the
+// default id, an empty farm guide staying the farm's, and the reset.
+func TestFarmCareGuideLifecycle(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	queries := database.New(pool)
+	careRepo := repositories.NewCareInstructionRepository(pool, queries)
+
+	_, farm, _, crop := seedFarmerWithPlots(t, ctx, pool, 1)
+	key := models.CropAtFarm{Crop: crop, Farm: farm}
+
+	defaultStep, err := careRepo.CreateCareInstruction(ctx, crop, nil, 1, "Water in", "...")
+	if err != nil {
+		t.Fatalf("creating instruction: %v", err)
+	}
+
+	if _, err := careRepo.CreateCareInstruction(ctx, crop, &farm, 1, "No marker yet", "..."); !errors.Is(err, services.ErrNotFound) {
+		t.Errorf("creating a farm step before the farm took the guide over = %v, want ErrNotFound", err)
+	}
+	if err := careRepo.StartFarmCareGuide(ctx, uuid.New(), farm); !errors.Is(err, services.ErrNotFound) {
+		t.Errorf("taking over an unknown crop's guide = %v, want ErrNotFound", err)
+	}
+
+	// Taking over twice copies once.
+	for range 2 {
+		if err := careRepo.StartFarmCareGuide(ctx, crop, farm); err != nil {
+			t.Fatalf("starting farm guide: %v", err)
+		}
+	}
+	has, err := careRepo.HasFarmCareGuide(ctx, crop, farm)
+	if err != nil || !has {
+		t.Fatalf("HasFarmCareGuide = %v, %v; want true", has, err)
+	}
+
+	copied, err := careRepo.GetFarmCopyOfCareInstruction(ctx, farm, defaultStep.ID)
+	if err != nil {
+		t.Fatalf("getting the farm's copy: %v", err)
+	}
+	if copied.ID == defaultStep.ID || copied.Title != "Water in" {
+		t.Errorf("copy = %+v, want a new row with the default's content", copied)
+	}
+	byGuide, err := careRepo.GetEffectiveCareInstructions(ctx, []models.CropAtFarm{key})
+	if err != nil {
+		t.Fatalf("getting effective instructions: %v", err)
+	}
+	if len(byGuide[key]) != 1 {
+		t.Errorf("farm guide has %d steps after two take-overs, want 1 (copied once)", len(byGuide[key]))
+	}
+
+	// Emptying the farm's guide keeps it the farm's: the tenants read
+	// nothing rather than the default.
+	if err := careRepo.DeleteCareInstruction(ctx, copied.ID); err != nil {
+		t.Fatalf("deleting the copy: %v", err)
+	}
+	byGuide, err = careRepo.GetEffectiveCareInstructions(ctx, []models.CropAtFarm{key})
+	if err != nil {
+		t.Fatalf("getting effective instructions: %v", err)
+	}
+	if len(byGuide[key]) != 0 {
+		t.Errorf("emptied farm guide reads %v, want nothing", careTitles(byGuide[key]))
+	}
+
+	if _, err := careRepo.CreateCareInstruction(ctx, crop, &farm, 2, "Our own step", "..."); err != nil {
+		t.Fatalf("creating farm instruction: %v", err)
+	}
+	if err := careRepo.DeleteFarmCareGuide(ctx, crop, farm); err != nil {
+		t.Fatalf("resetting: %v", err)
+	}
+	if err := careRepo.DeleteFarmCareGuide(ctx, crop, farm); !errors.Is(err, services.ErrNotFound) {
+		t.Errorf("resetting twice = %v, want ErrNotFound", err)
+	}
+	byGuide, err = careRepo.GetEffectiveCareInstructions(ctx, []models.CropAtFarm{key})
+	if err != nil {
+		t.Fatalf("getting effective instructions: %v", err)
+	}
+	if got, want := careTitles(byGuide[key]), []string{"Water in"}; !slices.Equal(got, want) {
+		t.Errorf("guide after reset = %v, want the default %v", got, want)
+	}
+	var farmRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM care_instruction WHERE farm = $1`, farm).Scan(&farmRows); err != nil {
+		t.Fatalf("counting farm rows: %v", err)
+	}
+	if farmRows != 0 {
+		t.Errorf("%d farm instructions survived the reset, want 0", farmRows)
+	}
+}
+
+func careTitles(instructions []models.CareInstruction) []string {
+	out := make([]string, len(instructions))
+	for i, instruction := range instructions {
+		out[i] = instruction.Title
+	}
+	return out
 }
 
 // TestCareInstructionsFollowTheirCrop covers the ON DELETE CASCADE: advice
@@ -153,14 +273,14 @@ func TestCareInstructionsFollowTheirCrop(t *testing.T) {
 	ctx := context.Background()
 
 	queries := database.New(pool)
-	careRepo := repositories.NewCareInstructionRepository(queries)
+	careRepo := repositories.NewCareInstructionRepository(pool, queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
 
 	crop, err := cropRepo.CreateCrop(ctx, "Radishes-"+uuid.NewString(), 2)
 	if err != nil {
 		t.Fatalf("creating crop: %v", err)
 	}
-	if _, err := careRepo.CreateCareInstruction(ctx, crop.ID, 1, "Sow thinly", "..."); err != nil {
+	if _, err := careRepo.CreateCareInstruction(ctx, crop.ID, nil, 1, "Sow thinly", "..."); err != nil {
 		t.Fatalf("creating instruction: %v", err)
 	}
 
@@ -168,7 +288,7 @@ func TestCareInstructionsFollowTheirCrop(t *testing.T) {
 		t.Fatalf("deleting crop: %v", err)
 	}
 
-	instructions, err := careRepo.GetCareInstructionsByCrop(ctx, crop.ID)
+	instructions, err := careRepo.GetDefaultCareInstructionsByCrop(ctx, crop.ID)
 	if err != nil {
 		t.Fatalf("getting instructions: %v", err)
 	}
@@ -187,7 +307,7 @@ func TestGetActiveRentalsByCustomer(t *testing.T) {
 	queries := database.New(pool)
 	rentalRepo := repositories.NewRentalRepository(queries)
 
-	_, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 3)
+	_, farmID, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 3)
 	customer := seedCustomer(t, ctx, pool)
 
 	// Three months, started 15 days ago: day 14 begins week 3.
@@ -210,6 +330,9 @@ func TestGetActiveRentalsByCustomer(t *testing.T) {
 		byPlot[rental.PlotID] = rental.CurrentWeek
 		if rental.Crop.ID != cropID || rental.Crop.Name == "" {
 			t.Errorf("rental carries crop %+v, want the rented crop with its name", rental.Crop)
+		}
+		if rental.FarmID != farmID {
+			t.Errorf("rental carries farm %v, want the plot's farm %v", rental.FarmID, farmID)
 		}
 		if rental.PlotName == "" || rental.FieldName == "" {
 			t.Errorf("rental carries plot %q on field %q, want both named", rental.PlotName, rental.FieldName)

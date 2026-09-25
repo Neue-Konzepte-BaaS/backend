@@ -24,6 +24,7 @@ SELECT
     p.name AS plot_name,
     p.field,
     f.name AS field_name,
+    f.farm,
     c.name AS crop_name,
     c.duration_months AS crop_duration_months,
     (FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - lower(r.period))) / 604800) + 1)::int AS current_week,
@@ -46,6 +47,7 @@ type GetActiveRentalsByCustomerRow struct {
 	PlotName           string
 	Field              uuid.UUID
 	FieldName          string
+	Farm               uuid.UUID
 	CropName           string
 	CropDurationMonths int32
 	CurrentWeek        int32
@@ -86,6 +88,7 @@ func (q *Queries) GetActiveRentalsByCustomer(ctx context.Context, customer uuid.
 			&i.PlotName,
 			&i.Field,
 			&i.FieldName,
+			&i.Farm,
 			&i.CropName,
 			&i.CropDurationMonths,
 			&i.CurrentWeek,
