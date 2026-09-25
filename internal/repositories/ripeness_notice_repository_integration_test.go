@@ -3,7 +3,6 @@ package repositories_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
 	database "github.com/Neue-Konzepte-BaaS/backend/internal/repositories/db"
@@ -71,18 +70,12 @@ func TestGetCustomersOfFarmerForFieldAndCrop_DedupsMatchesFieldAndCropOnly(t *te
 
 	// Two plots of the target field, growing the target crop: must count once.
 	for _, plot := range plots[:2] {
-		if _, err := rentalRepo.CreateRentalRequest(ctx, plot, matchingTwice, cropID, time.Now(), 6, ""); err != nil {
-			t.Fatalf("renting matching plot: %v", err)
-		}
+		rentApprovedNow(t, ctx, rentalRepo, plot, matchingTwice, cropID)
 	}
 	// Same field, different crop: must be excluded.
-	if _, err := rentalRepo.CreateRentalRequest(ctx, plots[2], wrongCrop, otherCrop.ID, time.Now(), 6, ""); err != nil {
-		t.Fatalf("renting wrong-crop plot: %v", err)
-	}
+	rentApprovedNow(t, ctx, rentalRepo, plots[2], wrongCrop, otherCrop.ID)
 	// Different field, same crop: must be excluded.
-	if _, err := rentalRepo.CreateRentalRequest(ctx, otherFieldPlot, wrongField, cropID, time.Now(), 6, ""); err != nil {
-		t.Fatalf("renting other field's plot: %v", err)
-	}
+	rentApprovedNow(t, ctx, rentalRepo, otherFieldPlot, wrongField, cropID)
 
 	targetField, err := plotRepo.GetPlotField(ctx, plots[0])
 	if err != nil {
@@ -119,12 +112,8 @@ func TestGetRipenessNoticesForCustomer_OnlyMatchingFieldAndCrop(t *testing.T) {
 	matching := seedCustomer(t, ctx, pool)
 	wrongField := seedCustomer(t, ctx, pool)
 
-	if _, err := rentalRepo.CreateRentalRequest(ctx, plots[0], matching, cropID, time.Now(), 6, ""); err != nil {
-		t.Fatalf("renting matching plot: %v", err)
-	}
-	if _, err := rentalRepo.CreateRentalRequest(ctx, otherFieldPlot, wrongField, cropID, time.Now(), 6, ""); err != nil {
-		t.Fatalf("renting other field's plot: %v", err)
-	}
+	rentApprovedNow(t, ctx, rentalRepo, plots[0], matching, cropID)
+	rentApprovedNow(t, ctx, rentalRepo, otherFieldPlot, wrongField, cropID)
 
 	fieldID, err := plotRepo.GetPlotField(ctx, plots[0])
 	if err != nil {
