@@ -214,6 +214,108 @@ paths:
               schema:
                 type: string
 
+  /api/farms/me:
+    get:
+      tags: [farms]
+      summary: Get the calling farmer's own farm
+      description: |
+        Returns the authenticated farmer's own farm, in the same shape as
+        `GET /api/farms/{farmID}`. Farmers only. The farm is resolved from the
+        caller, so the farmer does not need to know its id.
+      operationId: getMyFarm
+      responses:
+        '200':
+          description: The farmer's farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Farm'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: The farmer owns no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: farm not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags: [farms]
+      summary: Update the calling farmer's own farm
+      description: |
+        Overwrites the editable details of the authenticated farmer's own
+        farm and returns the farm as `GET /api/farms/me` would. Farmers only.
+        The farm is resolved from the caller, never from an id in the request,
+        so a farmer cannot write to somebody else's farm.
+
+        This is a full replacement: an empty `description` clears it, and an
+        absent, `null` or empty `foundedAt` clears the founding date. The total
+        area is derived from the farm's plots and cannot be set. The postal
+        code lives on the farmer account, not the farm, and is not part of
+        this endpoint.
+      operationId: updateMyFarm
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFarmRequest'
+      responses:
+        '200':
+          description: The updated farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Farm'
+        '400':
+          description: Malformed body, a missing or oversized name or address, an oversized description, or an invalid or future `foundedAt`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                missingName:
+                  value:
+                    error: name is required
+                futureFounding:
+                  value:
+                    error: foundedAt must not be in the future
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: The farmer owns no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: farm not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/farms/{farmID}:
     get:
       tags: [farms]
@@ -1777,6 +1879,36 @@ components:
           allOf:
             - $ref: '#/components/schemas/GeoJSONPolygon'
           description: Any simple polygon that lies within the field's boundaries.
+
+    UpdateFarmRequest:
+      type: object
+      required: [name, address]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Trimmed; must not be empty.
+          example: Hof Sonnental
+        address:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Trimmed; must not be empty.
+          example: Feldweg 1, 76133 Karlsruhe
+        description:
+          type: string
+          maxLength: 2000
+          description: Trimmed; empty clears it.
+          example: Familienbetrieb, bio seit 1998.
+        foundedAt:
+          type: string
+          format: date
+          nullable: true
+          description: |
+            `YYYY-MM-DD`, not in the future. Absent, `null` or empty clears
+            the founding date.
+          example: '1998-04-01'
 
     Farm:
       type: object

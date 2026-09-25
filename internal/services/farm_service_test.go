@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/google/uuid"
@@ -18,6 +19,10 @@ type fakeFarmRepo struct {
 	farmErr        error
 	farmIDByFarmer map[uuid.UUID]uuid.UUID
 	farmIDErr      error
+
+	updated   models.FarmUpdate
+	updatedBy uuid.UUID
+	updateErr error
 
 	page       models.Page[models.FarmListing]
 	listErr    error
@@ -36,6 +41,20 @@ func (f *fakeFarmRepo) ListFarms(_ context.Context, filter models.FarmListFilter
 
 func (f *fakeFarmRepo) GetFarmByID(context.Context, uuid.UUID) (models.Farm, error) {
 	return f.farm, f.farmErr
+}
+
+// UpdateFarmByFarmer records what it was asked to write and resolves the
+// farmer through the same map GetFarmIDByFarmerID reads.
+func (f *fakeFarmRepo) UpdateFarmByFarmer(_ context.Context, farmerID uuid.UUID, update models.FarmUpdate) (uuid.UUID, error) {
+	f.updatedBy = farmerID
+	f.updated = update
+	if f.updateErr != nil {
+		return uuid.UUID{}, f.updateErr
+	}
+	if id, ok := f.farmIDByFarmer[farmerID]; ok {
+		return id, nil
+	}
+	return uuid.UUID{}, ErrNotFound
 }
 
 func (f *fakeFarmRepo) GetFarmIDByFarmerID(_ context.Context, farmerID uuid.UUID) (uuid.UUID, error) {
@@ -234,4 +253,69 @@ func TestListFarms_WrapsRepositoryErrors(t *testing.T) {
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v, want it to wrap %v", err, sentinel)
 	}
+}
+
+func TestFarmService_GetMyFarm(t *testing.T) {
+	farmer, farmID := uuid.New(), uuid.New()
+	want := models.Farm{ID: farmID, FarmerID: farmer, Name: "Green Acres"}
+
+	t.Run("resolves the farmer's own farm", func(t *testing.T) {
+		svc := NewFarmService(&fakeFarmRepo{farm: want, farmIDByFarmer: map[uuid.UUID]uuid.UUID{farmer: farmID}})
+
+		got, err := svc.GetMyFarm(context.Background(), farmer)
+		if err != nil {
+			t.Fatalf("GetMyFarm: %v", err)
+		}
+		if got != want {
+			t.Errorf("farm = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("an account without a farm is not found", func(t *testing.T) {
+		svc := NewFarmService(&fakeFarmRepo{})
+
+		if _, err := svc.GetMyFarm(context.Background(), uuid.New()); !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+func TestFarmService_UpdateMyFarm(t *testing.T) {
+	farmer, farmID := uuid.New(), uuid.New()
+	founded := time.Date(1998, 4, 1, 0, 0, 0, 0, time.UTC)
+	update := models.FarmUpdate{Name: "Hof Sonnental", Address: "Feldweg 1", Description: "Bio seit 1998", FoundedAt: &founded}
+
+	t.Run("writes the caller's farm and reads it back", func(t *testing.T) {
+		stored := models.Farm{ID: farmID, FarmerID: farmer, Name: "Hof Sonnental", TotalSquareMeters: 42}
+		repo := &fakeFarmRepo{farm: stored, farmIDByFarmer: map[uuid.UUID]uuid.UUID{farmer: farmID}}
+		svc := NewFarmService(repo)
+
+		got, err := svc.UpdateMyFarm(context.Background(), farmer, update)
+		if err != nil {
+			t.Fatalf("UpdateMyFarm: %v", err)
+		}
+		if repo.updatedBy != farmer || repo.updated.Name != update.Name || repo.updated.FoundedAt != update.FoundedAt {
+			t.Errorf("repository got %v / %+v, want the caller and the update passed through", repo.updatedBy, repo.updated)
+		}
+		if got != stored {
+			t.Errorf("farm = %+v, want the farm as read back (with its area) %+v", got, stored)
+		}
+	})
+
+	t.Run("an account without a farm is not found", func(t *testing.T) {
+		svc := NewFarmService(&fakeFarmRepo{})
+
+		if _, err := svc.UpdateMyFarm(context.Background(), uuid.New(), update); !errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("an unexpected repository error is wrapped, not classified", func(t *testing.T) {
+		svc := NewFarmService(&fakeFarmRepo{updateErr: errors.New("boom")})
+
+		_, err := svc.UpdateMyFarm(context.Background(), farmer, update)
+		if err == nil || errors.Is(err, ErrNotFound) {
+			t.Errorf("err = %v, want a plain wrapped error", err)
+		}
+	})
 }

@@ -238,7 +238,7 @@ graph TD
 
     G --> AD["/api/admin<br/>RequireAuth + RequireRole(admin)"]
     G --> A["/api/auth"]
-    G --> FA["/api/farms<br/>— public —"]
+    G --> FA["/api/farms<br/>public, except /me: RequireAuth + RequireRole(farmer)"]
     G --> F["/api/fields<br/>RequireAuth + RequireRole(farmer)"]
     G --> P["/api/plots<br/>— public —"]
     G --> RE["/api/rentals<br/>RequireAuth + RequireRole(customer)"]
@@ -282,6 +282,8 @@ graph TD
 | `POST /api/auth/login` | – | – | [auth_handler.go:48](internal/handlers/auth_handler.go#L48) |
 | `POST /api/auth/logout` | – | – | [auth_handler.go:137](internal/handlers/auth_handler.go#L137) |
 | `GET /api/auth/me` | cookie | any | [auth_handler.go:125](internal/handlers/auth_handler.go#L125) |
+| `GET /api/farms/me` | cookie | farmer | [farm_handler.go](internal/handlers/farm_handler.go) |
+| `PUT /api/farms/me` | cookie | farmer | [farm_handler.go](internal/handlers/farm_handler.go) |
 | `GET /api/farms/{farmID}` | – | – | [farm_handler.go](internal/handlers/farm_handler.go) |
 | `POST /api/fields` | cookie | farmer | [field_handler.go:85](internal/handlers/field_handler.go#L85) |
 | `GET /api/fields` | cookie | farmer | [field_handler.go:128](internal/handlers/field_handler.go#L128) |

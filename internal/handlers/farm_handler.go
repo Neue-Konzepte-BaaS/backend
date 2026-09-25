@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/middleware"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
@@ -55,13 +57,17 @@ func (h *FarmHandler) GetFarm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	webutils.WriteJSON(w, http.StatusOK, toFarmResponse(farm))
+}
+
+func toFarmResponse(farm models.Farm) farmResponse {
 	var foundedAt *string
 	if farm.FoundedAt != nil {
 		s := farm.FoundedAt.Format(time.DateOnly)
 		foundedAt = &s
 	}
 
-	webutils.WriteJSON(w, http.StatusOK, farmResponse{
+	return farmResponse{
 		ID:                farm.ID.String(),
 		FarmerID:          farm.FarmerID.String(),
 		Name:              farm.Name,
@@ -69,7 +75,108 @@ func (h *FarmHandler) GetFarm(w http.ResponseWriter, r *http.Request) {
 		Description:       farm.Description,
 		FoundedAt:         foundedAt,
 		TotalSquareMeters: farm.TotalSquareMeters,
-	})
+	}
+}
+
+// Bounds for what a farmer may write about their farm. The name and address
+// are shown on every plot card and the farm page, the description only on the
+// farm page.
+const (
+	maxFarmName        = 100
+	maxFarmAddress     = 200
+	maxFarmDescription = 2_000
+)
+
+// updateFarmRequest is a full replacement of the editable fields: an absent
+// or null foundedAt clears the date, like an empty description clears that.
+type updateFarmRequest struct {
+	Name        string  `json:"name"`
+	Address     string  `json:"address"`
+	Description string  `json:"description"`
+	FoundedAt   *string `json:"foundedAt"`
+}
+
+// GetMyFarm returns the calling farmer's own farm, in the same shape as
+// GetFarm. It must be mounted behind RequireAuth and
+// RequireRole(models.RoleFarmer).
+func (h *FarmHandler) GetMyFarm(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	farm, err := h.farmService.GetMyFarm(r.Context(), claims.UserID)
+	if errors.Is(err, services.ErrNotFound) {
+		webutils.WriteError(w, http.StatusNotFound, "farm not found")
+		return
+	}
+	if err != nil {
+		slog.Error("getting own farm failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, toFarmResponse(farm))
+}
+
+// UpdateMyFarm overwrites the calling farmer's farm details. It must be
+// mounted behind RequireAuth and RequireRole(models.RoleFarmer).
+func (h *FarmHandler) UpdateMyFarm(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	var req updateFarmRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	update := models.FarmUpdate{
+		Name:        strings.TrimSpace(req.Name),
+		Address:     strings.TrimSpace(req.Address),
+		Description: strings.TrimSpace(req.Description),
+	}
+	switch {
+	case update.Name == "":
+		webutils.WriteError(w, http.StatusBadRequest, "name is required")
+		return
+	case update.Address == "":
+		webutils.WriteError(w, http.StatusBadRequest, "address is required")
+		return
+	case utf8.RuneCountInString(update.Name) > maxFarmName:
+		webutils.WriteError(w, http.StatusBadRequest, "name is too long")
+		return
+	case utf8.RuneCountInString(update.Address) > maxFarmAddress:
+		webutils.WriteError(w, http.StatusBadRequest, "address is too long")
+		return
+	case utf8.RuneCountInString(update.Description) > maxFarmDescription:
+		webutils.WriteError(w, http.StatusBadRequest, "description is too long")
+		return
+	}
+
+	if req.FoundedAt != nil && strings.TrimSpace(*req.FoundedAt) != "" {
+		founded, err := time.Parse(time.DateOnly, strings.TrimSpace(*req.FoundedAt))
+		if err != nil {
+			webutils.WriteError(w, http.StatusBadRequest, "foundedAt must be a date (YYYY-MM-DD)")
+			return
+		}
+		// Compared as calendar dates in UTC, so "today" is always allowed
+		// whatever the server's zone.
+		if founded.After(time.Now().UTC().Truncate(24 * time.Hour)) {
+			webutils.WriteError(w, http.StatusBadRequest, "foundedAt must not be in the future")
+			return
+		}
+		update.FoundedAt = &founded
+	}
+
+	farm, err := h.farmService.UpdateMyFarm(r.Context(), claims.UserID, update)
+	if errors.Is(err, services.ErrNotFound) {
+		webutils.WriteError(w, http.StatusNotFound, "farm not found")
+		return
+	}
+	if err != nil {
+		slog.Error("updating own farm failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, toFarmResponse(farm))
 }
 
 type farmOwnerResponse struct {
