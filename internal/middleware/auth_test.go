@@ -28,8 +28,12 @@ func (s *stubAuthService) Login(context.Context, string, string) (models.Account
 	panic("middleware does not call Login")
 }
 
-func (s *stubAuthService) Register(context.Context, services.RegisterInput) (models.Account, services.TokenPair, error) {
+func (s *stubAuthService) Register(context.Context, services.RegisterInput) error {
 	panic("middleware does not call Register")
+}
+
+func (s *stubAuthService) VerifyEmail(context.Context, string) (models.Account, services.TokenPair, error) {
+	panic("middleware does not call VerifyEmail")
 }
 
 func (s *stubAuthService) Me(context.Context, uuid.UUID) (models.Account, error) {

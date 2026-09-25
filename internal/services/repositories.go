@@ -49,6 +49,21 @@ type AccountRepository interface {
 	GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, field, crop uuid.UUID) ([]models.Recipient, error)
 }
 
+// PendingRegistrationRepository stores registrations awaiting email
+// verification, separately from AccountRepository: a pending registration is
+// not an account and must never be reachable through the account queries
+// (login, listing, notification recipients) until it is verified.
+type PendingRegistrationRepository interface {
+	// UpsertPendingRegistration stores the registration, replacing any
+	// existing pending registration for the same email (refreshed data and
+	// expiry) rather than erroring — see the ON CONFLICT in the query.
+	UpsertPendingRegistration(ctx context.Context, reg models.PendingRegistration, ttl time.Duration) (uuid.UUID, error)
+	// GetPendingRegistrationByID returns ErrNotFound if the id does not
+	// exist or has expired.
+	GetPendingRegistrationByID(ctx context.Context, id uuid.UUID) (models.PendingRegistration, error)
+	DeletePendingRegistration(ctx context.Context, id uuid.UUID) error
+}
+
 type BroadcastNotificationRepository interface {
 	// CreateBroadcastNotification stores one platform-wide notice.
 	CreateBroadcastNotification(ctx context.Context, subject, body string) (models.BroadcastNotification, error)
