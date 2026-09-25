@@ -923,11 +923,19 @@ catalog (hence `DeleteCrop`'s 409), while advice about a crop nobody offers any
 more has nothing left to be about, and must not be the thing that blocks an
 admin from tidying the catalog.
 
-**What it does not do yet.** Nothing mails a care instruction — the guide is
-read when a tenant opens their plot, not pushed the way an announcement is, so
-there is no `care` kind in the inbox (§9a) and no weekly digest. Adding one
-means deciding when "week 3" starts for a fan-out, which is a scheduling
-question this feature deliberately leaves open.
+**In the inbox.** `GET /api/inbox` (§9a) shows the guide as `care` items,
+derived at read time from `GetCareGuideForCustomer` rather than stored: one
+item per instruction whose week of the rental has begun, dated at the start of
+that week. Reusing the care guide keeps its two rules — approved rentals
+covering today, weeks the rental never reaches dropped — in one place. An
+instruction belongs to the crop, so two plots of the same crop would share its
+id; the item's id is instead a name-based UUID of rental and instruction,
+stable across reads and distinct per plot.
+
+**What it does not do yet.** Nothing mails a care instruction — the inbox item
+appears when its week begins, but no weekly digest is pushed the way an
+announcement is. Adding one means scheduling a fan-out at each tenant's own
+week boundary, a question this feature deliberately leaves open.
 
 ---
 

@@ -32,7 +32,7 @@ tags:
   - name: ripeness
     description: Ready-to-harvest notices a farmer posts for a field's current growers
   - name: inbox
-    description: A customer's merged feed of platform broadcasts, announcements, and ripeness notices
+    description: A customer's merged feed of platform broadcasts, announcements, ripeness notices, and care instructions
   - name: statistics
     description: Aggregate statistics for farmers and admins
   - name: admin
@@ -1679,15 +1679,25 @@ paths:
       summary: Read the authenticated customer's inbox
       description: |
         A merged, newest-first feed of every platform broadcast, the
-        announcements of every farmer this customer currently rents from, and
-        the ripeness notices for the crops this customer is currently
-        growing. Customers only — a farmer or admin receives 403.
+        announcements of every farmer this customer currently rents from, the
+        ripeness notices for the crops this customer is currently growing, and
+        the care instructions for every week of this customer's current
+        rentals that has already begun. Customers only — a farmer or admin
+        receives 403.
 
-        Each item carries its `kind` (`broadcast`, `announcement`, or
-        `ripeness_notice`) so a client can render one feed instead of three.
-        `farm_name` is present on announcement and ripeness items; broadcasts
-        have no farm to attribute. `field_name`/`crop_name` are present only
-        on ripeness items.
+        Each item carries its `kind` (`broadcast`, `announcement`,
+        `ripeness_notice`, or `care`) so a client can render one feed instead
+        of four. `farm_name` is present on announcement and ripeness items;
+        broadcasts and care instructions have no farm to attribute.
+        `field_name`/`crop_name` are present on ripeness and care items.
+
+        A `care` item is one instruction from the crop's weekly care guide
+        (see `GET /api/care-guide`), taken against the same active, approved
+        rentals. Only weeks that have begun appear — upcoming tasks are the
+        care guide's job, not the inbox's. Its `created_at` is when that week
+        of the rental started, its `subject` is `Woche <n>: <title>`, and its
+        `id` is derived from the rental and the instruction, so it is stable
+        across reads and distinct for two plots growing the same crop.
 
         As with `GET /api/announcements`, the rental decides which farmers'
         announcements and ripeness notices appear, not which notices were
@@ -2781,7 +2791,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [broadcast, announcement, ripeness_notice]
+          enum: [broadcast, announcement, ripeness_notice, care]
           description: Which stored record this item came from.
         id:
           type: string
@@ -2795,16 +2805,16 @@ components:
           type: string
           description: |
             The farm the notice came from. Present on `announcement` and
-            `ripeness_notice` items; a `broadcast` has no farm to attribute
-            and omits this field.
+            `ripeness_notice` items; a `broadcast` or `care` item has no farm
+            to attribute and omits this field.
           example: Hof Grünwald
         field_name:
           type: string
-          description: The field the notice is about. Present only on `ripeness_notice` items.
+          description: The field the notice is about. Present only on `ripeness_notice` and `care` items.
           example: Feld Nord
         crop_name:
           type: string
-          description: The crop that is ready. Present only on `ripeness_notice` items.
+          description: The crop that is ready, or the crop the care instruction is for. Present only on `ripeness_notice` and `care` items.
           example: Zucchini
         created_at:
           type: string
