@@ -25,6 +25,29 @@ SET status = sqlc.arg(status), decided_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg(id) AND status = 'requested'
 RETURNING id, plot, customer, crop, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at, message, decided_at;
 
+-- name: IsPlotAvailable :one
+-- A fast-fail check only: it never blocks a concurrent booking by itself,
+-- the rental_no_overlap exclusion constraint still does that at insert time.
+-- This just saves a customer a trip through Stripe for a plot that is
+-- obviously already taken. Mirrors the availability predicate in
+-- GetNearestPlots -- a still-undecided request blocks the period exactly
+-- like an approved rental; only a declined one frees it.
+SELECT NOT EXISTS (
+    SELECT 1 FROM rental r
+    WHERE r.plot = sqlc.arg(plot)
+      AND r.status <> 'declined'
+      AND r.period && tstzrange(
+          sqlc.arg(start_at)::timestamptz,
+          sqlc.arg(start_at)::timestamptz + make_interval(months => sqlc.arg(duration_months)::int)
+      )
+) AS available;
+
+-- name: GetRentalByID :one
+SELECT id, plot, customer, crop, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at, message, decided_at
+FROM rental
+WHERE id = $1
+LIMIT 1;
+
 -- name: GetRentalWithFieldByID :one
 -- Fetches the rental together with the field its plot belongs to, so the
 -- service can check the deciding farmer owns that field before approving or

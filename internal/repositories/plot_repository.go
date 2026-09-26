@@ -10,6 +10,7 @@ import (
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type plotRepository struct {
@@ -43,11 +44,12 @@ func (r *plotRepository) GetPlotsByFields(ctx context.Context, fields []uuid.UUI
 	plots := make([]models.Plot, len(rows))
 	for i, row := range rows {
 		plots[i] = models.Plot{
-			ID:               row.ID,
-			Name:             row.Name,
-			Field:            row.Field,
-			Coordinates:      row.Coordinates,
-			AreaSquareMeters: row.AreaSquareMeters,
+			ID:                          row.ID,
+			Name:                        row.Name,
+			Field:                       row.Field,
+			Coordinates:                 row.Coordinates,
+			AreaSquareMeters:            row.AreaSquareMeters,
+			BasePriceCentsPerSqmPerWeek: fromPgInt4(row.BasePriceCentsPerSqmPerWeek),
 		}
 	}
 	return plots, nil
@@ -62,6 +64,33 @@ func (r *plotRepository) GetPlotField(ctx context.Context, plot uuid.UUID) (uuid
 		return uuid.UUID{}, err
 	}
 	return field, nil
+}
+
+func (r *plotRepository) GetPlotByID(ctx context.Context, plot uuid.UUID) (models.Plot, error) {
+	row, err := r.queries.GetPlotByID(ctx, plot)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.Plot{}, fmt.Errorf("db error: %w %w", err, services.ErrNotFound)
+		}
+		return models.Plot{}, err
+	}
+	return models.Plot{
+		ID:                          row.ID,
+		Name:                        row.Name,
+		Field:                       row.Field,
+		Coordinates:                 row.Coordinates,
+		AreaSquareMeters:            row.AreaSquareMeters,
+		BasePriceCentsPerSqmPerWeek: fromPgInt4(row.BasePriceCentsPerSqmPerWeek),
+	}, nil
+}
+
+// fromPgInt4 converts a nullable Postgres int4 to a nullable Go int32.
+func fromPgInt4(v pgtype.Int4) *int32 {
+	if !v.Valid {
+		return nil
+	}
+	value := v.Int32
+	return &value
 }
 
 func (r *plotRepository) GetNearestPlots(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error) {

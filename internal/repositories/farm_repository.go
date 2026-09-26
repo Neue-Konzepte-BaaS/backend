@@ -10,15 +10,18 @@ import (
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type farmRepository struct {
+	pool    *pgxpool.Pool
 	queries *database.Queries
 }
 
-func NewFarmRepository(queries *database.Queries) services.FarmRepository {
-	return &farmRepository{queries: queries}
+func NewFarmRepository(pool *pgxpool.Pool, queries *database.Queries) services.FarmRepository {
+	return &farmRepository{pool: pool, queries: queries}
 }
 
 func (r *farmRepository) GetFarmByID(ctx context.Context, farmID uuid.UUID) (models.Farm, error) {
@@ -89,6 +92,66 @@ func (r *farmRepository) ListFarms(ctx context.Context, filter models.FarmListFi
 		page.Total = rows[0].TotalCount
 	}
 	return page, nil
+}
+
+func (r *farmRepository) GetFarmCropRates(ctx context.Context, farm uuid.UUID) ([]models.FarmCropRate, error) {
+	rows, err := r.queries.GetFarmCropRates(ctx, farm)
+	if err != nil {
+		return nil, err
+	}
+
+	rates := make([]models.FarmCropRate, len(rows))
+	for i, row := range rows {
+		rates[i] = models.FarmCropRate{Crop: row.Crop, PriceCentsPerSqmPerWeek: row.PriceCentsPerSqmPerWeek}
+	}
+	return rates, nil
+}
+
+func (r *farmRepository) GetFarmCropRate(ctx context.Context, farm, crop uuid.UUID) (int32, error) {
+	rate, err := r.queries.GetFarmCropRate(ctx, database.GetFarmCropRateParams{Farm: farm, Crop: crop})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, fmt.Errorf("db error: %w %w", err, services.ErrNotFound)
+		}
+		return 0, err
+	}
+	return rate, nil
+}
+
+// SetFarmCropRates replaces the farm's crop rates in a single transaction,
+// so a caller never observes a partially-updated set -- mirrors
+// cropRepository.SetPlotCrops.
+func (r *farmRepository) SetFarmCropRates(ctx context.Context, farm uuid.UUID, rates []models.FarmCropRate) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	qtx := r.queries.WithTx(tx)
+
+	if err := qtx.DeleteFarmCropRates(ctx, farm); err != nil {
+		return fmt.Errorf("clearing farm crop rates: %w", err)
+	}
+
+	for _, rate := range rates {
+		if err := qtx.InsertFarmCropRate(ctx, database.InsertFarmCropRateParams{
+			Farm:                    farm,
+			Crop:                    rate.Crop,
+			PriceCentsPerSqmPerWeek: rate.PriceCentsPerSqmPerWeek,
+		}); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {
+				return fmt.Errorf("%s: %w", pgErr.Message, services.ErrNotFound)
+			}
+			return err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
 }
 
 // toModelFarmListing leaves Plots.Available and Plots.OccupancyRate zero: they

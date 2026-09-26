@@ -30,7 +30,8 @@ type cropResponse struct {
 }
 
 type setPlotCropsRequest struct {
-	CropIDs []string `json:"cropIds"`
+	BasePriceCentsPerSqmPerWeek int32    `json:"basePriceCentsPerSqmPerWeek"`
+	CropIDs                     []string `json:"cropIds"`
 }
 
 type createCropRequest struct {
@@ -136,6 +137,11 @@ func (h *CropHandler) SetPlotCrops(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.BasePriceCentsPerSqmPerWeek <= 0 {
+		webutils.WriteError(w, http.StatusBadRequest, "basePriceCentsPerSqmPerWeek must be positive")
+		return
+	}
+
 	cropIDs := make([]uuid.UUID, len(req.CropIDs))
 	for i, raw := range req.CropIDs {
 		cropID, err := uuid.Parse(raw)
@@ -148,7 +154,7 @@ func (h *CropHandler) SetPlotCrops(w http.ResponseWriter, r *http.Request) {
 
 	claims := middleware.MustClaimsFromContext(r.Context())
 
-	crops, err := h.cropService.SetPlotCrops(r.Context(), claims.UserID, plotID, cropIDs)
+	plot, err := h.cropService.SetPlotCrops(r.Context(), claims.UserID, plotID, req.BasePriceCentsPerSqmPerWeek, cropIDs)
 	if errors.Is(err, services.ErrNotFound) {
 		webutils.WriteError(w, http.StatusNotFound, "plot or crop not found")
 		return
@@ -163,5 +169,5 @@ func (h *CropHandler) SetPlotCrops(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	webutils.WriteJSON(w, http.StatusOK, toCropResponses(crops))
+	webutils.WriteJSON(w, http.StatusOK, toPlotWithCropsResponse(plot))
 }

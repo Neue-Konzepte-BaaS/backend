@@ -17,9 +17,9 @@ type CropService interface {
 	DeleteCrop(ctx context.Context, id uuid.UUID) error
 	// GetAllCrops returns the full crop catalog.
 	GetAllCrops(ctx context.Context) ([]models.Crop, error)
-	// SetPlotCrops replaces the crops a plot offers, after checking the
-	// farmer owns the field that plot belongs to.
-	SetPlotCrops(ctx context.Context, farmer, plot uuid.UUID, cropIDs []uuid.UUID) ([]models.Crop, error)
+	// SetPlotCrops replaces the plot's base price and the crops it offers,
+	// after checking the farmer owns the field that plot belongs to.
+	SetPlotCrops(ctx context.Context, farmer, plot uuid.UUID, basePriceCentsPerSqmPerWeek int32, cropIDs []uuid.UUID) (models.PlotWithCrops, error)
 }
 
 type cropService struct {
@@ -62,41 +62,43 @@ func (s *cropService) GetAllCrops(ctx context.Context) ([]models.Crop, error) {
 	return crops, nil
 }
 
-func (s *cropService) SetPlotCrops(ctx context.Context, farmer, plot uuid.UUID, cropIDs []uuid.UUID) ([]models.Crop, error) {
+func (s *cropService) SetPlotCrops(ctx context.Context, farmer, plot uuid.UUID, basePriceCentsPerSqmPerWeek int32, cropIDs []uuid.UUID) (models.PlotWithCrops, error) {
 	callerFarm, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
 	if err != nil {
-		return nil, fmt.Errorf("looking up farm: %w", err)
+		return models.PlotWithCrops{}, fmt.Errorf("looking up farm: %w", err)
 	}
 
-	field, err := s.plotRepo.GetPlotField(ctx, plot)
+	existingPlot, err := s.plotRepo.GetPlotByID(ctx, plot)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return nil, err
+			return models.PlotWithCrops{}, err
 		}
-		return nil, fmt.Errorf("looking up plot field: %w", err)
+		return models.PlotWithCrops{}, fmt.Errorf("looking up plot: %w", err)
 	}
 
-	fieldFarm, err := s.fieldRepo.GetFieldFarm(ctx, field)
+	fieldFarm, err := s.fieldRepo.GetFieldFarm(ctx, existingPlot.Field)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return nil, err
+			return models.PlotWithCrops{}, err
 		}
-		return nil, fmt.Errorf("looking up field farm: %w", err)
+		return models.PlotWithCrops{}, fmt.Errorf("looking up field farm: %w", err)
 	}
 	if fieldFarm != callerFarm {
-		return nil, ErrForbidden
+		return models.PlotWithCrops{}, ErrForbidden
 	}
 
-	if err := s.cropRepo.SetPlotCrops(ctx, plot, cropIDs); err != nil {
+	if err := s.cropRepo.SetPlotCrops(ctx, plot, basePriceCentsPerSqmPerWeek, cropIDs); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return nil, err
+			return models.PlotWithCrops{}, err
 		}
-		return nil, fmt.Errorf("setting plot crops: %w", err)
+		return models.PlotWithCrops{}, fmt.Errorf("setting plot crops: %w", err)
 	}
 
 	crops, err := s.cropRepo.GetCropsByPlot(ctx, plot)
 	if err != nil {
-		return nil, fmt.Errorf("getting plot crops: %w", err)
+		return models.PlotWithCrops{}, fmt.Errorf("getting plot crops: %w", err)
 	}
-	return crops, nil
+
+	existingPlot.BasePriceCentsPerSqmPerWeek = &basePriceCentsPerSqmPerWeek
+	return models.PlotWithCrops{Plot: existingPlot, Crops: crops}, nil
 }

@@ -39,13 +39,13 @@ func (s *plotSearchService) FindNearestByCoordinates(ctx context.Context, lon, l
 		plotIDs[i] = plot.ID
 	}
 
-	cropsByPlot, err := s.cropRepo.GetCropsByPlots(ctx, plotIDs)
+	offeringsByPlot, err := s.cropRepo.GetPricedCropOfferingsByPlots(ctx, plotIDs)
 	if err != nil {
-		return nil, fmt.Errorf("getting plot crops: %w", err)
+		return nil, fmt.Errorf("getting plot crop offerings: %w", err)
 	}
 
 	for i, plot := range plots {
-		plots[i].Crops = cropsByPlot[plot.ID]
+		plots[i].Crops = offeringsByPlot[plot.ID]
 	}
 	return plots, nil
 }

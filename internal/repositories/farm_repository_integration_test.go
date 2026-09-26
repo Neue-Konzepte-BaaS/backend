@@ -17,7 +17,7 @@ func TestFarmRepository_GetFarmByID(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 
-	farmRepo := repositories.NewFarmRepository(database.New(pool))
+	farmRepo := repositories.NewFarmRepository(pool, database.New(pool))
 
 	t.Run("farmer with no fields or plots gets zero total, not an error", func(t *testing.T) {
 		farmer, farmID, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
@@ -73,7 +73,7 @@ func TestFarmRepository_GetFarmIDByFarmerID(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 
-	farmRepo := repositories.NewFarmRepository(database.New(pool))
+	farmRepo := repositories.NewFarmRepository(pool, database.New(pool))
 
 	t.Run("resolves the farmer's own farm id", func(t *testing.T) {
 		farmer, farmID, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
@@ -106,7 +106,7 @@ func seedFarmWithoutFields(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
-	farmRepo := repositories.NewFarmRepository(queries)
+	farmRepo := repositories.NewFarmRepository(pool, queries)
 
 	farmer, err := accountRepo.CreateFarmer(ctx, models.Account{
 		FirstName:    "Bare",
@@ -168,7 +168,7 @@ func findFarm(t *testing.T, page models.Page[models.FarmListing], farmID uuid.UU
 func TestListFarms_IncludesAFarmThatOwnsNothing(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
-	repo := repositories.NewFarmRepository(database.New(pool))
+	repo := repositories.NewFarmRepository(pool, database.New(pool))
 
 	bare := seedFarmWithoutFields(t, ctx, pool, "Aardvark Farm", 10115)
 
@@ -198,7 +198,7 @@ func TestListFarms_ReconcilesWithPlatformStatistics(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 	queries := database.New(pool)
-	farmRepo := repositories.NewFarmRepository(queries)
+	farmRepo := repositories.NewFarmRepository(pool, queries)
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
 
 	// Three farms with different shapes, so the sums are not trivially equal:
@@ -247,7 +247,7 @@ func TestListFarms_ExpiredRentalsStopCounting(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 	queries := database.New(pool)
-	farmRepo := repositories.NewFarmRepository(queries)
+	farmRepo := repositories.NewFarmRepository(pool, queries)
 
 	_, farmID, plotIDs, crop := seedFarmWithPlots(t, ctx, pool, 2)
 	customer := seedCustomer(t, ctx, pool)
@@ -274,7 +274,7 @@ func TestListFarms_ExpiredRentalsStopCounting(t *testing.T) {
 func TestListFarms_PagesStablyAndReportsTheFullTotal(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
-	repo := repositories.NewFarmRepository(database.New(pool))
+	repo := repositories.NewFarmRepository(pool, database.New(pool))
 
 	for _, name := range []string{"Farm A", "Farm B", "Farm C"} {
 		seedFarmWithoutFields(t, ctx, pool, name, 10115)
@@ -307,7 +307,7 @@ func TestListFarms_PagesStablyAndReportsTheFullTotal(t *testing.T) {
 func TestListFarms_FiltersNarrowBothItemsAndTotal(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
-	repo := repositories.NewFarmRepository(database.New(pool))
+	repo := repositories.NewFarmRepository(pool, database.New(pool))
 
 	seedFarmWithoutFields(t, ctx, pool, "Green Acres", 76133)
 	seedFarmWithoutFields(t, ctx, pool, "Aardvark Farm", 10115)

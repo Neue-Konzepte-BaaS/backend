@@ -18,6 +18,11 @@ type FarmService interface {
 	// public, this is a back-office view: it carries the owner and the
 	// holdings, so it is gated.
 	ListFarms(ctx context.Context, role models.Role, filter models.FarmListFilter) (models.Page[models.FarmListing], error)
+	// GetCropRates returns the calling farmer's own farm-wide crop rates.
+	GetCropRates(ctx context.Context, farmer uuid.UUID) ([]models.FarmCropRate, error)
+	// SetCropRates fully replaces the calling farmer's own farm-wide crop
+	// rates. Returns ErrNotFound if any crop id does not exist.
+	SetCropRates(ctx context.Context, farmer uuid.UUID, rates []models.FarmCropRate) ([]models.FarmCropRate, error)
 }
 
 type farmService struct {
@@ -61,4 +66,32 @@ func (s *farmService) ListFarms(ctx context.Context, role models.Role, filter mo
 		page.Items[i].Plots = derivePlotFigures(page.Items[i].Plots)
 	}
 	return page, nil
+}
+
+func (s *farmService) GetCropRates(ctx context.Context, farmer uuid.UUID) ([]models.FarmCropRate, error) {
+	farmID, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+	if err != nil {
+		return nil, fmt.Errorf("looking up farm: %w", err)
+	}
+
+	rates, err := s.farmRepo.GetFarmCropRates(ctx, farmID)
+	if err != nil {
+		return nil, fmt.Errorf("getting farm crop rates: %w", err)
+	}
+	return rates, nil
+}
+
+func (s *farmService) SetCropRates(ctx context.Context, farmer uuid.UUID, rates []models.FarmCropRate) ([]models.FarmCropRate, error) {
+	farmID, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+	if err != nil {
+		return nil, fmt.Errorf("looking up farm: %w", err)
+	}
+
+	if err := s.farmRepo.SetFarmCropRates(ctx, farmID, rates); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("setting farm crop rates: %w", err)
+	}
+	return rates, nil
 }

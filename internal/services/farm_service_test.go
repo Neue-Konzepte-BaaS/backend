@@ -23,6 +23,11 @@ type fakeFarmRepo struct {
 	listErr    error
 	listCalled bool
 	listFilter models.FarmListFilter
+
+	cropRates       []models.FarmCropRate
+	cropRatesErr    error
+	setCropRatesErr error
+	setRatesCalled  []models.FarmCropRate
 }
 
 func (f *fakeFarmRepo) ListFarms(_ context.Context, filter models.FarmListFilter) (models.Page[models.FarmListing], error) {
@@ -46,6 +51,19 @@ func (f *fakeFarmRepo) GetFarmIDByFarmerID(_ context.Context, farmerID uuid.UUID
 		return id, nil
 	}
 	return uuid.UUID{}, ErrNotFound
+}
+
+func (f *fakeFarmRepo) GetFarmCropRates(context.Context, uuid.UUID) ([]models.FarmCropRate, error) {
+	return f.cropRates, f.cropRatesErr
+}
+
+func (f *fakeFarmRepo) GetFarmCropRate(context.Context, uuid.UUID, uuid.UUID) (int32, error) {
+	return 0, ErrNotFound
+}
+
+func (f *fakeFarmRepo) SetFarmCropRates(_ context.Context, _ uuid.UUID, rates []models.FarmCropRate) error {
+	f.setRatesCalled = rates
+	return f.setCropRatesErr
 }
 
 func TestFarmService_GetFarm_OK(t *testing.T) {
@@ -233,5 +251,52 @@ func TestListFarms_WrapsRepositoryErrors(t *testing.T) {
 	_, err := svc.ListFarms(context.Background(), models.RoleAdmin, models.FarmListFilter{})
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v, want it to wrap %v", err, sentinel)
+	}
+}
+
+func TestGetCropRates_ResolvesTheCallersOwnFarm(t *testing.T) {
+	farmer := uuid.New()
+	farmID := uuid.New()
+	want := []models.FarmCropRate{{Crop: uuid.New(), PriceCentsPerSqmPerWeek: 42}}
+	repo := &fakeFarmRepo{farmIDByFarmer: map[uuid.UUID]uuid.UUID{farmer: farmID}, cropRates: want}
+	svc := NewFarmService(repo)
+
+	got, err := svc.GetCropRates(context.Background(), farmer)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0] != want[0] {
+		t.Errorf("got = %v, want %v", got, want)
+	}
+}
+
+func TestSetCropRates_PassesRatesToTheCallersOwnFarm(t *testing.T) {
+	farmer := uuid.New()
+	farmID := uuid.New()
+	repo := &fakeFarmRepo{farmIDByFarmer: map[uuid.UUID]uuid.UUID{farmer: farmID}}
+	svc := NewFarmService(repo)
+
+	rates := []models.FarmCropRate{{Crop: uuid.New(), PriceCentsPerSqmPerWeek: 99}}
+	got, err := svc.SetCropRates(context.Background(), farmer, rates)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0] != rates[0] {
+		t.Errorf("got = %v, want %v", got, rates)
+	}
+	if len(repo.setRatesCalled) != 1 || repo.setRatesCalled[0] != rates[0] {
+		t.Errorf("repo received %v, want %v", repo.setRatesCalled, rates)
+	}
+}
+
+func TestSetCropRates_PropagatesErrNotFoundForAnUnknownCrop(t *testing.T) {
+	farmer := uuid.New()
+	farmID := uuid.New()
+	repo := &fakeFarmRepo{farmIDByFarmer: map[uuid.UUID]uuid.UUID{farmer: farmID}, setCropRatesErr: ErrNotFound}
+	svc := NewFarmService(repo)
+
+	_, err := svc.SetCropRates(context.Background(), farmer, []models.FarmCropRate{{Crop: uuid.New(), PriceCentsPerSqmPerWeek: 1}})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("error = %v, want ErrNotFound", err)
 	}
 }

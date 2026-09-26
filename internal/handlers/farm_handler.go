@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -183,4 +184,83 @@ func toFarmPageResponse(page models.Page[models.FarmListing]) farmPageResponse {
 		Limit:  page.Limit,
 		Offset: page.Offset,
 	}
+}
+
+type farmCropRateResponse struct {
+	CropID                  string `json:"cropId"`
+	PriceCentsPerSqmPerWeek int32  `json:"priceCentsPerSqmPerWeek"`
+}
+
+type farmCropRatesResponse struct {
+	Rates []farmCropRateResponse `json:"rates"`
+}
+
+type setFarmCropRatesRequest struct {
+	Rates []struct {
+		CropID                  string `json:"cropId"`
+		PriceCentsPerSqmPerWeek int32  `json:"priceCentsPerSqmPerWeek"`
+	} `json:"rates"`
+}
+
+func toFarmCropRatesResponse(rates []models.FarmCropRate) farmCropRatesResponse {
+	res := make([]farmCropRateResponse, len(rates))
+	for i, rate := range rates {
+		res[i] = farmCropRateResponse{CropID: rate.Crop.String(), PriceCentsPerSqmPerWeek: rate.PriceCentsPerSqmPerWeek}
+	}
+	return farmCropRatesResponse{Rates: res}
+}
+
+// GetCropRates returns the authenticated farmer's own farm-wide crop rates.
+// It must be mounted behind RequireAuth and RequireRole(models.RoleFarmer).
+func (h *FarmHandler) GetCropRates(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	rates, err := h.farmService.GetCropRates(r.Context(), claims.UserID)
+	if err != nil {
+		slog.Error("getting farm crop rates failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, toFarmCropRatesResponse(rates))
+}
+
+// SetCropRates fully replaces the authenticated farmer's own farm-wide crop
+// rates. It must be mounted behind RequireAuth and
+// RequireRole(models.RoleFarmer).
+func (h *FarmHandler) SetCropRates(w http.ResponseWriter, r *http.Request) {
+	var req setFarmCropRatesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	rates := make([]models.FarmCropRate, len(req.Rates))
+	for i, rate := range req.Rates {
+		cropID, err := uuid.Parse(rate.CropID)
+		if err != nil {
+			webutils.WriteError(w, http.StatusBadRequest, "invalid crop id")
+			return
+		}
+		if rate.PriceCentsPerSqmPerWeek <= 0 {
+			webutils.WriteError(w, http.StatusBadRequest, "priceCentsPerSqmPerWeek must be positive")
+			return
+		}
+		rates[i] = models.FarmCropRate{Crop: cropID, PriceCentsPerSqmPerWeek: rate.PriceCentsPerSqmPerWeek}
+	}
+
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	saved, err := h.farmService.SetCropRates(r.Context(), claims.UserID, rates)
+	if errors.Is(err, services.ErrNotFound) {
+		webutils.WriteError(w, http.StatusNotFound, "crop not found")
+		return
+	}
+	if err != nil {
+		slog.Error("setting farm crop rates failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, toFarmCropRatesResponse(saved))
 }

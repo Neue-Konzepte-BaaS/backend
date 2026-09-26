@@ -21,15 +21,31 @@ func NewPlotSearchHandler(plotSearchService services.PlotSearchService) *PlotSea
 	return &PlotSearchHandler{plotSearchService: plotSearchService}
 }
 
+type plotCropOfferingResponse struct {
+	cropResponse
+	PriceCents int32 `json:"priceCents"`
+}
+
 type nearbyPlotResponse struct {
-	ID               string          `json:"id"`
-	Name             string          `json:"name"`
-	Field            string          `json:"field"`
-	Farm             string          `json:"farm"`
-	Coordinates      json.RawMessage `json:"coordinates"`
-	AreaSquareMeters float64         `json:"areaSquareMeters"`
-	DistanceMeters   float64         `json:"distanceMeters"`
-	Crops            []cropResponse  `json:"crops"`
+	ID               string                     `json:"id"`
+	Name             string                     `json:"name"`
+	Field            string                     `json:"field"`
+	Farm             string                     `json:"farm"`
+	Coordinates      json.RawMessage            `json:"coordinates"`
+	AreaSquareMeters float64                    `json:"areaSquareMeters"`
+	DistanceMeters   float64                    `json:"distanceMeters"`
+	Crops            []plotCropOfferingResponse `json:"crops"`
+}
+
+func toPlotCropOfferingResponses(offerings []models.PlotCropOffering) []plotCropOfferingResponse {
+	res := make([]plotCropOfferingResponse, len(offerings))
+	for i, offering := range offerings {
+		res[i] = plotCropOfferingResponse{
+			cropResponse: toCropResponse(offering.Crop),
+			PriceCents:   offering.PriceCents,
+		}
+	}
+	return res
 }
 
 // FindNearestPlots returns the plots nearest to a search point, given
@@ -86,7 +102,7 @@ func (h *PlotSearchHandler) FindNearestPlots(w http.ResponseWriter, r *http.Requ
 			Coordinates:      encodePolygon(plot.Coordinates),
 			AreaSquareMeters: plot.AreaSquareMeters,
 			DistanceMeters:   plot.DistanceMeters,
-			Crops:            toCropResponses(plot.Crops),
+			Crops:            toPlotCropOfferingResponses(plot.Crops),
 		}
 	}
 

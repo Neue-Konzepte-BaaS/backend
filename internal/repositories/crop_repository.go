@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -68,9 +69,9 @@ func (r *cropRepository) GetCropByID(ctx context.Context, id uuid.UUID) (models.
 	return models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}, nil
 }
 
-// SetPlotCrops replaces the plot's offered crops in a single transaction, so
-// a caller never observes a partially-updated set.
-func (r *cropRepository) SetPlotCrops(ctx context.Context, plot uuid.UUID, crops []uuid.UUID) error {
+// SetPlotCrops replaces the plot's base price and its offered crops in a
+// single transaction, so a caller never observes a partially-updated set.
+func (r *cropRepository) SetPlotCrops(ctx context.Context, plot uuid.UUID, basePriceCentsPerSqmPerWeek int32, crops []uuid.UUID) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -78,6 +79,13 @@ func (r *cropRepository) SetPlotCrops(ctx context.Context, plot uuid.UUID, crops
 	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
 
 	qtx := r.queries.WithTx(tx)
+
+	if err := qtx.UpdatePlotBasePrice(ctx, database.UpdatePlotBasePriceParams{
+		ID:                          plot,
+		BasePriceCentsPerSqmPerWeek: pgtype.Int4{Int32: basePriceCentsPerSqmPerWeek, Valid: true},
+	}); err != nil {
+		return fmt.Errorf("setting plot base price: %w", err)
+	}
 
 	if err := qtx.DeletePlotCrops(ctx, plot); err != nil {
 		return fmt.Errorf("clearing plot crops: %w", err)
@@ -118,6 +126,32 @@ func (r *cropRepository) GetCropsByPlots(ctx context.Context, plots []uuid.UUID)
 		})
 	}
 	return cropsByPlot, nil
+}
+
+func (r *cropRepository) GetPricedCropOfferingsByPlots(ctx context.Context, plots []uuid.UUID) (map[uuid.UUID][]models.PlotCropOffering, error) {
+	rows, err := r.queries.GetPricedCropOfferingsByPlots(ctx, plots)
+	if err != nil {
+		return nil, err
+	}
+
+	offeringsByPlot := make(map[uuid.UUID][]models.PlotCropOffering, len(plots))
+	for _, row := range rows {
+		priceCents := services.ComputeRentalPriceCents(
+			row.BasePriceCentsPerSqmPerWeek.Int32,
+			row.FarmCropRateCentsPerSqmPerWeek,
+			row.AreaSquareMeters,
+			row.DurationMonths,
+		)
+		offeringsByPlot[row.Plot] = append(offeringsByPlot[row.Plot], models.PlotCropOffering{
+			Crop: models.Crop{
+				ID:             row.ID,
+				Name:           row.Name,
+				DurationMonths: row.DurationMonths,
+			},
+			PriceCents: priceCents,
+		})
+	}
+	return offeringsByPlot, nil
 }
 
 // mapCropError turns the foreign key violation raised by inserting an

@@ -15,6 +15,45 @@ type EmailSender interface {
 	SendMail(email string, displayName string, subject string, message string, isHTML bool, attachments map[string][]byte) error
 }
 
+// WebhookEventType is the subset of Stripe event types this codebase acts
+// on.
+type WebhookEventType string
+
+const (
+	WebhookEventCheckoutCompleted WebhookEventType = "checkout.session.completed"
+	WebhookEventCheckoutExpired   WebhookEventType = "checkout.session.expired"
+)
+
+// WebhookEvent is the subset of a Stripe webhook event this codebase acts
+// on, already reduced from the Stripe SDK's own types so that nothing above
+// the repositories package needs to import it.
+type WebhookEvent struct {
+	Type              WebhookEventType
+	CheckoutSessionID string
+}
+
+// PaymentGateway is an outbound port to Stripe, in the same
+// dependency-inversion sense as EmailSender: this package stays free of the
+// Stripe SDK, which only the repositories package (its implementation)
+// imports.
+type PaymentGateway interface {
+	// CreateCheckoutSession opens a Stripe Embedded Checkout session for a
+	// one-off payment of amountCents (EUR), described by description, that
+	// redirects the top-level page to returnURL once paid. Returns the
+	// session id, to persist against the local rental_checkout row, and the
+	// client secret the frontend's embedded checkout iframe needs.
+	CreateCheckoutSession(ctx context.Context, amountCents int64, description, returnURL string) (sessionID, clientSecret string, err error)
+	// RefundCheckoutSession refunds the full payment collected by the given
+	// Stripe Checkout Session.
+	RefundCheckoutSession(ctx context.Context, sessionID string) error
+	// ParseWebhookEvent verifies payload against the Stripe-Signature header
+	// using the configured webhook secret. ok is false for any event type
+	// this codebase does not act on, which the caller should treat as a
+	// no-op, not an error. Returns ErrInvalidWebhookSignature if
+	// verification fails.
+	ParseWebhookEvent(payload []byte, sigHeader string) (event WebhookEvent, ok bool, err error)
+}
+
 type AccountRepository interface {
 	GetAccountByEmail(ctx context.Context, email string) (models.Account, error)
 	GetAccountByID(ctx context.Context, id uuid.UUID) (models.Account, error)
@@ -68,6 +107,15 @@ type FarmRepository interface {
 	// how many match the filter in total. A farm that owns nothing comes back
 	// with zeros rather than being left out.
 	ListFarms(ctx context.Context, filter models.FarmListFilter) (models.Page[models.FarmListing], error)
+	// GetFarmCropRates returns the farm's crop rates, one row per crop that
+	// has been priced.
+	GetFarmCropRates(ctx context.Context, farm uuid.UUID) ([]models.FarmCropRate, error)
+	// GetFarmCropRate returns one crop's rate on the farm. Returns
+	// ErrNotFound if the farm has not priced that crop.
+	GetFarmCropRate(ctx context.Context, farm, crop uuid.UUID) (int32, error)
+	// SetFarmCropRates fully replaces the farm's crop rates. Returns
+	// ErrNotFound if any crop id does not exist.
+	SetFarmCropRates(ctx context.Context, farm uuid.UUID, rates []models.FarmCropRate) error
 }
 
 type FieldRepository interface {
@@ -87,6 +135,9 @@ type PlotRepository interface {
 	// GetPlotField returns the id of the field a plot belongs to. Returns
 	// ErrNotFound if the plot does not exist.
 	GetPlotField(ctx context.Context, plot uuid.UUID) (uuid.UUID, error)
+	// GetPlotByID returns the plot, including its computed area and its own
+	// base price. Returns ErrNotFound if the plot does not exist.
+	GetPlotByID(ctx context.Context, plot uuid.UUID) (models.Plot, error)
 }
 
 type RentalRepository interface {
@@ -111,6 +162,12 @@ type RentalRepository interface {
 	// active and historic, newest first, each with its plot, field name, and
 	// customer.
 	GetRentalsByFarm(ctx context.Context, farm uuid.UUID) ([]models.RentalWithPlotAndCustomer, error)
+	// GetRentalByID returns ErrNotFound if the id does not exist.
+	GetRentalByID(ctx context.Context, id uuid.UUID) (models.Rental, error)
+	// IsPlotAvailable is a fast-fail check for whether the plot is free for
+	// the given period. It is advisory only: rental_no_overlap on the rental
+	// table remains the actual concurrency guard at insert time.
+	IsPlotAvailable(ctx context.Context, plot uuid.UUID, startAt time.Time, durationMonths int32) (bool, error)
 }
 
 type CropRepository interface {
@@ -123,13 +180,51 @@ type CropRepository interface {
 	GetAllCrops(ctx context.Context) ([]models.Crop, error)
 	// GetCropByID returns ErrNotFound if the crop does not exist.
 	GetCropByID(ctx context.Context, id uuid.UUID) (models.Crop, error)
-	// SetPlotCrops replaces the set of crops a plot offers.
-	SetPlotCrops(ctx context.Context, plot uuid.UUID, crops []uuid.UUID) error
+	// SetPlotCrops replaces the plot's base price and the set of crops it
+	// offers, in one transaction.
+	SetPlotCrops(ctx context.Context, plot uuid.UUID, basePriceCentsPerSqmPerWeek int32, crops []uuid.UUID) error
 	// GetCropsByPlot returns the crops offered by a single plot, ordered by name.
 	GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]models.Crop, error)
 	// GetCropsByPlots returns the crops offered by each of the given plots,
 	// keyed by plot id.
 	GetCropsByPlots(ctx context.Context, plots []uuid.UUID) (map[uuid.UUID][]models.Crop, error)
+	// GetPricedCropOfferingsByPlots returns, for each of the given plots,
+	// only the crops that are actually rentable -- both the plot's own base
+	// rate and that crop's farm rate are set -- each with its computed
+	// total price, keyed by plot id.
+	GetPricedCropOfferingsByPlots(ctx context.Context, plots []uuid.UUID) (map[uuid.UUID][]models.PlotCropOffering, error)
+}
+
+// RentalCheckoutRepository tracks a Stripe Checkout Session's lifecycle
+// from creation until a rental request exists from it, or the payment
+// fails to produce one. It deliberately never touches the rental table
+// itself -- see RentalRepository.
+type RentalCheckoutRepository interface {
+	// CreateCheckout records a new Stripe Checkout Session in the Pending
+	// state.
+	CreateCheckout(ctx context.Context, checkout models.RentalCheckout) (models.RentalCheckout, error)
+	// GetCheckoutBySessionID returns ErrNotFound if no checkout has that
+	// Stripe session id.
+	GetCheckoutBySessionID(ctx context.Context, sessionID string) (models.RentalCheckout, error)
+	// CompleteCheckout marks a still-Pending checkout Completed and links
+	// the rental created from it. Returns ErrCheckoutAlreadyProcessed if the
+	// checkout is not Pending, so a retried webhook delivery cannot
+	// double-process it.
+	CompleteCheckout(ctx context.Context, id, rental uuid.UUID) (models.RentalCheckout, error)
+	// FailCheckout marks a still-Pending checkout Failed. Same idempotency
+	// guard as CompleteCheckout.
+	FailCheckout(ctx context.Context, id uuid.UUID) (models.RentalCheckout, error)
+	// ExpireCheckout marks a still-Pending checkout Expired. Same
+	// idempotency guard as CompleteCheckout.
+	ExpireCheckout(ctx context.Context, id uuid.UUID) (models.RentalCheckout, error)
+	// GetCompletedCheckoutByRental returns the Completed checkout that
+	// produced the given rental, so a later farmer decline can be paired
+	// back to the payment that must now be refunded. Returns ErrNotFound if
+	// the rental has no completed checkout, e.g. it predates this feature.
+	GetCompletedCheckoutByRental(ctx context.Context, rental uuid.UUID) (models.RentalCheckout, error)
+	// MarkCheckoutRefunded marks a still-Completed checkout Refunded. Same
+	// idempotency guard as CompleteCheckout.
+	MarkCheckoutRefunded(ctx context.Context, id uuid.UUID) (models.RentalCheckout, error)
 }
 
 type PostalCodeRepository interface {

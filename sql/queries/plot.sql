@@ -3,7 +3,7 @@ INSERT INTO plot (name, field, coordinates) VALUES ($1, $2, $3)
 RETURNING id, ST_Area(coordinates::geography)::float8 AS area_square_meters;
 
 -- name: GetPlotByID :one
-SELECT id, name, field, coordinates, ST_Area(coordinates::geography)::float8 AS area_square_meters
+SELECT id, name, field, coordinates, base_price_cents_per_sqm_per_week, ST_Area(coordinates::geography)::float8 AS area_square_meters
 FROM plot
 WHERE id = $1
 LIMIT 1;
@@ -15,10 +15,13 @@ WHERE id = $1
 LIMIT 1;
 
 -- name: GetPlotsByFields :many
-SELECT id, name, field, coordinates, ST_Area(coordinates::geography)::float8 AS area_square_meters
+SELECT id, name, field, coordinates, base_price_cents_per_sqm_per_week, ST_Area(coordinates::geography)::float8 AS area_square_meters
 FROM plot
 WHERE field = ANY($1::uuid[])
 ORDER BY name;
+
+-- name: UpdatePlotBasePrice :exec
+UPDATE plot SET base_price_cents_per_sqm_per_week = sqlc.arg(base_price_cents_per_sqm_per_week) WHERE id = sqlc.arg(id);
 
 -- name: GetNearestPlots :many
 SELECT
