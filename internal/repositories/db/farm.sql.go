@@ -265,3 +265,33 @@ func (q *Queries) ListFarms(ctx context.Context, arg ListFarmsParams) ([]ListFar
 	}
 	return items, nil
 }
+
+const updateFarmByFarmer = `-- name: UpdateFarmByFarmer :one
+UPDATE farm
+SET name = $1, address = $2, description = $3, founded_at = $4
+WHERE farmer_id = $5
+RETURNING id
+`
+
+type UpdateFarmByFarmerParams struct {
+	Name        string
+	Address     string
+	Description string
+	FoundedAt   pgtype.Date
+	FarmerID    uuid.UUID
+}
+
+// A farmer edits their own farm, found by owner rather than by id so the
+// caller cannot name somebody else's. founded_at NULL clears it.
+func (q *Queries) UpdateFarmByFarmer(ctx context.Context, arg UpdateFarmByFarmerParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, updateFarmByFarmer,
+		arg.Name,
+		arg.Address,
+		arg.Description,
+		arg.FoundedAt,
+		arg.FarmerID,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}

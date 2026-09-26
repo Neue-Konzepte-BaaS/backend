@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
@@ -341,5 +342,73 @@ func TestListFarms_FiltersNarrowBothItemsAndTotal(t *testing.T) {
 				t.Errorf("total = %d, want %d", page.Total, tt.want)
 			}
 		})
+	}
+}
+
+// TestFarmRepository_UpdateFarmByFarmer covers the farmer's own edit: it
+// lands on the caller's farm only, a nil founding date clears it, and an
+// account that owns no farm is not found rather than silently updating
+// nothing.
+func TestFarmRepository_UpdateFarmByFarmer(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	farmRepo := repositories.NewFarmRepository(database.New(pool))
+	farmer, farmID, _, _ := seedFarmWithPlots(t, ctx, pool, 1)
+	_, otherFarmID, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
+	otherBefore, err := farmRepo.GetFarmByID(ctx, otherFarmID)
+	if err != nil {
+		t.Fatalf("reading other farm: %v", err)
+	}
+
+	founded := time.Date(1998, 4, 1, 0, 0, 0, 0, time.UTC)
+	id, err := farmRepo.UpdateFarmByFarmer(ctx, farmer, models.FarmUpdate{
+		Name:        "Hof Sonnental",
+		Address:     "Feldweg 1, 76133 Karlsruhe",
+		Description: "Bio seit 1998",
+		FoundedAt:   &founded,
+	})
+	if err != nil {
+		t.Fatalf("updating farm: %v", err)
+	}
+	if id != farmID {
+		t.Errorf("updated farm %v, want the caller's own %v", id, farmID)
+	}
+
+	got, err := farmRepo.GetFarmByID(ctx, farmID)
+	if err != nil {
+		t.Fatalf("reading farm back: %v", err)
+	}
+	if got.Name != "Hof Sonnental" || got.Address != "Feldweg 1, 76133 Karlsruhe" || got.Description != "Bio seit 1998" {
+		t.Errorf("farm = %+v, want the new details", got)
+	}
+	if got.FoundedAt == nil || !got.FoundedAt.Equal(founded) {
+		t.Errorf("founded at = %v, want %v", got.FoundedAt, founded)
+	}
+	if got.TotalSquareMeters <= 0 {
+		t.Errorf("total area = %v, want the plots' area still derived", got.TotalSquareMeters)
+	}
+
+	otherAfter, err := farmRepo.GetFarmByID(ctx, otherFarmID)
+	if err != nil {
+		t.Fatalf("reading other farm: %v", err)
+	}
+	if otherAfter.Name != otherBefore.Name || otherAfter.Description != otherBefore.Description {
+		t.Errorf("another farmer's farm changed to %+v", otherAfter)
+	}
+
+	if _, err := farmRepo.UpdateFarmByFarmer(ctx, farmer, models.FarmUpdate{Name: "Hof Sonnental", Address: "Feldweg 1"}); err != nil {
+		t.Fatalf("clearing the founding date: %v", err)
+	}
+	cleared, err := farmRepo.GetFarmByID(ctx, farmID)
+	if err != nil {
+		t.Fatalf("reading farm back: %v", err)
+	}
+	if cleared.FoundedAt != nil || cleared.Description != "" {
+		t.Errorf("farm = %+v, want founding date and description cleared", cleared)
+	}
+
+	if _, err := farmRepo.UpdateFarmByFarmer(ctx, uuid.New(), models.FarmUpdate{Name: "x", Address: "y"}); !errors.Is(err, services.ErrNotFound) {
+		t.Errorf("updating without a farm = %v, want ErrNotFound", err)
 	}
 }

@@ -97,6 +97,16 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 	})
 
 	r.Route("/api/farms", func(r chi.Router) {
+		// The farmer's own farm, resolved from the caller: no id in the path,
+		// so there is nobody else's farm to name. chi matches the static
+		// "/me" before the "/{farmID}" pattern.
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireAuth(authService))
+			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Get("/me", farmHandler.GetMyFarm)
+			r.Put("/me", farmHandler.UpdateMyFarm)
+		})
+
 		r.Get("/{farmID}", farmHandler.GetFarm)
 	})
 

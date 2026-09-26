@@ -45,6 +45,28 @@ func (r *farmRepository) GetFarmByID(ctx context.Context, farmID uuid.UUID) (mod
 	return farm, nil
 }
 
+func (r *farmRepository) UpdateFarmByFarmer(ctx context.Context, farmerID uuid.UUID, update models.FarmUpdate) (uuid.UUID, error) {
+	var foundedAt pgtype.Date
+	if update.FoundedAt != nil {
+		foundedAt = pgtype.Date{Time: *update.FoundedAt, Valid: true}
+	}
+
+	id, err := r.queries.UpdateFarmByFarmer(ctx, database.UpdateFarmByFarmerParams{
+		FarmerID:    farmerID,
+		Name:        update.Name,
+		Address:     update.Address,
+		Description: update.Description,
+		FoundedAt:   foundedAt,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.UUID{}, fmt.Errorf("db error: %w %w", err, services.ErrNotFound)
+		}
+		return uuid.UUID{}, err
+	}
+	return id, nil
+}
+
 // GetFarmIDByFarmerID returns ErrNotFound if the account is not a farmer.
 func (r *farmRepository) GetFarmIDByFarmerID(ctx context.Context, farmerID uuid.UUID) (uuid.UUID, error) {
 	id, err := r.queries.GetFarmIDByFarmerID(ctx, farmerID)

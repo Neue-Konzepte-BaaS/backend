@@ -138,6 +138,9 @@ type FarmRepository interface {
 	// GetFarmIDByFarmerID resolves a farmer's own farm id. Returns
 	// ErrNotFound if the account is not a farmer.
 	GetFarmIDByFarmerID(ctx context.Context, farmerID uuid.UUID) (uuid.UUID, error)
+	// UpdateFarmByFarmer overwrites the editable fields of the farmer's own
+	// farm and returns its id. Returns ErrNotFound if the account owns no farm.
+	UpdateFarmByFarmer(ctx context.Context, farmerID uuid.UUID, update models.FarmUpdate) (uuid.UUID, error)
 	// ListFarms returns one page of every farm on the platform, together with
 	// how many match the filter in total. A farm that owns nothing comes back
 	// with zeros rather than being left out.

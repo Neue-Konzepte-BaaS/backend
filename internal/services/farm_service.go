@@ -13,6 +13,13 @@ import (
 type FarmService interface {
 	// GetFarm returns public details of the farm with the given id.
 	GetFarm(ctx context.Context, farmID uuid.UUID) (models.Farm, error)
+	// GetMyFarm returns the farmer's own farm. Returns ErrNotFound if the
+	// account owns no farm.
+	GetMyFarm(ctx context.Context, farmer uuid.UUID) (models.Farm, error)
+	// UpdateMyFarm overwrites the editable fields of the farmer's own farm and
+	// returns it as GetMyFarm would. The farm is found by its owner, never by
+	// an id the caller names. Returns ErrNotFound if the account owns no farm.
+	UpdateMyFarm(ctx context.Context, farmer uuid.UUID, update models.FarmUpdate) (models.Farm, error)
 	// ListFarms returns one page of the platform's farms. Only an admin may
 	// call it; every other role gets ErrForbidden. Unlike GetFarm, which is
 	// public, this is a back-office view: it carries the owner and the
@@ -37,6 +44,30 @@ func (s *farmService) GetFarm(ctx context.Context, farmID uuid.UUID) (models.Far
 		return models.Farm{}, fmt.Errorf("getting farm: %w", err)
 	}
 	return farm, nil
+}
+
+func (s *farmService) GetMyFarm(ctx context.Context, farmer uuid.UUID) (models.Farm, error) {
+	farmID, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return models.Farm{}, err
+		}
+		return models.Farm{}, fmt.Errorf("looking up farm: %w", err)
+	}
+	return s.GetFarm(ctx, farmID)
+}
+
+func (s *farmService) UpdateMyFarm(ctx context.Context, farmer uuid.UUID, update models.FarmUpdate) (models.Farm, error) {
+	farmID, err := s.farmRepo.UpdateFarmByFarmer(ctx, farmer, update)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return models.Farm{}, err
+		}
+		return models.Farm{}, fmt.Errorf("updating farm: %w", err)
+	}
+	// Read back rather than echo the input: the response carries the derived
+	// area too, and is then exactly what GET /api/farms/me answers.
+	return s.GetFarm(ctx, farmID)
 }
 
 func (s *farmService) ListFarms(ctx context.Context, role models.Role, filter models.FarmListFilter) (models.Page[models.FarmListing], error) {
