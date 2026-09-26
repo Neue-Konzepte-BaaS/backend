@@ -18,7 +18,7 @@ FROM account a
 JOIN customer c ON c.account_id = a.id
 JOIN rental r ON r.customer = c.account_id
 JOIN plot p ON p.id = r.plot
-WHERE p.field = $1 AND r.crop = $2 AND r.period @> CURRENT_TIMESTAMP
+WHERE p.field = $1 AND r.crop = $2 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
 ORDER BY a.email
 `
 
@@ -34,9 +34,9 @@ type GetCustomersOfFarmerForFieldAndCropRow struct {
 	LastName  string
 }
 
-// Everyone to notify about ripeness: customers with an active rental on a
-// plot of this field, growing exactly this crop. DISTINCT — a customer
-// renting several matching plots is mailed once.
+// Everyone to notify about ripeness: customers with an active, approved
+// rental on a plot of this field, growing exactly this crop. DISTINCT — a
+// customer renting several matching plots is mailed once.
 func (q *Queries) GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, arg GetCustomersOfFarmerForFieldAndCropParams) ([]GetCustomersOfFarmerForFieldAndCropRow, error) {
 	rows, err := q.db.Query(ctx, getCustomersOfFarmerForFieldAndCrop, arg.Field, arg.Crop)
 	if err != nil {
@@ -71,7 +71,7 @@ JOIN field fi ON fi.id = rn.field
 JOIN crop cr ON cr.id = rn.crop
 JOIN plot p ON p.field = fi.id
 JOIN rental r ON r.plot = p.id AND r.crop = rn.crop
-WHERE r.customer = $1 AND r.period @> CURRENT_TIMESTAMP
+WHERE r.customer = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
 ORDER BY rn.created_at DESC
 `
 
@@ -88,8 +88,9 @@ type GetRipenessNoticesForCustomerRow struct {
 
 // Notices for fields the customer currently rents a plot on, growing exactly
 // the notice's crop — the same audience the notice was mailed to in the
-// first place. DISTINCT because renting several matching plots on the same
-// field must not repeat the notice.
+// first place, so it also requires an approved rental: a pending or declined
+// request keeps a row whose period covers now. DISTINCT because renting
+// several matching plots on the same field must not repeat the notice.
 func (q *Queries) GetRipenessNoticesForCustomer(ctx context.Context, customer uuid.UUID) ([]GetRipenessNoticesForCustomerRow, error) {
 	rows, err := q.db.Query(ctx, getRipenessNoticesForCustomer, customer)
 	if err != nil {

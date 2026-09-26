@@ -3,7 +3,6 @@ package repositories_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/repositories"
@@ -313,13 +312,9 @@ func TestGetCustomersOfFarmerForField_DedupsAndExcludesOtherFields(t *testing.T)
 	elsewhere := seedCustomer(t, ctx, pool)
 
 	for _, plot := range plots {
-		if _, err := rentalRepo.CreateRentalRequest(ctx, plot, twicePlotted, cropID, time.Now(), 6, ""); err != nil {
-			t.Fatalf("renting plot: %v", err)
-		}
+		rentApprovedNow(t, ctx, rentalRepo, plot, twicePlotted, cropID)
 	}
-	if _, err := rentalRepo.CreateRentalRequest(ctx, otherPlot, elsewhere, cropID, time.Now(), 6, ""); err != nil {
-		t.Fatalf("renting other field's plot: %v", err)
-	}
+	rentApprovedNow(t, ctx, rentalRepo, otherPlot, elsewhere, cropID)
 
 	targetField, err := plotRepo.GetPlotField(ctx, plots[0])
 	if err != nil {

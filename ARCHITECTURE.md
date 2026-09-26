@@ -776,6 +776,15 @@ A scoped notice is otherwise an ordinary announcement — same table, same
 `NotifyFarmerCustomers` fan-out, same template — so nothing downstream needed
 to learn a new concept.
 
+**"Current renter" always means an approved rental covering now.** Every
+audience query, scoped or not, and the ripeness queries below require
+`r.status = 'approved'` next to `r.period @> CURRENT_TIMESTAMP`. Since rental
+requests, a row exists from the moment a customer *asks* for a plot, and a
+declined request keeps its row, so the period alone would also reach a
+customer still waiting for an answer or one who was turned down (backend #70).
+`GetNearestPlots` is the one deliberate exception (`status <> 'declined'`),
+because there a pending request must block the plot.
+
 ### Ripeness notices
 
 A third fan-out, `ripeness_notice`, follows the announcement shape closely
