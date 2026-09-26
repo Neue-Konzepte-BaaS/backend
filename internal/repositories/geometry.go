@@ -41,7 +41,8 @@ func mapGeometryError(err error) error {
 // 500. Shared by every repository that inserts a row referencing an id the
 // caller supplied rather than one it just looked up itself: crop_repository
 // (an unknown crop or plot id), announcement_repository and
-// ripeness_notice_repository (an unknown field, plot or crop id).
+// ripeness_notice_repository (an unknown field, plot or crop id), and
+// care_instruction_repository (an unknown crop id).
 func mapForeignKeyError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {

@@ -245,6 +245,8 @@ graph TD
     G --> N["/api/notifications<br/>RequireAuth + RequireRole(admin)"]
     G --> AN["/api/announcements<br/>RequireAuth + farmer (POST)<br/>farmer or customer (GET)"]
     G --> ST["/api/statistics<br/>RequireAuth + RequireAnyRole(farmer, admin)"]
+    G --> CG["/api/care-guide<br/>RequireAuth + RequireRole(customer)"]
+    G --> CI["/api/care-instructions<br/>RequireAuth + RequireRole(admin)"]
 
     AD --> AD1["GET /farms"]
     AD --> AD2["GET /accounts"]
@@ -272,6 +274,11 @@ graph TD
     AN --> AN2["GET /"]
 
     ST --> ST1["GET /"]
+
+    CG --> CG1["GET /"]
+
+    CI --> CI1["PUT /{instructionID}"]
+    CI --> CI2["DELETE /{instructionID}"]
 ```
 
 | Method & path | Auth | Role | Handler |
@@ -294,6 +301,11 @@ graph TD
 | `POST /api/announcements` | cookie | farmer | [announcement_handler.go](internal/handlers/announcement_handler.go) |
 | `GET /api/announcements` | cookie | farmer or customer | [announcement_handler.go](internal/handlers/announcement_handler.go) |
 | `GET /api/statistics` | cookie | farmer or admin | [statistics_handler.go:62](internal/handlers/statistics_handler.go#L62) |
+| `GET /api/crops/{cropID}/care-instructions` | cookie | admin or farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `POST /api/crops/{cropID}/care-instructions` | cookie | admin | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `PUT /api/care-instructions/{instructionID}` | cookie | admin | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `DELETE /api/care-instructions/{instructionID}` | cookie | admin | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `GET /api/care-guide` | cookie | customer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
 
 Geometry crosses the wire as **GeoJSON Polygon** in a `coordinates` field, decoded
 and encoded by `decodePolygon` / `encodePolygon`
@@ -397,6 +409,7 @@ erDiagram
     FIELD   ||--o{ PLOT     : "subdivided into"
     PLOT    ||--o{ RENTAL   : "booked by"
     CUSTOMER ||--o{ RENTAL  : holds
+    CROP    ||--o{ CARE_INSTRUCTION : "advises on"
 
     ACCOUNT {
         uuid id PK
@@ -437,6 +450,15 @@ erDiagram
         uuid customer FK
         tstzrange period "EXCLUDE overlapping per plot"
         timestamptz created_at
+    }
+    CARE_INSTRUCTION {
+        uuid id PK
+        uuid crop FK "ON DELETE CASCADE"
+        int  week "1..104, counted from a rental's start"
+        text title
+        text body
+        timestamptz created_at
+        timestamptz updated_at
     }
     POSTAL_CODE {
         serial id PK
@@ -830,6 +852,82 @@ nowhere to put `total`. New paginated routes should use the envelope; the existi
 were left alone. Ordering always ends in a tiebreaker on `id`: farm names and
 `created_at` are both non-unique, and without it a row can shift between pages and never
 be shown.
+
+---
+
+## 9c. The weekly care guide
+
+Issue #44. A **care instruction** is one task attached to a crop and a week:
+"week 3 — thin out the seedlings". A tenant reads those tasks against their own
+rental, so `GET /api/care-guide` answers with one entry per plot the caller is
+renting *right now*, each carrying the crop's guide plus `currentWeek` of
+`totalWeeks`.
+
+Three decisions shape it, and each rules out an alternative that looks cheaper
+at first:
+
+**A week is a rental week, not a calendar week.** Rentals start whenever a
+customer books. Pinning the guide to ISO weeks would put two tenants growing
+the same crop at the same task on the same date although one of them sowed two
+months later. Week 1 is a rental's first seven days:
+
+```
+current_week = floor((now - lower(period)) / 7 days) + 1
+total_weeks  = ceil((upper(period) - lower(period)) / 7 days)
+```
+
+Both are computed **in the query**, against the database clock, for the same
+reason `InsertRentalRequest` takes its bounds from it ([§7](#rental-concurrency)):
+an API host whose clock runs ahead would otherwise put a tenant a week further
+into their season than the rental they were sold. `WHERE period @> CURRENT_TIMESTAMP`
+is what makes `current_week` safe to count from 1 — an elapsed time cannot be
+negative for a period that contains now.
+
+**Approval, not just the period, is the audience rule.** Since rental requests
+a `rental` row exists from the moment a customer *asks* for a plot, and a
+declined request keeps its row (the exclusion constraint stops counting it, but
+nothing deletes it). Filtering on the period alone would therefore hand the
+guide to someone still waiting for an answer, or turned down — so the query
+also requires `status = 'approved'`, exactly as `GetAnnouncementsForCustomer`
+does for the board. It is worth knowing that
+`GetRipenessNoticesForCustomer` does **not** filter on status today; if that is
+intentional, the two audiences disagree, and if it is not, it is the same bug
+this line exists to avoid.
+
+**The guide belongs to the crop, and so is admin-owned.** Only an admin may add
+a crop, so only an admin writes the advice hanging off one. A farmer offering
+tomatoes should not have to write tomato advice, and two farmers offering the
+same crop should not have to disagree about it. What *is* farm-specific — "the
+water is off on Tuesday" — is an announcement ([§9a](#the-schwarzes-brett)),
+which the farmer already owns. A farmer can still read any crop's guide
+(`GET /api/crops/{cropID}/care-instructions`, admin or farmer) to see what his
+renters are told.
+
+**The service trims the guide to the rental.** A guide is written once per
+crop, but rental length comes from that crop's `duration_months`, so a guide
+running to week 30 against a 13-week rental would promise tasks for weeks the
+tenant never reaches. `instructionsWithinRental`
+([care_guide_service.go](internal/services/care_guide_service.go)) drops them.
+It is the service's job rather than the query's: the cutoff is a fact about one
+rental, while the query is written for all of the caller's at once.
+
+Two round trips, not one per plot: the active rentals, then every crop's
+instructions in a single `crop = ANY($1)` read, grouped by crop in the
+repository. A customer renting four plots of the same crop reads that guide
+once — the same deduplication reflex as `GetCustomersOfFarmer` in §9a, for the
+same reason.
+
+`care_instruction.crop` cascades on delete, where `rental.crop` does not. That
+asymmetry is deliberate: a rental is a commitment that must keep a crop in the
+catalog (hence `DeleteCrop`'s 409), while advice about a crop nobody offers any
+more has nothing left to be about, and must not be the thing that blocks an
+admin from tidying the catalog.
+
+**What it does not do yet.** Nothing mails a care instruction — the guide is
+read when a tenant opens their plot, not pushed the way an announcement is, so
+there is no `care` kind in the inbox (§9a) and no weekly digest. Adding one
+means deciding when "week 3" starts for a fan-out, which is a scheduling
+question this feature deliberately leaves open.
 
 ---
 

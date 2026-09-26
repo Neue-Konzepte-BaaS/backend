@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, ripenessNoticeHandler *RipenessNoticeHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, careGuideHandler *CareGuideHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, ripenessNoticeHandler *RipenessNoticeHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -70,6 +70,26 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		})
 	})
 
+	// The tenant's own care guide: one entry per plot they are renting right
+	// now, so the scope is the caller's rentals and needs no id in the path.
+	r.Route("/api/care-guide", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+		r.Use(appmiddleware.RequireRole(models.RoleCustomer))
+
+		r.Get("/", careGuideHandler.GetCareGuide)
+	})
+
+	// Editing one instruction is addressed by its own id rather than through
+	// its crop: the crop is not needed to find it, and a path carrying both
+	// would have to be checked for disagreeing about which crop it belongs to.
+	r.Route("/api/care-instructions", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+		r.Use(appmiddleware.RequireRole(models.RoleAdmin))
+
+		r.Put("/{instructionID}", careGuideHandler.UpdateCareInstruction)
+		r.Delete("/{instructionID}", careGuideHandler.DeleteCareInstruction)
+	})
+
 	r.Route("/api/farms", func(r chi.Router) {
 		r.Get("/{farmID}", farmHandler.GetFarm)
 	})
@@ -115,6 +135,17 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			r.Use(appmiddleware.RequireRole(models.RoleAdmin))
 			r.Post("/", cropHandler.CreateCrop)
 			r.Delete("/{cropID}", cropHandler.DeleteCrop)
+			r.Post("/{cropID}/care-instructions", careGuideHandler.CreateCareInstruction)
+		})
+
+		// A crop's whole guide, unscoped by any rental: the admin's authoring
+		// view, and the farmer's preview of what his renters are told. The
+		// catalog itself is public, but the advice is not — a customer reads
+		// it through /api/care-guide, against their own week.
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireAuth(authService))
+			r.Use(appmiddleware.RequireAnyRole(models.RoleAdmin, models.RoleFarmer))
+			r.Get("/{cropID}/care-instructions", careGuideHandler.GetCareInstructions)
 		})
 	})
 

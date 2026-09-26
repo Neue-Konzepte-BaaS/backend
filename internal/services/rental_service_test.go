@@ -64,6 +64,12 @@ func (f *fakeRentalRepo) GetRentalsByFarm(context.Context, uuid.UUID) ([]models.
 	return nil, nil
 }
 
+// Unused by rentalService — the care guide is what reads this; see
+// fakeCareRentalRepo in care_guide_service_test.go.
+func (f *fakeRentalRepo) GetActiveRentalsByCustomer(context.Context, uuid.UUID) ([]models.ActiveRental, error) {
+	return nil, nil
+}
+
 // fakeCropRepo is an in-memory CropRepository, only implementing what
 // rentalService needs.
 type fakeCropRepo struct {
