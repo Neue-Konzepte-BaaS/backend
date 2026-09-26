@@ -30,6 +30,9 @@ type Config struct {
 
 	AdminEmail    string
 	AdminPassword string
+
+	StripeSecretKey     string
+	StripeWebhookSecret string
 }
 
 func Load() (Config, error) {
@@ -84,6 +87,9 @@ func Load() (Config, error) {
 
 		AdminEmail:    os.Getenv("ADMIN_EMAIL"),
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
+
+		StripeSecretKey:     os.Getenv("STRIPE_SECRET_KEY"),
+		StripeWebhookSecret: os.Getenv("STRIPE_WEBHOOK_SECRET"),
 	}
 
 	if err := c.Validate(); err != nil {
@@ -130,6 +136,7 @@ func (c Config) Validate() error {
 		errs = append(errs, err)
 	}
 	errs = append(errs, validateSMTP(c)...)
+	errs = append(errs, validateStripe(c)...)
 
 	if (c.AdminEmail == "") != (c.AdminPassword == "") {
 		errs = append(errs, errors.New("ADMIN_EMAIL and ADMIN_PASSWORD: set both or neither"))
@@ -210,6 +217,24 @@ func validateSMTP(c Config) []error {
 	// first send instead, which is the worst place to find out.
 	if (c.SMTPUsername == "") != (c.SMTPPassword == "") {
 		errs = append(errs, errors.New("SMTPUsername and SMTPPassword: set both or neither"))
+	}
+
+	return errs
+}
+
+// validateStripe checks the payment settings. Unlike SMTP these are always
+// required, not just when some flag enables them: there is no degraded mode
+// to fall back to like the console email sender -- a customer paying real
+// money needs a real Stripe account behind it, so a missing key must fail
+// the process at startup rather than at the first checkout attempt.
+func validateStripe(c Config) []error {
+	var errs []error
+
+	if c.StripeSecretKey == "" {
+		errs = append(errs, errors.New("StripeSecretKey: must not be empty"))
+	}
+	if c.StripeWebhookSecret == "" {
+		errs = append(errs, errors.New("StripeWebhookSecret: must not be empty"))
 	}
 
 	return errs

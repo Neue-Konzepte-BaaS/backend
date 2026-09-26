@@ -556,6 +556,87 @@ integrity: `plotService.CreatePlot` loads the field's owner first and returns
 `ErrForbidden` (→ 403) if it is not the calling farmer
 ([field_service.go:94-105](internal/services/field_service.go#L94-L105)).
 
+### Payment flow
+
+> The "Rent-a-plot flow" diagram above predates both the rental-request
+> workflow (§7, `rental.status`) and this section: `RentPlot`/`POST
+> /api/rentals` no longer exist. A customer-initiated rental is now created
+> exactly one way — the webhook path below — never directly from an HTTP
+> request.
+
+A rental (not even a Requested one) is only ever created once Stripe
+confirms the money actually moved. `rental_checkout` is a queue of payment
+attempts sitting in front of the rental table, not a replacement for it:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Browser (embedded Checkout)
+    participant H as PaymentHandler
+    participant S as paymentService
+    participant Stripe
+    participant W as Stripe webhook
+
+    B->>H: POST /api/payments/checkout-sessions<br/>{plotId, cropId, startAt, message}
+    H->>S: CreateCheckoutSession(...)
+    Note over S: Same validation RequestRental would do<br/>(crop/plot exist, offered & priced, window)<br/>+ IsPlotAvailable fast-fail — no insert yet
+    S->>Stripe: create Checkout Session (ui_mode=embedded)
+    S->>S: INSERT rental_checkout (status=pending)
+    S-->>B: 201 {clientSecret, plotName, cropName, priceCents}
+    B->>Stripe: customer pays inside the iframe
+
+    Stripe->>W: checkout.session.completed
+    W->>S: HandleWebhookEvent(payload, sig)
+    Note over S: verify signature; look up rental_checkout<br/>by stripe_checkout_session_id; no-op if already processed
+    S->>S: rentalService.RequestRental(...)
+    alt ErrPlotUnavailable (race: two customers paid for<br/>an overlapping period)
+        S->>Stripe: refund
+        S->>S: rental_checkout.status = failed
+    else success
+        S->>S: rental_checkout.status = completed, rental = new id
+    end
+```
+
+Pricing is computed server-side only, never trusted from the client:
+`(plot.base_price_cents_per_sqm_per_week + farm_crop_rate.price_cents_per_sqm_per_week)
+× area × (duration_months × 52/12)`, in
+[`services.ComputeRentalPriceCents`](internal/services/pricing.go) — the one
+formula both `PlotSearchService` (what a listing shows) and `PaymentService`
+(what gets charged) call, so they cannot drift apart. A crop missing either
+half of its price is not a real offer: `GET /api/plots/nearest` leaves it
+out of `NearbyPlot.crops` entirely, and `POST /api/payments/checkout-sessions`
+rejects it with the same `ErrCropNotOffered` (409 "crop is not offered by
+this plot") a plot that never listed the crop at all would produce — a
+customer has no way to tell the two cases apart, by design.
+
+If a farmer later **declines** a rental that came from a completed checkout,
+`RentalHandler.DeclineRental` calls `paymentService.RefundIfPaid` after the
+decline succeeds: it looks up the checkout by `rental`, refunds it via
+Stripe, and marks it `refunded`. A rental with no matching completed
+checkout (there is currently no other way to create one, but the lookup is
+defensive) is silently skipped — nothing to refund.
+
+Webhook idempotency has two layers: `paymentService.completeCheckout` first
+checks `checkout.Status == Pending` in Go, then every state-transition query
+(`CompleteCheckout`, `FailCheckout`, `ExpireCheckout`, `MarkCheckoutRefunded`)
+carries a `WHERE status = '<expected>'` guard that turns a no-op retry into
+`ErrCheckoutAlreadyProcessed` rather than reprocessing it — the same pattern
+`UpdateRentalStatus`'s `WHERE status = 'requested'` guard already uses for
+approve/decline. This does not fully close the (practically nonexistent)
+case of two truly concurrent deliveries of the *same* event racing each
+other in Go before either writes; Stripe's own retry behavior is sequential,
+not parallel, so this is accepted rather than solved with a stronger claim
+(e.g. an explicit `processing` state), which would need its own recovery
+path for a stuck row after a transient error.
+
+`STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` are required unconditionally
+(`internal/config/config.go`), unlike `SMTP_*`'s enabled-flag pattern: there
+is no degraded local mode for payments the way a console-logged email
+substitutes for SMTP. Locally, webhook delivery needs the Stripe CLI:
+`stripe listen --forward-to localhost:8080/api/webhooks/stripe` — without
+it, `checkout.session.completed` never arrives and no rental is ever
+created after a successful test payment.
+
 ---
 
 ## 8. Spatial search

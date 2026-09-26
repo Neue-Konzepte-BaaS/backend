@@ -64,6 +64,14 @@ func (f *fakeRentalRepo) GetRentalsByFarm(context.Context, uuid.UUID) ([]models.
 	return nil, nil
 }
 
+func (f *fakeRentalRepo) GetRentalByID(context.Context, uuid.UUID) (models.Rental, error) {
+	return models.Rental{}, ErrNotFound
+}
+
+func (f *fakeRentalRepo) IsPlotAvailable(context.Context, uuid.UUID, time.Time, int32) (bool, error) {
+	return true, nil
+}
+
 // fakePlotRepo is an in-memory PlotRepository, only implementing what
 // rentalService needs.
 type fakePlotRepo struct {
@@ -87,6 +95,13 @@ func (f *fakePlotRepo) GetPlotField(_ context.Context, plot uuid.UUID) (uuid.UUI
 		return field, nil
 	}
 	return uuid.UUID{}, ErrNotFound
+}
+
+func (f *fakePlotRepo) GetPlotByID(_ context.Context, plot uuid.UUID) (models.Plot, error) {
+	if field, ok := f.fieldByPlot[plot]; ok {
+		return models.Plot{ID: plot, Field: field}, nil
+	}
+	return models.Plot{}, ErrNotFound
 }
 
 // fakeFieldRepo is an in-memory FieldRepository, only implementing what
@@ -131,7 +146,9 @@ func (f *fakeCropRepo) GetCropByID(_ context.Context, _ uuid.UUID) (models.Crop,
 	}
 	return f.crop, nil
 }
-func (f *fakeCropRepo) SetPlotCrops(context.Context, uuid.UUID, []uuid.UUID) error { return nil }
+func (f *fakeCropRepo) SetPlotCrops(context.Context, uuid.UUID, int32, []uuid.UUID) error {
+	return nil
+}
 func (f *fakeCropRepo) GetCropsByPlot(_ context.Context, _ uuid.UUID) ([]models.Crop, error) {
 	crops := make([]models.Crop, len(f.offeredCropIDs))
 	for i, id := range f.offeredCropIDs {
@@ -140,6 +157,9 @@ func (f *fakeCropRepo) GetCropsByPlot(_ context.Context, _ uuid.UUID) ([]models.
 	return crops, nil
 }
 func (f *fakeCropRepo) GetCropsByPlots(context.Context, []uuid.UUID) (map[uuid.UUID][]models.Crop, error) {
+	return nil, nil
+}
+func (f *fakeCropRepo) GetPricedCropOfferingsByPlots(context.Context, []uuid.UUID) (map[uuid.UUID][]models.PlotCropOffering, error) {
 	return nil, nil
 }
 

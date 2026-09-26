@@ -23,6 +23,8 @@ tags:
     description: The crop catalog
   - name: rentals
     description: Renting plots
+  - name: payments
+    description: Stripe Checkout sessions that gate a rental's creation on payment
   - name: notifications
     description: Platform-wide notifications sent by an admin
   - name: announcements
@@ -254,6 +256,117 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: farm not found
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/farms/crop-rates:
+    get:
+      tags: [farms, crops]
+      summary: Get the authenticated farmer's own farm-wide crop rates
+      description: |
+        Returns the crop rates set for the caller's own farm, one row per
+        crop that has been priced. Requires the `farmer` role.
+      operationId: getCropRates
+      responses:
+        '200':
+          description: The farm's crop rates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FarmCropRatesResponse'
+        '401':
+          description: Missing, expired, or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+    put:
+      tags: [farms, crops]
+      summary: Replace the authenticated farmer's own farm-wide crop rates
+      description: |
+        Fully replaces the caller's own farm's crop rates. This mirrors
+        `PUT /api/plots/{plotID}/crops`: submit every crop with a rate, not
+        just the one edited, or the omitted ones lose their rate. Requires
+        the `farmer` role.
+      operationId: setCropRates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetFarmCropRatesRequest'
+      responses:
+        '200':
+          description: The farm's crop rates after the update.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FarmCropRatesResponse'
+        '400':
+          description: Malformed body, invalid crop id, or a non-positive rate.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidCropId:
+                  value:
+                    error: invalid crop id
+                invalidRate:
+                  value:
+                    error: priceCentsPerSqmPerWeek must be positive
+        '401':
+          description: Missing, expired, or invalid access token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: One of the given crop ids does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: crop not found
         '500':
           description: Internal error.
           content:
@@ -582,15 +695,13 @@ paths:
               $ref: '#/components/schemas/SetPlotCropsRequest'
       responses:
         '200':
-          description: The plot's crops after the update.
+          description: The plot, with its base price and its crops, after the update.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Crop'
+                $ref: '#/components/schemas/PlotWithCrops'
         '400':
-          description: Malformed body, invalid plot id, or invalid crop id.
+          description: Malformed body, invalid plot id, invalid crop id, or a non-positive base price.
           content:
             application/json:
               schema:
@@ -605,6 +716,9 @@ paths:
                 invalidCropId:
                   value:
                     error: invalid crop id
+                invalidBasePrice:
+                  value:
+                    error: basePriceCentsPerSqmPerWeek must be positive
         '401':
           description: Missing, expired, or invalid access token.
           content:
@@ -740,95 +854,6 @@ paths:
                 error: internal error
 
   /api/rentals:
-    post:
-      tags: [rentals]
-      summary: Rent a plot
-      description: |
-        Books a plot for the authenticated customer with the chosen crop. The
-        rental starts immediately and runs for that crop's fixed duration.
-        Customers only — a farmer or admin receives 403.
-
-        The chosen crop must be one the plot offers (see
-        `PUT /api/plots/{plotID}/crops`); otherwise the request fails with
-        409. A plot can only be booked once for any given moment: renting a
-        plot whose existing rental overlaps the new period also fails with
-        409. Once a rental's period has elapsed the plot can be rented again.
-      operationId: rentPlot
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RentPlotRequest'
-      responses:
-        '201':
-          description: The plot was rented.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Rental'
-        '400':
-          description: Malformed body, plot id, or crop id.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                invalidBody:
-                  value:
-                    error: invalid request body
-                invalidPlotID:
-                  value:
-                    error: invalid plot id
-                invalidCropID:
-                  value:
-                    error: invalid crop id
-        '401':
-          description: Not authenticated.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: not authenticated
-        '403':
-          description: The authenticated account is not a customer.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: insufficient permissions
-        '404':
-          description: No plot or crop with the given id exists.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: plot or crop not found
-        '409':
-          description: The crop is not offered by the plot, or the plot is already rented for an overlapping period.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                cropNotOffered:
-                  value:
-                    error: crop is not offered by this plot
-                plotUnavailable:
-                  value:
-                    error: plot is already rented
-        '500':
-          description: Internal error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: internal error
-
     get:
       tags: [rentals]
       summary: List the authenticated customer's rentals
@@ -908,6 +933,227 @@ paths:
                 error: insufficient permissions
         '500':
           description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/payments/checkout-sessions:
+    post:
+      tags: [payments]
+      summary: Start paying for a plot rental
+      description: |
+        Opens a Stripe Embedded Checkout session for the authenticated
+        customer to pay for renting a plot with a crop. Customers only — a
+        farmer or admin receives 403.
+
+        This performs the same validation `POST /api/rentals` used to
+        perform before payment gated the flow — crop exists, plot exists,
+        the plot offers that crop and both halves of its price are set, the
+        start date is 1 to 60 days out — plus a fast-fail availability
+        check, so a customer who could not book anyway never reaches
+        Stripe. No rental is created here: one is only created once Stripe
+        confirms the payment, via the `checkout.session.completed` webhook.
+        Poll `GET /api/payments/checkout-sessions/{sessionId}` (using the
+        `session_id` Stripe's `return_url` redirects back with) to find out
+        when that happened.
+      operationId: createCheckoutSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCheckoutSessionRequest'
+      responses:
+        '201':
+          description: The checkout session was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSession'
+        '400':
+          description: Malformed body, plot id, or crop id, or the start date/message fail validation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidPlotID:
+                  value:
+                    error: invalid plot id
+                invalidCropID:
+                  value:
+                    error: invalid crop id
+                invalidStartOrMessage:
+                  value:
+                    error: start date must be 1 to 60 days from now and message must not be blank
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: No plot or crop with the given id exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: plot or crop not found
+        '409':
+          description: |
+            The crop is not offered by the plot (including if it is offered
+            but not fully priced yet), or the plot is already rented for an
+            overlapping period.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                cropNotOffered:
+                  value:
+                    error: crop is not offered by this plot
+                plotUnavailable:
+                  value:
+                    error: plot is already rented
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/payments/checkout-sessions/{sessionId}:
+    get:
+      tags: [payments]
+      summary: Get a checkout session's status
+      description: |
+        Returns the status of a checkout session belonging to the
+        authenticated customer, identified by its Stripe session id — the
+        `session_id` query parameter Stripe's `return_url` redirects back
+        with. This is what the frontend polls after the embedded checkout
+        iframe reports completion, since the rental itself is only created
+        once the `checkout.session.completed` webhook is processed, which
+        can lag slightly behind. Customers only — a farmer or admin
+        receives 403.
+      operationId: getCheckoutSessionStatus
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: The Stripe Checkout Session id, not this platform's own id.
+          schema:
+            type: string
+            example: cs_test_a1b2c3
+      responses:
+        '200':
+          description: The checkout session's status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSessionStatus'
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a customer, or the session belongs to a different customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                insufficientPermissions:
+                  value:
+                    error: insufficient permissions
+                notOwner:
+                  value:
+                    error: checkout session does not belong to you
+        '404':
+          description: No checkout session exists with that Stripe session id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: checkout session not found
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/webhooks/stripe:
+    post:
+      tags: [payments]
+      summary: Stripe webhook delivery
+      description: |
+        Receives `checkout.session.completed` and `checkout.session.expired`
+        events from Stripe. Public endpoint — authenticated by the
+        `Stripe-Signature` header against the configured webhook secret
+        instead of this platform's own session cookie; Stripe itself is the
+        only real caller. Not for use by frontend clients.
+
+        On `checkout.session.completed` this is what actually creates the
+        rental request the customer paid for — see
+        `POST /api/payments/checkout-sessions`. It is idempotent: Stripe
+        retries delivery, so a repeat delivery for an already-processed
+        session is a no-op.
+      operationId: handleStripeWebhook
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: A Stripe Event object. Not modeled further here — see the Stripe API reference.
+      responses:
+        '200':
+          description: The event was processed (or intentionally ignored, e.g. an event type this platform does not act on).
+        '400':
+          description: The Stripe-Signature header failed to verify, or the body could not be read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidSignature:
+                  value:
+                    error: invalid webhook signature
+                unreadableBody:
+                  value:
+                    error: could not read request body
+        '500':
+          description: |
+            Internal error while processing the event. Stripe will retry
+            delivery later, which is the intent for an error that might be
+            transient.
           content:
             application/json:
               schema:
@@ -1704,6 +1950,16 @@ components:
           format: double
           description: The plot's area in square meters, computed geodesically from its boundary.
           example: 2340.5
+        basePriceCentsPerSqmPerWeek:
+          type: integer
+          format: int32
+          nullable: true
+          description: |
+            The plot's own rate in EUR cents per square meter per week, set
+            via `PUT /api/plots/{plotID}/crops`, or null if not set yet. One
+            half of a crop's rental price — the other half is that crop's
+            farm-wide rate (`PUT /api/farms/crop-rates`).
+          example: 12
 
     NearbyPlot:
       type: object
@@ -1737,13 +1993,36 @@ components:
           example: 1523.42
         crops:
           type: array
-          description: The crops this plot currently offers, orderable via `POST /api/rentals`.
+          description: |
+            The crops this plot actually offers a customer, each with the
+            total price for renting this plot with it for its full duration.
+            A crop the plot lists but that is missing either half of its
+            price (the plot's own base rate or the crop's farm-wide rate) is
+            left out entirely — it is not a real offer yet.
           items:
-            $ref: '#/components/schemas/Crop'
+            $ref: '#/components/schemas/PlotCropOffering'
+
+    PlotCropOffering:
+      type: object
+      description: A crop as a customer sees it on a specific plot.
+      allOf:
+        - $ref: '#/components/schemas/Crop'
+        - type: object
+          required: [priceCents]
+          properties:
+            priceCents:
+              type: integer
+              format: int32
+              description: |
+                The total price in EUR cents for renting this plot with this
+                crop for its full duration: `(plot's base rate + the crop's
+                farm rate) × plot area × duration in weeks`, computed
+                server-side.
+              example: 4500
 
     PlotWithCrops:
       type: object
-      required: [id, name, field, coordinates, areaSquareMeters, crops]
+      required: [id, name, field, coordinates, areaSquareMeters, basePriceCentsPerSqmPerWeek, crops]
       properties:
         id:
           type: string
@@ -1762,9 +2041,19 @@ components:
           format: double
           description: The plot's area in square meters, computed geodesically from its boundary.
           example: 2340.5
+        basePriceCentsPerSqmPerWeek:
+          type: integer
+          format: int32
+          nullable: true
+          description: The plot's own rate in EUR cents per square meter per week, or null if not set yet.
+          example: 12
         crops:
           type: array
-          description: The crops this plot currently offers.
+          description: |
+            The crops this plot currently offers, priced or not — unlike
+            `PlotCropOffering` on `NearbyPlot`, this includes an unpriced
+            crop too, since the farmer needs to see it to know it is still
+            missing a rate.
           items:
             $ref: '#/components/schemas/Crop'
 
@@ -1822,8 +2111,14 @@ components:
 
     SetPlotCropsRequest:
       type: object
-      required: [cropIds]
+      required: [basePriceCentsPerSqmPerWeek, cropIds]
       properties:
+        basePriceCentsPerSqmPerWeek:
+          type: integer
+          format: int32
+          minimum: 1
+          description: The plot's own rate in EUR cents per square meter per week.
+          example: 12
         cropIds:
           type: array
           description: The full set of crop ids the plot should offer, replacing any previous set.
@@ -1831,9 +2126,48 @@ components:
             type: string
             format: uuid
 
-    RentPlotRequest:
+    FarmCropRate:
       type: object
-      required: [plotId, cropId]
+      description: |
+        One crop's farm-wide rental rate: what the farmer charges per square
+        meter per week for that crop, regardless of which plot grows it. No
+        crop name — the client already has the full catalog from
+        `GET /api/crops` and joins by id.
+      required: [cropId, priceCentsPerSqmPerWeek]
+      properties:
+        cropId:
+          type: string
+          format: uuid
+        priceCentsPerSqmPerWeek:
+          type: integer
+          format: int32
+          example: 8
+
+    FarmCropRatesResponse:
+      type: object
+      required: [rates]
+      properties:
+        rates:
+          type: array
+          items:
+            $ref: '#/components/schemas/FarmCropRate'
+
+    SetFarmCropRatesRequest:
+      type: object
+      description: |
+        Full-replace, mirroring `PUT /api/plots/{plotID}/crops`: submit
+        every crop with a rate entered, not just the one edited, or the
+        omitted ones lose their rate.
+      required: [rates]
+      properties:
+        rates:
+          type: array
+          items:
+            $ref: '#/components/schemas/FarmCropRate'
+
+    CreateCheckoutSessionRequest:
+      type: object
+      required: [plotId, cropId, startAt, message]
       properties:
         plotId:
           type: string
@@ -1843,8 +2177,59 @@ components:
         cropId:
           type: string
           format: uuid
-          description: ID of the crop to plant. Must be offered by the plot's field.
+          description: ID of the crop to plant. Must be offered (and priced) by the plot.
           example: 3fa1d9c4-6b2e-4e2a-9a3e-3f2b1c0d4e5f
+        startAt:
+          type: string
+          format: date-time
+          description: Must be 1 to 60 days from now.
+          example: '2026-10-05T08:00:00Z'
+        message:
+          type: string
+          description: A note to the farmer. Must not be blank.
+          example: Looking forward to growing tomatoes this season!
+
+    CheckoutSession:
+      type: object
+      description: |
+        What creating a checkout session hands back to the customer: enough
+        to render the embedded payment iframe and a summary above it in one
+        round trip. No rental exists yet — one is only created once Stripe
+        confirms the payment (see `GET /api/payments/checkout-sessions/{sessionId}`).
+      required: [clientSecret, plotName, cropName, priceCents]
+      properties:
+        clientSecret:
+          type: string
+          description: Passed to `@stripe/react-stripe-js`'s `EmbeddedCheckoutProvider` to render the payment iframe.
+        plotName:
+          type: string
+          example: Plot A
+        cropName:
+          type: string
+          example: Tomatoes
+        priceCents:
+          type: integer
+          format: int32
+          description: The total price in EUR cents that will be charged.
+          example: 4500
+
+    CheckoutSessionStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [pending, completed, failed, expired, refunded]
+          description: |
+            `pending`: awaiting payment. `completed`: paid, `rental` is set.
+            `failed`: paid but no rental could be created (e.g. the plot was
+            taken by a concurrent payment) — refunded automatically.
+            `expired`: the session expired unpaid. `refunded`: paid and a
+            rental was created, but the farmer later declined it.
+        rental:
+          allOf:
+            - $ref: '#/components/schemas/Rental'
+          description: Set once status is completed or refunded.
 
     Rental:
       type: object
