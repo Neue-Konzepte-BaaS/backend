@@ -55,3 +55,18 @@ type AccountListFilter struct {
 	Limit  int32
 	Offset int32
 }
+
+// PendingRegistration is a registration that has not yet been confirmed by
+// clicking the verification email.
+type PendingRegistration struct {
+	ID           uuid.UUID
+	FirstName    string
+	LastName     string
+	Email        string
+	PasswordHash string
+	Role         Role
+	FarmName     string
+	Address      string
+	Description  string
+	PostalCode   int32
+}

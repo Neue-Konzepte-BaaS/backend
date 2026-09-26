@@ -84,6 +84,21 @@ type Field struct {
 	Farm        uuid.UUID
 }
 
+type PendingRegistration struct {
+	ID           uuid.UUID
+	FirstName    string
+	LastName     string
+	Email        string
+	PasswordHash string
+	Role         string
+	FarmName     string
+	Address      string
+	Description  string
+	PostalCode   int32
+	CreatedAt    pgtype.Timestamptz
+	ExpiresAt    pgtype.Timestamptz
+}
+
 type Plot struct {
 	ID          uuid.UUID
 	Name        string
