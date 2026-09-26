@@ -86,21 +86,41 @@ type AnnouncementRepository interface {
 }
 
 type CareInstructionRepository interface {
-	// CreateCareInstruction adds one task to a crop's weekly guide. Returns
+	// CreateCareInstruction adds one task to a crop's weekly guide: the
+	// default guide when farm is nil, that farm's own guide otherwise, which
+	// must already have been started with StartFarmCareGuide. Returns
 	// ErrNotFound if no crop has that id.
-	CreateCareInstruction(ctx context.Context, crop uuid.UUID, week int32, title, body string) (models.CareInstruction, error)
+	CreateCareInstruction(ctx context.Context, crop uuid.UUID, farm *uuid.UUID, week int32, title, body string) (models.CareInstruction, error)
 	// UpdateCareInstruction rewrites an instruction's week, title and body.
 	// Returns ErrNotFound if no instruction has that id.
 	UpdateCareInstruction(ctx context.Context, id uuid.UUID, week int32, title, body string) (models.CareInstruction, error)
 	// DeleteCareInstruction removes one instruction, reporting ErrNotFound
 	// rather than succeeding silently when the id is unknown.
 	DeleteCareInstruction(ctx context.Context, id uuid.UUID) error
-	// GetCareInstructionsByCrop returns one crop's guide in week order.
-	GetCareInstructionsByCrop(ctx context.Context, crop uuid.UUID) ([]models.CareInstruction, error)
-	// GetCareInstructionsByCrops returns the guides for several crops at once,
-	// keyed by crop id, each in week order. A crop with no guide is absent
-	// from the map rather than mapping to an empty slice.
-	GetCareInstructionsByCrops(ctx context.Context, crops []uuid.UUID) (map[uuid.UUID][]models.CareInstruction, error)
+	// GetCareInstructionByID returns ErrNotFound if no instruction has that id.
+	GetCareInstructionByID(ctx context.Context, id uuid.UUID) (models.CareInstruction, error)
+	// GetDefaultCareInstructionsByCrop returns one crop's default guide in
+	// week order.
+	GetDefaultCareInstructionsByCrop(ctx context.Context, crop uuid.UUID) ([]models.CareInstruction, error)
+	// StartFarmCareGuide takes the crop's guide over for the farm, copying
+	// the default guide as it stands. Does nothing if the farm already has its
+	// own guide for the crop, so every farmer write may call it first. Returns
+	// ErrNotFound if the crop does not exist.
+	StartFarmCareGuide(ctx context.Context, crop, farm uuid.UUID) error
+	// GetFarmCopyOfCareInstruction returns the farm's copy of a default
+	// instruction, or ErrNotFound if the farm's guide has none.
+	GetFarmCopyOfCareInstruction(ctx context.Context, farm, basedOn uuid.UUID) (models.CareInstruction, error)
+	// DeleteFarmCareGuide drops the farm's own guide for the crop, so its
+	// tenants read the default again. Returns ErrNotFound if the farm has no
+	// guide of its own for the crop.
+	DeleteFarmCareGuide(ctx context.Context, crop, farm uuid.UUID) error
+	// HasFarmCareGuide reports whether the farm has its own guide for the crop.
+	HasFarmCareGuide(ctx context.Context, crop, farm uuid.UUID) (bool, error)
+	// GetEffectiveCareInstructions returns, for each crop grown on a farm, the
+	// guide that farm's tenants read — the farm's own, or else the default —
+	// each in week order. A guide with no instructions is absent from the map
+	// rather than mapping to an empty slice.
+	GetEffectiveCareInstructions(ctx context.Context, guides []models.CropAtFarm) (map[models.CropAtFarm][]models.CareInstruction, error)
 }
 
 type RipenessNoticeRepository interface {

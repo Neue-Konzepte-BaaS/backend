@@ -246,7 +246,7 @@ graph TD
     G --> AN["/api/announcements<br/>RequireAuth + farmer (POST)<br/>farmer or customer (GET)"]
     G --> ST["/api/statistics<br/>RequireAuth + RequireAnyRole(farmer, admin)"]
     G --> CG["/api/care-guide<br/>RequireAuth + RequireRole(customer)"]
-    G --> CI["/api/care-instructions<br/>RequireAuth + RequireRole(admin)"]
+    G --> CI["/api/care-instructions<br/>RequireAuth + RequireAnyRole(admin, farmer)"]
 
     AD --> AD1["GET /farms"]
     AD --> AD2["GET /accounts"]
@@ -302,9 +302,10 @@ graph TD
 | `GET /api/announcements` | cookie | farmer or customer | [announcement_handler.go](internal/handlers/announcement_handler.go) |
 | `GET /api/statistics` | cookie | farmer or admin | [statistics_handler.go:62](internal/handlers/statistics_handler.go#L62) |
 | `GET /api/crops/{cropID}/care-instructions` | cookie | admin or farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
-| `POST /api/crops/{cropID}/care-instructions` | cookie | admin | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
-| `PUT /api/care-instructions/{instructionID}` | cookie | admin | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
-| `DELETE /api/care-instructions/{instructionID}` | cookie | admin | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `POST /api/crops/{cropID}/care-instructions` | cookie | admin or farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `DELETE /api/crops/{cropID}/farm-care-guide` | cookie | farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `PUT /api/care-instructions/{instructionID}` | cookie | admin or farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `DELETE /api/care-instructions/{instructionID}` | cookie | admin or farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
 | `GET /api/care-guide` | cookie | customer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
 
 Geometry crosses the wire as **GeoJSON Polygon** in a `coordinates` field, decoded
@@ -894,14 +895,49 @@ does for the board. It is worth knowing that
 intentional, the two audiences disagree, and if it is not, it is the same bug
 this line exists to avoid.
 
-**The guide belongs to the crop, and so is admin-owned.** Only an admin may add
-a crop, so only an admin writes the advice hanging off one. A farmer offering
-tomatoes should not have to write tomato advice, and two farmers offering the
-same crop should not have to disagree about it. What *is* farm-specific — "the
-water is off on Tuesday" — is an announcement ([§9a](#the-schwarzes-brett)),
-which the farmer already owns. A farmer can still read any crop's guide
-(`GET /api/crops/{cropID}/care-instructions`, admin or farmer) to see what his
-renters are told.
+**Every farm starts from one default guide, and may make it its own.**
+(Issue #68.) An admin maintains a default guide per crop, so a farmer offering
+tomatoes does not have to write tomato advice from scratch. A farmer who wants
+to say it differently takes the crop's guide over for their own farm; from then
+on that farm's tenants read the farm's version, and every other farm still
+reads the default. `care_instruction.farm` is `NULL` for the default and the
+farm's id for its own version. The alternatives both lose something: one shared
+guide farmers may edit lets two farms overwrite each other's advice, and
+guides that start empty make every farmer rewrite the same basics.
+
+The mechanics are **copy-on-write per crop**:
+
+- A `farm_care_guide (farm, crop)` row marks the takeover. While it exists,
+  the farm reads only its own steps for that crop, never a mix, and the query
+  (`GetEffectiveCareInstructions`) resolves "farm's own, else default" per
+  `(crop, farm)` pair in one round trip. The marker is kept separate from the
+  steps so a farm's guide can be *empty*: a farmer who deletes every step has
+  an empty guide, not the default back.
+- A farmer's first write for a crop (create, edit or delete) inserts the
+  marker and copies the default guide in one transaction
+  (`StartFarmCareGuide`). The marker's primary key makes two first writes at
+  once safe: the second one inserts nothing, so it copies nothing.
+- A farmer edits a default step through the id they were shown. Each copy
+  records the default it came from in `based_on`, so the service finds the
+  farm's copy and changes that; the default itself is never touched.
+- Resetting (`DELETE /api/crops/{cropID}/farm-care-guide`) deletes the
+  marker, and the composite foreign key `(farm, crop) → farm_care_guide`
+  cascades to the farm's steps.
+- An admin writes the default guide, and may also edit or delete a farm's step
+  by id, as moderation. A farmer who reaches another farm's step gets `404`,
+  the same answer as for an id that does not exist.
+
+The cost of copying: once a farm has its own guide, later changes to the
+default no longer reach it. The farmer can reset to pick them up. Overriding
+single steps instead would let default changes keep flowing, but at the price
+of a model for hiding default steps and mixing in the farm's own.
+
+What *is* about the farm's day-to-day, like "the water is off on Tuesday", is
+still an announcement ([§9a](#the-schwarzes-brett)), not a care step.
+`GET /api/crops/{cropID}/care-instructions` returns the default to an admin and
+the farm's effective guide to a farmer, with an `X-Care-Guide-Source: farm |
+default` header saying which it is. The header is there because an empty farm
+guide and an empty default look the same as bodies.
 
 **The service trims the guide to the rental.** A guide is written once per
 crop, but rental length comes from that crop's `duration_months`, so a guide
@@ -911,11 +947,11 @@ tenant never reaches. `instructionsWithinRental`
 It is the service's job rather than the query's: the cutoff is a fact about one
 rental, while the query is written for all of the caller's at once.
 
-Two round trips, not one per plot: the active rentals, then every crop's
-instructions in a single `crop = ANY($1)` read, grouped by crop in the
-repository. A customer renting four plots of the same crop reads that guide
-once — the same deduplication reflex as `GetCustomersOfFarmer` in §9a, for the
-same reason.
+Two round trips, not one per plot: the active rentals (each carrying its
+plot's farm), then every `(crop, farm)` guide in a single read over two zipped
+arrays, grouped by pair in the repository. A customer renting four plots of the
+same crop on one farm reads that guide once — the same deduplication reflex as
+`GetCustomersOfFarmer` in §9a, for the same reason.
 
 `care_instruction.crop` cascades on delete, where `rental.crop` does not. That
 asymmetry is deliberate: a rental is a commitment that must keep a crop in the
@@ -923,11 +959,19 @@ catalog (hence `DeleteCrop`'s 409), while advice about a crop nobody offers any
 more has nothing left to be about, and must not be the thing that blocks an
 admin from tidying the catalog.
 
-**What it does not do yet.** Nothing mails a care instruction — the guide is
-read when a tenant opens their plot, not pushed the way an announcement is, so
-there is no `care` kind in the inbox (§9a) and no weekly digest. Adding one
-means deciding when "week 3" starts for a fan-out, which is a scheduling
-question this feature deliberately leaves open.
+**In the inbox.** `GET /api/inbox` (§9a) shows the guide as `care` items,
+derived at read time from `GetCareGuideForCustomer` rather than stored: one
+item per instruction whose week of the rental has begun, dated at the start of
+that week. Reusing the care guide keeps its two rules — approved rentals
+covering today, weeks the rental never reaches dropped — in one place. An
+instruction belongs to the crop, so two plots of the same crop would share its
+id; the item's id is instead a name-based UUID of rental and instruction,
+stable across reads and distinct per plot.
+
+**What it does not do yet.** Nothing mails a care instruction — the inbox item
+appears when its week begins, but no weekly digest is pushed the way an
+announcement is. Adding one means scheduling a fan-out at each tenant's own
+week boundary, a question this feature deliberately leaves open.
 
 ---
 

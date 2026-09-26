@@ -44,8 +44,9 @@ func toInboxItemResponse(item models.InboxItem) inboxItemResponse {
 }
 
 // GetInbox returns the caller's merged inbox: every platform-wide broadcast,
-// the announcements of every farmer he currently rents from, and the
-// ripeness notices for the crops he is currently growing, newest first. It
+// the announcements of every farmer he currently rents from, the ripeness
+// notices for the crops he is currently growing, and the care instructions for
+// every week of his current rentals that has begun, newest first. It
 // must be mounted behind RequireAuth and RequireRole(models.RoleCustomer).
 func (h *InboxHandler) GetInbox(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.MustClaimsFromContext(r.Context())
