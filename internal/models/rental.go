@@ -52,3 +52,19 @@ type RentalWithPlotAndCustomer struct {
 	FieldName string
 	Customer  Recipient
 }
+
+// ActiveRental is a rental covering right now, with the plot, field and crop
+// it books and where today falls inside its period. Both week numbers come
+// from the database clock rather than the API host's — see the query in
+// sql/queries/rental.sql.
+type ActiveRental struct {
+	Rental
+	PlotName  string
+	FieldName string
+	// FarmID is the farm the plot belongs to, which decides whose version of
+	// the crop's care guide the tenant reads.
+	FarmID      uuid.UUID
+	Crop        Crop
+	CurrentWeek int32
+	TotalWeeks  int32
+}

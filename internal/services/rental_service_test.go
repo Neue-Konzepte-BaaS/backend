@@ -72,58 +72,15 @@ func (f *fakeRentalRepo) IsPlotAvailable(context.Context, uuid.UUID, time.Time, 
 	return true, nil
 }
 
-// fakePlotRepo is an in-memory PlotRepository, only implementing what
-// rentalService needs.
-type fakePlotRepo struct {
-	fieldByPlot map[uuid.UUID]uuid.UUID
-}
-
-func (f *fakePlotRepo) CreatePlot(context.Context, models.Plot) (models.Plot, error) {
-	return models.Plot{}, nil
-}
-
-func (f *fakePlotRepo) GetPlotsByFields(context.Context, []uuid.UUID) ([]models.Plot, error) {
+// Unused by rentalService — the care guide is what reads this; see
+// fakeCareRentalRepo in care_guide_service_test.go.
+func (f *fakeRentalRepo) GetActiveRentalsByCustomer(context.Context, uuid.UUID) ([]models.ActiveRental, error) {
 	return nil, nil
 }
 
-func (f *fakePlotRepo) GetNearestPlots(context.Context, float64, float64, int32) ([]models.NearbyPlot, error) {
-	return nil, nil
-}
-
-func (f *fakePlotRepo) GetPlotField(_ context.Context, plot uuid.UUID) (uuid.UUID, error) {
-	if field, ok := f.fieldByPlot[plot]; ok {
-		return field, nil
-	}
-	return uuid.UUID{}, ErrNotFound
-}
-
-func (f *fakePlotRepo) GetPlotByID(_ context.Context, plot uuid.UUID) (models.Plot, error) {
-	if field, ok := f.fieldByPlot[plot]; ok {
-		return models.Plot{ID: plot, Field: field}, nil
-	}
-	return models.Plot{}, ErrNotFound
-}
-
-// fakeFieldRepo is an in-memory FieldRepository, only implementing what
-// rentalService needs.
-type fakeFieldRepo struct {
-	farmByField map[uuid.UUID]uuid.UUID
-}
-
-func (f *fakeFieldRepo) CreateField(context.Context, models.Field) (uuid.UUID, error) {
-	return uuid.UUID{}, nil
-}
-
-func (f *fakeFieldRepo) GetFieldFarm(_ context.Context, id uuid.UUID) (uuid.UUID, error) {
-	if farm, ok := f.farmByField[id]; ok {
-		return farm, nil
-	}
-	return uuid.UUID{}, ErrNotFound
-}
-
-func (f *fakeFieldRepo) GetFieldsByFarm(context.Context, uuid.UUID) ([]models.Field, error) {
-	return nil, nil
-}
+// fakePlotRepo and fakeFieldRepo now live in announcement_service_test.go
+// (shared across this package's tests) -- see that file for GetPlotByID and
+// the farm-filter-aware GetNearestPlots this service's tests also rely on.
 
 // fakeCropRepo is an in-memory CropRepository, only implementing what
 // rentalService needs.

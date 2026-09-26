@@ -76,6 +76,9 @@ func (f *fakePaymentRentalRepo) GetRentalByID(context.Context, uuid.UUID) (model
 func (f *fakePaymentRentalRepo) IsPlotAvailable(context.Context, uuid.UUID, time.Time, int32) (bool, error) {
 	return f.available, f.availableEr
 }
+func (f *fakePaymentRentalRepo) GetActiveRentalsByCustomer(context.Context, uuid.UUID) ([]models.ActiveRental, error) {
+	return nil, nil
+}
 
 // fakeCheckoutRepo is an in-memory RentalCheckoutRepository.
 type fakeCheckoutRepo struct {
@@ -200,7 +203,7 @@ func (f *fakePaymentPlotRepo) CreatePlot(context.Context, models.Plot) (models.P
 func (f *fakePaymentPlotRepo) GetPlotsByFields(context.Context, []uuid.UUID) ([]models.Plot, error) {
 	return nil, nil
 }
-func (f *fakePaymentPlotRepo) GetNearestPlots(context.Context, float64, float64, int32) ([]models.NearbyPlot, error) {
+func (f *fakePaymentPlotRepo) GetNearestPlots(context.Context, float64, float64, *uuid.UUID, int32) ([]models.NearbyPlot, error) {
 	return nil, nil
 }
 func (f *fakePaymentPlotRepo) GetPlotField(context.Context, uuid.UUID) (uuid.UUID, error) {

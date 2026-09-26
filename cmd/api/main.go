@@ -160,20 +160,25 @@ func main() {
 	rentalRepo := repositories.NewRentalRepository(queries)
 	rentalCheckoutRepo := repositories.NewRentalCheckoutRepository(queries)
 	announcementRepo := repositories.NewAnnouncementRepository(queries)
+	careInstructionRepo := repositories.NewCareInstructionRepository(pool, queries)
 	broadcastNotificationRepo := repositories.NewBroadcastNotificationRepository(queries)
+	pendingRegistrationRepo := repositories.NewPendingRegistrationRepository(queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
 	paymentGateway := repositories.NewStripeGateway(c.StripeSecretKey, c.StripeWebhookSecret)
+	ripenessNoticeRepo := repositories.NewRipenessNoticeRepository(queries)
 
 	dispatcher := services.NewDispatcher(notificationConcurrency)
 
 	accountService := services.NewAccountService(accountRepo)
-	authService := services.NewAuthService(accountRepo, credentials.NewIssuer(c.JWTSecret))
 	farmService := services.NewFarmService(farmRepo)
 	fieldService := services.NewFieldService(farmRepo, fieldRepo, plotRepo, cropRepo)
 	notificationService := services.NewNotificationService(newEmailSender(c), accountRepo, broadcastNotificationRepo, emailtemplates.FS, dispatcher)
-	announcementService := services.NewAnnouncementService(announcementRepo, notificationService)
-	inboxService := services.NewInboxService(broadcastNotificationRepo, announcementRepo)
+	authService := services.NewAuthService(accountRepo, pendingRegistrationRepo, credentials.NewIssuer(c.JWTSecret), notificationService, dispatcher, c.FrontendURL)
+	announcementService := services.NewAnnouncementService(farmRepo, fieldRepo, plotRepo, announcementRepo, notificationService)
+	careGuideService := services.NewCareGuideService(careInstructionRepo, rentalRepo, farmRepo)
+	ripenessNoticeService := services.NewRipenessNoticeService(farmRepo, fieldRepo, ripenessNoticeRepo, notificationService)
+	inboxService := services.NewInboxService(broadcastNotificationRepo, announcementRepo, ripenessNoticeRepo, careGuideService)
 	plotService := services.NewPlotService(farmRepo, fieldRepo, plotRepo)
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo, cropRepo)
 	rentalService := services.NewRentalService(farmRepo, fieldRepo, rentalRepo, plotRepo, cropRepo)
@@ -186,6 +191,7 @@ func main() {
 	farmHandler := handlers.NewFarmHandler(farmService)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)
 	announcementHandler := handlers.NewAnnouncementHandler(announcementService)
+	careGuideHandler := handlers.NewCareGuideHandler(careGuideService)
 	notificationHandler := handlers.NewNotificationHandler(notificationService)
 	inboxHandler := handlers.NewInboxHandler(inboxService)
 	plotSearchHandler := handlers.NewPlotSearchHandler(plotSearchService)
@@ -193,8 +199,9 @@ func main() {
 	cropHandler := handlers.NewCropHandler(cropService)
 	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
+	ripenessNoticeHandler := handlers.NewRipenessNoticeHandler(ripenessNoticeService)
 
-	router := handlers.NewRouter(accountHandler, authHandler, announcementHandler, farmHandler, fieldHandler, notificationHandler, inboxHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, paymentHandler, authService, c)
+	router := handlers.NewRouter(accountHandler, authHandler, announcementHandler, careGuideHandler, farmHandler, fieldHandler, notificationHandler, inboxHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, paymentHandler, ripenessNoticeHandler, authService, c)
 
 	// Shutdown is graceful because notifications are delivered after the
 	// response is written: killing the process on SIGTERM would drop mail that

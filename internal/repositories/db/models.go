@@ -30,6 +30,8 @@ type Announcement struct {
 	Subject   string
 	Body      string
 	CreatedAt pgtype.Timestamptz
+	Field     *uuid.UUID
+	Plot      *uuid.UUID
 }
 
 type BroadcastNotification struct {
@@ -39,10 +41,23 @@ type BroadcastNotification struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type CareInstruction struct {
+	ID        uuid.UUID
+	Crop      uuid.UUID
+	Week      int32
+	Title     string
+	Body      string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	Farm      *uuid.UUID
+	BasedOn   *uuid.UUID
+}
+
 type Crop struct {
 	ID             uuid.UUID
 	Name           string
 	DurationMonths int32
+	IsPlaceholder  bool
 }
 
 type Customer struct {
@@ -57,6 +72,12 @@ type Farm struct {
 	Address     string
 	Description string
 	FoundedAt   pgtype.Date
+}
+
+type FarmCareGuide struct {
+	Farm      uuid.UUID
+	Crop      uuid.UUID
+	CreatedAt pgtype.Timestamptz
 }
 
 type FarmCropRate struct {
@@ -75,6 +96,21 @@ type Field struct {
 	Name        string
 	Coordinates *geom.Polygon
 	Farm        uuid.UUID
+}
+
+type PendingRegistration struct {
+	ID           uuid.UUID
+	FirstName    string
+	LastName     string
+	Email        string
+	PasswordHash string
+	Role         string
+	FarmName     string
+	Address      string
+	Description  string
+	PostalCode   int32
+	CreatedAt    pgtype.Timestamptz
+	ExpiresAt    pgtype.Timestamptz
 }
 
 type Plot struct {
@@ -119,7 +155,15 @@ type RentalCheckout struct {
 	StripeCheckoutSessionID string
 	Status                  string
 	AmountCents             int32
-	Rental                  uuid.UUID
+	Rental                  *uuid.UUID
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
+}
+
+type RipenessNotice struct {
+	ID        uuid.UUID
+	Farmer    uuid.UUID
+	Field     uuid.UUID
+	Crop      uuid.UUID
+	CreatedAt pgtype.Timestamptz
 }

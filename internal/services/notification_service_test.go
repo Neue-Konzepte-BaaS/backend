@@ -42,13 +42,23 @@ func (f *fakeEmailSender) SendMail(email, displayName, subject, message string, 
 	return nil
 }
 
+// fieldAndCrop is the composite key fakeRecipientRepo uses to answer the
+// ripeness audience lookup, which is scoped by both at once.
+type fieldAndCrop struct {
+	field uuid.UUID
+	crop  uuid.UUID
+}
+
 // fakeRecipientRepo is an AccountRepository that only answers recipient
 // lookups; the rest of the interface is unreachable from this service.
 type fakeRecipientRepo struct {
-	recipients        []models.Recipient
-	customersOfFarmer map[uuid.UUID][]models.Recipient
-	err               error
-	calls             int
+	recipients                       []models.Recipient
+	customersOfFarmer                map[uuid.UUID][]models.Recipient
+	customersOfFarmerForField        map[uuid.UUID][]models.Recipient
+	customersOfFarmerForPlot         map[uuid.UUID][]models.Recipient
+	customersOfFarmerForFieldAndCrop map[fieldAndCrop][]models.Recipient
+	err                              error
+	calls                            int
 }
 
 func (f *fakeRecipientRepo) ListAccounts(context.Context, models.AccountListFilter) (models.Page[models.AccountListing], error) {
@@ -71,6 +81,30 @@ func (f *fakeRecipientRepo) GetCustomersOfFarmer(_ context.Context, farmer uuid.
 		return nil, f.err
 	}
 	return f.customersOfFarmer[farmer], nil
+}
+
+func (f *fakeRecipientRepo) GetCustomersOfFarmerForField(_ context.Context, field uuid.UUID) ([]models.Recipient, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.customersOfFarmerForField[field], nil
+}
+
+func (f *fakeRecipientRepo) GetCustomersOfFarmerForPlot(_ context.Context, plot uuid.UUID) ([]models.Recipient, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.customersOfFarmerForPlot[plot], nil
+}
+
+func (f *fakeRecipientRepo) GetCustomersOfFarmerForFieldAndCrop(_ context.Context, field, crop uuid.UUID) ([]models.Recipient, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.customersOfFarmerForFieldAndCrop[fieldAndCrop{field: field, crop: crop}], nil
 }
 
 func (f *fakeRecipientRepo) GetAccountByEmail(context.Context, string) (models.Account, error) {
@@ -326,7 +360,7 @@ func TestNotifyFarmerCustomers_QueuesTheFarmersOwnCustomers(t *testing.T) {
 	dispatcher := NewDispatcher(1)
 	svc := NewNotificationService(sender, repo, &fakeBroadcastRepo{}, announcementTestTemplates(), dispatcher)
 
-	queued, err := svc.NotifyFarmerCustomers(context.Background(), farmer, "Hof Grünwald", "Ernte", "Samstag")
+	queued, err := svc.NotifyFarmerCustomers(context.Background(), farmer, nil, nil, "Hof Grünwald", "Ernte", "Samstag")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -355,7 +389,7 @@ func TestNotifyFarmerCustomers_NoCustomersSendsNothing(t *testing.T) {
 	repo := &fakeRecipientRepo{customersOfFarmer: map[uuid.UUID][]models.Recipient{}}
 	svc := NewNotificationService(sender, repo, &fakeBroadcastRepo{}, announcementTestTemplates(), NewDispatcher(1))
 
-	queued, err := svc.NotifyFarmerCustomers(context.Background(), uuid.New(), "Hof", "Ernte", "Samstag")
+	queued, err := svc.NotifyFarmerCustomers(context.Background(), uuid.New(), nil, nil, "Hof", "Ernte", "Samstag")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -371,9 +405,135 @@ func TestNotifyFarmerCustomers_RepositoryFailureIsReturned(t *testing.T) {
 	boom := errors.New("db exploded")
 	svc := NewNotificationService(&fakeEmailSender{}, &fakeRecipientRepo{err: boom}, &fakeBroadcastRepo{}, announcementTestTemplates(), NewDispatcher(1))
 
-	if _, err := svc.NotifyFarmerCustomers(context.Background(), uuid.New(), "Hof", "Ernte", "Samstag"); !errors.Is(err, boom) {
+	if _, err := svc.NotifyFarmerCustomers(context.Background(), uuid.New(), nil, nil, "Hof", "Ernte", "Samstag"); !errors.Is(err, boom) {
 		t.Errorf("error = %v, want it to wrap the repository failure", err)
 	}
+}
+
+func TestNotifyFarmerCustomers_ScopedToField_QueuesOnlyThatField(t *testing.T) {
+	farmer := uuid.New()
+	field := uuid.New()
+	sender := &fakeEmailSender{}
+	repo := &fakeRecipientRepo{
+		// If the scope were ignored, this farmer-wide audience would be used
+		// instead — asserting queued == 1 below proves it was not.
+		customersOfFarmer: map[uuid.UUID][]models.Recipient{
+			farmer: {recipient("anna@example.com", "Anna", "Bauer"), recipient("ben@example.com", "Ben", "Klein")},
+		},
+		customersOfFarmerForField: map[uuid.UUID][]models.Recipient{
+			field: {recipient("cara@example.com", "Cara", "Lang")},
+		},
+	}
+	dispatcher := NewDispatcher(1)
+	svc := NewNotificationService(sender, repo, &fakeBroadcastRepo{}, announcementTestTemplates(), dispatcher)
+
+	queued, err := svc.NotifyFarmerCustomers(context.Background(), farmer, &field, nil, "Hof Grünwald", "Ernte", "Samstag")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if queued != 1 {
+		t.Errorf("queued = %d, want 1 (only the field's renters)", queued)
+	}
+
+	if err := dispatcher.Wait(context.Background()); err != nil {
+		t.Fatalf("waiting for delivery: %v", err)
+	}
+	if len(sender.sent) != 1 || sender.sent[0].email != "cara@example.com" {
+		t.Errorf("sent = %+v, want exactly one mail to cara@example.com", sender.sent)
+	}
+}
+
+func TestNotifyFarmerCustomers_ScopedToPlot_QueuesOnlyThatPlot(t *testing.T) {
+	farmer := uuid.New()
+	plot := uuid.New()
+	sender := &fakeEmailSender{}
+	repo := &fakeRecipientRepo{
+		customersOfFarmerForPlot: map[uuid.UUID][]models.Recipient{
+			plot: {recipient("cara@example.com", "Cara", "Lang")},
+		},
+	}
+	dispatcher := NewDispatcher(1)
+	svc := NewNotificationService(sender, repo, &fakeBroadcastRepo{}, announcementTestTemplates(), dispatcher)
+
+	queued, err := svc.NotifyFarmerCustomers(context.Background(), farmer, nil, &plot, "Hof Grünwald", "Ernte", "Samstag")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if queued != 1 {
+		t.Errorf("queued = %d, want 1", queued)
+	}
+}
+
+func TestNotifyRipeness_QueuesMatchingCustomers(t *testing.T) {
+	field := uuid.New()
+	crop := uuid.New()
+	sender := &fakeEmailSender{}
+	repo := &fakeRecipientRepo{
+		customersOfFarmerForFieldAndCrop: map[fieldAndCrop][]models.Recipient{
+			{field: field, crop: crop}: {
+				recipient("anna@example.com", "Anna", "Bauer"),
+				recipient("ben@example.com", "Ben", "Klein"),
+			},
+		},
+	}
+	dispatcher := NewDispatcher(1)
+	svc := NewNotificationService(sender, repo, &fakeBroadcastRepo{}, ripenessTestTemplates(), dispatcher)
+
+	queued, err := svc.NotifyRipeness(context.Background(), field, crop, "Hof Grünwald", "Feld Nord", "Zucchini")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if queued != 2 {
+		t.Errorf("queued = %d, want 2", queued)
+	}
+
+	if err := dispatcher.Wait(context.Background()); err != nil {
+		t.Fatalf("waiting for delivery: %v", err)
+	}
+	if len(sender.sent) != 2 {
+		t.Fatalf("delivered %d mails, want 2", len(sender.sent))
+	}
+	if !strings.Contains(sender.sent[0].message, "Zucchini") {
+		t.Errorf("message = %q, want it to name the crop", sender.sent[0].message)
+	}
+	if !strings.Contains(sender.sent[0].message, "Feld Nord") {
+		t.Errorf("message = %q, want it to name the field", sender.sent[0].message)
+	}
+}
+
+func TestNotifyRipeness_NoCustomersSendsNothing(t *testing.T) {
+	sender := &fakeEmailSender{}
+	svc := NewNotificationService(sender, &fakeRecipientRepo{}, &fakeBroadcastRepo{}, ripenessTestTemplates(), NewDispatcher(1))
+
+	queued, err := svc.NotifyRipeness(context.Background(), uuid.New(), uuid.New(), "Hof", "Feld", "Zucchini")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if queued != 0 {
+		t.Errorf("queued = %d, want 0", queued)
+	}
+	if len(sender.sent) != 0 {
+		t.Errorf("sent %d mails, want none", len(sender.sent))
+	}
+}
+
+func TestNotifyRipeness_RepositoryFailureIsReturned(t *testing.T) {
+	boom := errors.New("db exploded")
+	svc := NewNotificationService(&fakeEmailSender{}, &fakeRecipientRepo{err: boom}, &fakeBroadcastRepo{}, ripenessTestTemplates(), NewDispatcher(1))
+
+	if _, err := svc.NotifyRipeness(context.Background(), uuid.New(), uuid.New(), "Hof", "Feld", "Zucchini"); !errors.Is(err, boom) {
+		t.Errorf("error = %v, want it to wrap the repository failure", err)
+	}
+}
+
+// ripenessTestTemplates adds the ripeness body to the broadcast one so a
+// single fake filesystem serves both fan-outs.
+func ripenessTestTemplates() fstest.MapFS {
+	templates := testTemplates()
+	templates["ripeness.html"] = &fstest.MapFile{
+		Data: []byte("<p>Hallo {{ .Recipient.DisplayName }}</p><p>{{ .Data.FarmName }}</p><p>{{ .Data.FieldName }}</p><h1>{{ .Data.CropName }}</h1>"),
+	}
+	return templates
 }
 
 // announcementTestTemplates adds the announcement body to the broadcast one so

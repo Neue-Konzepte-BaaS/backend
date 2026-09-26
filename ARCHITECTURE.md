@@ -245,6 +245,8 @@ graph TD
     G --> N["/api/notifications<br/>RequireAuth + RequireRole(admin)"]
     G --> AN["/api/announcements<br/>RequireAuth + farmer (POST)<br/>farmer or customer (GET)"]
     G --> ST["/api/statistics<br/>RequireAuth + RequireAnyRole(farmer, admin)"]
+    G --> CG["/api/care-guide<br/>RequireAuth + RequireRole(customer)"]
+    G --> CI["/api/care-instructions<br/>RequireAuth + RequireAnyRole(admin, farmer)"]
 
     AD --> AD1["GET /farms"]
     AD --> AD2["GET /accounts"]
@@ -259,6 +261,7 @@ graph TD
     F --> F1["POST /"]
     F --> F2["GET /"]
     F --> F3["POST /{fieldID}/plots"]
+    F --> F4["POST /{fieldID}/ripeness"]
 
     P --> P1["GET /nearest"]
 
@@ -271,6 +274,11 @@ graph TD
     AN --> AN2["GET /"]
 
     ST --> ST1["GET /"]
+
+    CG --> CG1["GET /"]
+
+    CI --> CI1["PUT /{instructionID}"]
+    CI --> CI2["DELETE /{instructionID}"]
 ```
 
 | Method & path | Auth | Role | Handler |
@@ -285,6 +293,7 @@ graph TD
 | `POST /api/fields` | cookie | farmer | [field_handler.go:85](internal/handlers/field_handler.go#L85) |
 | `GET /api/fields` | cookie | farmer | [field_handler.go:128](internal/handlers/field_handler.go#L128) |
 | `POST /api/fields/{fieldID}/plots` | cookie | farmer | [field_handler.go:163](internal/handlers/field_handler.go#L163) |
+| `POST /api/fields/{fieldID}/ripeness` | cookie | farmer | [ripeness_notice_handler.go](internal/handlers/ripeness_notice_handler.go) |
 | `GET /api/plots/nearest` | – | – | [plot_search_handler.go:40](internal/handlers/plot_search_handler.go#L40) |
 | `POST /api/rentals` | cookie | customer | [rental_handler.go:43](internal/handlers/rental_handler.go#L43) |
 | `GET /api/rentals` | cookie | customer | [rental_handler.go:78](internal/handlers/rental_handler.go#L78) |
@@ -292,6 +301,12 @@ graph TD
 | `POST /api/announcements` | cookie | farmer | [announcement_handler.go](internal/handlers/announcement_handler.go) |
 | `GET /api/announcements` | cookie | farmer or customer | [announcement_handler.go](internal/handlers/announcement_handler.go) |
 | `GET /api/statistics` | cookie | farmer or admin | [statistics_handler.go:62](internal/handlers/statistics_handler.go#L62) |
+| `GET /api/crops/{cropID}/care-instructions` | cookie | admin or farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `POST /api/crops/{cropID}/care-instructions` | cookie | admin or farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `DELETE /api/crops/{cropID}/farm-care-guide` | cookie | farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `PUT /api/care-instructions/{instructionID}` | cookie | admin or farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `DELETE /api/care-instructions/{instructionID}` | cookie | admin or farmer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
+| `GET /api/care-guide` | cookie | customer | [care_guide_handler.go](internal/handlers/care_guide_handler.go) |
 
 Geometry crosses the wire as **GeoJSON Polygon** in a `coordinates` field, decoded
 and encoded by `decodePolygon` / `encodePolygon`
@@ -395,6 +410,7 @@ erDiagram
     FIELD   ||--o{ PLOT     : "subdivided into"
     PLOT    ||--o{ RENTAL   : "booked by"
     CUSTOMER ||--o{ RENTAL  : holds
+    CROP    ||--o{ CARE_INSTRUCTION : "advises on"
 
     ACCOUNT {
         uuid id PK
@@ -435,6 +451,15 @@ erDiagram
         uuid customer FK
         tstzrange period "EXCLUDE overlapping per plot"
         timestamptz created_at
+    }
+    CARE_INSTRUCTION {
+        uuid id PK
+        uuid crop FK "ON DELETE CASCADE"
+        int  week "1..104, counted from a rental's start"
+        text title
+        text body
+        timestamptz created_at
+        timestamptz updated_at
     }
     POSTAL_CODE {
         serial id PK
@@ -811,6 +836,63 @@ splitting it across the handler would put ordering logic in the layer that is
 not allowed to hold any; `NotificationService` is an interface owned by
 `services`, so the dependency is still inverted.
 
+### Scoping the board to a field or plot
+
+`announcement` carries two optional columns, `field` and `plot`, constrained
+so at most one is set (`announcement_scope_not_both`). `NULL`/`NULL` is the
+original behaviour — every current renter. Setting one narrows both sides of
+the feature to the same scope:
+
+- **The audience** switches from `GetCustomersOfFarmer` to
+  `GetCustomersOfFarmerForField`/`GetCustomersOfFarmerForPlot` — the same
+  `DISTINCT`-over-`rental` shape, just with the join's `WHERE` swapped from
+  "this farmer's plots" to "this field's plots" or "this plot".
+- **The board read** (`GetAnnouncementsForCustomer`) ties the scope to the
+  *specific* rental that qualifies the customer, not to the farmer's holdings
+  at large: the query already joins `field`/`plot` through the matching
+  rental, so `a.field = fi.id OR a.plot = p.id` (or neither set) reuses those
+  same joined rows rather than adding a second lookup.
+
+A scoped notice is otherwise an ordinary announcement — same table, same
+`NotifyFarmerCustomers` fan-out, same template — so nothing downstream needed
+to learn a new concept.
+
+**"Current renter" always means an approved rental covering now.** Every
+audience query, scoped or not, and the ripeness queries below require
+`r.status = 'approved'` next to `r.period @> CURRENT_TIMESTAMP`. Since rental
+requests, a row exists from the moment a customer *asks* for a plot, and a
+declined request keeps its row, so the period alone would also reach a
+customer still waiting for an answer or one who was turned down (backend #70).
+`GetNearestPlots` is the one deliberate exception (`status <> 'declined'`),
+because there a pending request must block the plot.
+
+### Ripeness notices
+
+A third fan-out, `ripeness_notice`, follows the announcement shape closely
+enough to share its infrastructure (`Dispatcher`, `deliverInBackground`) but
+differs in what "the board" means:
+
+- **The audience is field *and* crop, not just field.** A field can grow
+  several crops across its plots, and a ripeness notice is only relevant to
+  the renters growing the one that is ready:
+  `GetCustomersOfFarmerForFieldAndCrop` joins on `rental.crop = crop`
+  alongside `plot.field = field`. The read side
+  (`GetRipenessNoticesForCustomer`) mirrors this with the same join, so a
+  customer only ever sees a notice for a crop his own active rental matches.
+- **It is not a board.** Unlike announcements, a ripeness notice has no
+  `GET /api/ripeness` of its own — it is mail plus one `InboxItem` kind
+  (`ripeness_notice`) in the merged `GET /api/inbox` feed
+  (`InboxService.GetInboxForCustomer`). The subject/body shown there are
+  synthesized in the service (`"<crop> ist reif"` / `"<crop> auf <field> ist
+  bereit zur Ernte."`) rather than stored, since the notice itself only
+  stores the ids and names, not free text — there is nothing for a farmer to
+  write.
+- **Ownership is checked the same way `plotService.CreatePlot` checks a
+  field:** resolve the caller's farm, resolve the target field's farm,
+  compare, `ErrForbidden` on mismatch. `RipenessNoticeService` is the third
+  service (after `announcementService`) to depend on `NotificationService`
+  directly.
+
 ---
 
 ## 9b. Admin listings
@@ -861,6 +943,125 @@ nowhere to put `total`. New paginated routes should use the envelope; the existi
 were left alone. Ordering always ends in a tiebreaker on `id`: farm names and
 `created_at` are both non-unique, and without it a row can shift between pages and never
 be shown.
+
+---
+
+## 9c. The weekly care guide
+
+Issue #44. A **care instruction** is one task attached to a crop and a week:
+"week 3 — thin out the seedlings". A tenant reads those tasks against their own
+rental, so `GET /api/care-guide` answers with one entry per plot the caller is
+renting *right now*, each carrying the crop's guide plus `currentWeek` of
+`totalWeeks`.
+
+Three decisions shape it, and each rules out an alternative that looks cheaper
+at first:
+
+**A week is a rental week, not a calendar week.** Rentals start whenever a
+customer books. Pinning the guide to ISO weeks would put two tenants growing
+the same crop at the same task on the same date although one of them sowed two
+months later. Week 1 is a rental's first seven days:
+
+```
+current_week = floor((now - lower(period)) / 7 days) + 1
+total_weeks  = ceil((upper(period) - lower(period)) / 7 days)
+```
+
+Both are computed **in the query**, against the database clock, for the same
+reason `InsertRentalRequest` takes its bounds from it ([§7](#rental-concurrency)):
+an API host whose clock runs ahead would otherwise put a tenant a week further
+into their season than the rental they were sold. `WHERE period @> CURRENT_TIMESTAMP`
+is what makes `current_week` safe to count from 1 — an elapsed time cannot be
+negative for a period that contains now.
+
+**Approval, not just the period, is the audience rule.** Since rental requests
+a `rental` row exists from the moment a customer *asks* for a plot, and a
+declined request keeps its row (the exclusion constraint stops counting it, but
+nothing deletes it). Filtering on the period alone would therefore hand the
+guide to someone still waiting for an answer, or turned down — so the query
+also requires `status = 'approved'`, exactly as `GetAnnouncementsForCustomer`
+does for the board. It is worth knowing that
+`GetRipenessNoticesForCustomer` does **not** filter on status today; if that is
+intentional, the two audiences disagree, and if it is not, it is the same bug
+this line exists to avoid.
+
+**Every farm starts from one default guide, and may make it its own.**
+(Issue #68.) An admin maintains a default guide per crop, so a farmer offering
+tomatoes does not have to write tomato advice from scratch. A farmer who wants
+to say it differently takes the crop's guide over for their own farm; from then
+on that farm's tenants read the farm's version, and every other farm still
+reads the default. `care_instruction.farm` is `NULL` for the default and the
+farm's id for its own version. The alternatives both lose something: one shared
+guide farmers may edit lets two farms overwrite each other's advice, and
+guides that start empty make every farmer rewrite the same basics.
+
+The mechanics are **copy-on-write per crop**:
+
+- A `farm_care_guide (farm, crop)` row marks the takeover. While it exists,
+  the farm reads only its own steps for that crop, never a mix, and the query
+  (`GetEffectiveCareInstructions`) resolves "farm's own, else default" per
+  `(crop, farm)` pair in one round trip. The marker is kept separate from the
+  steps so a farm's guide can be *empty*: a farmer who deletes every step has
+  an empty guide, not the default back.
+- A farmer's first write for a crop (create, edit or delete) inserts the
+  marker and copies the default guide in one transaction
+  (`StartFarmCareGuide`). The marker's primary key makes two first writes at
+  once safe: the second one inserts nothing, so it copies nothing.
+- A farmer edits a default step through the id they were shown. Each copy
+  records the default it came from in `based_on`, so the service finds the
+  farm's copy and changes that; the default itself is never touched.
+- Resetting (`DELETE /api/crops/{cropID}/farm-care-guide`) deletes the
+  marker, and the composite foreign key `(farm, crop) → farm_care_guide`
+  cascades to the farm's steps.
+- An admin writes the default guide, and may also edit or delete a farm's step
+  by id, as moderation. A farmer who reaches another farm's step gets `404`,
+  the same answer as for an id that does not exist.
+
+The cost of copying: once a farm has its own guide, later changes to the
+default no longer reach it. The farmer can reset to pick them up. Overriding
+single steps instead would let default changes keep flowing, but at the price
+of a model for hiding default steps and mixing in the farm's own.
+
+What *is* about the farm's day-to-day, like "the water is off on Tuesday", is
+still an announcement ([§9a](#the-schwarzes-brett)), not a care step.
+`GET /api/crops/{cropID}/care-instructions` returns the default to an admin and
+the farm's effective guide to a farmer, with an `X-Care-Guide-Source: farm |
+default` header saying which it is. The header is there because an empty farm
+guide and an empty default look the same as bodies.
+
+**The service trims the guide to the rental.** A guide is written once per
+crop, but rental length comes from that crop's `duration_months`, so a guide
+running to week 30 against a 13-week rental would promise tasks for weeks the
+tenant never reaches. `instructionsWithinRental`
+([care_guide_service.go](internal/services/care_guide_service.go)) drops them.
+It is the service's job rather than the query's: the cutoff is a fact about one
+rental, while the query is written for all of the caller's at once.
+
+Two round trips, not one per plot: the active rentals (each carrying its
+plot's farm), then every `(crop, farm)` guide in a single read over two zipped
+arrays, grouped by pair in the repository. A customer renting four plots of the
+same crop on one farm reads that guide once — the same deduplication reflex as
+`GetCustomersOfFarmer` in §9a, for the same reason.
+
+`care_instruction.crop` cascades on delete, where `rental.crop` does not. That
+asymmetry is deliberate: a rental is a commitment that must keep a crop in the
+catalog (hence `DeleteCrop`'s 409), while advice about a crop nobody offers any
+more has nothing left to be about, and must not be the thing that blocks an
+admin from tidying the catalog.
+
+**In the inbox.** `GET /api/inbox` (§9a) shows the guide as `care` items,
+derived at read time from `GetCareGuideForCustomer` rather than stored: one
+item per instruction whose week of the rental has begun, dated at the start of
+that week. Reusing the care guide keeps its two rules — approved rentals
+covering today, weeks the rental never reaches dropped — in one place. An
+instruction belongs to the crop, so two plots of the same crop would share its
+id; the item's id is instead a name-based UUID of rental and instruction,
+stable across reads and distinct per plot.
+
+**What it does not do yet.** Nothing mails a care instruction — the inbox item
+appears when its week begins, but no weekly digest is pushed the way an
+announcement is. Adding one means scheduling a fan-out at each tenant's own
+week boundary, a question this feature deliberately leaves open.
 
 ---
 
@@ -983,8 +1184,13 @@ they are the things a newcomer will trip over:
     customer is a recipient by virtue of having an account. The Schwarzes Brett
     widens this: a farmer can mail his current renters, and the rental is both
     the audience rule and the only consent signal, so the one way to stop
-    hearing from him is to stop renting from him. Fine at the scale of a
-    university project; the first thing to fix if this ever mails real people.
+    hearing from him is to stop renting from him. Scoping a post to a field or
+    plot ([§9a](#9a-notifications)) narrows the audience but not the consent
+    story — a renter of the scoped field still cannot opt out of it
+    individually. Ripeness notices add a third sender on the same terms: the
+    audience is the rental again, just filtered further by crop. Fine at the
+    scale of a university project; the first thing to fix if this ever mails
+    real people.
 
 ---
 

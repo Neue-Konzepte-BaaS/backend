@@ -7,6 +7,7 @@ DELETE FROM crop WHERE id = $1;
 -- name: GetAllCrops :many
 SELECT id, name, duration_months
 FROM crop
+WHERE NOT is_placeholder
 ORDER BY name;
 
 -- name: GetCropByID :one

@@ -3,8 +3,8 @@
 Guidance for AI agents (and humans) working in this repository.
 
 > **Status: active.** The core API is in place — accounts and auth, fields and plots,
-> spatial plot search, rentals, statistics, outbound notifications, and the Schwarzes
-> Brett. Known gaps are catalogued in
+> spatial plot search, rentals, statistics, outbound notifications, the Schwarzes
+> Brett, and the weekly care guide. Known gaps are catalogued in
 > [ARCHITECTURE.md §13](ARCHITECTURE.md#13-known-gaps-and-rough-edges). Sections marked
 > **TBD** are decisions that have not been made yet — when you make one, update this
 > file in the same change.
@@ -41,6 +41,10 @@ dependency inversion between `services` and `repositories`, request flows, where
 business rule is enforced, the SQLSTATE-to-HTTP error table, and a step-by-step
 checklist for adding a feature (§14). Read it before adding a new endpoint. This file
 stays the short version — keep the two consistent.
+
+## Important policies
+Only write comments if they are necessary. Comments should only explain something that is not directly visible through the code.
+If you are developing a new feature, name the branch feat/<feature-name>. If it is a bug fix, name it fix/<bug-name>.
 
 ## Commands
 
@@ -117,6 +121,13 @@ writing to the customers *currently renting one of his plots*, and stores the
 notice as well as mailing it, so a customer who misses the mail can still read
 the board. Adding a third means a query, a template and a call to
 `deliverInBackground`; it does not mean new delivery machinery.
+
+The **weekly care guide** (`/api/care-guide`, `/api/crops/{cropID}/care-instructions`)
+is deliberately *not* a third fan-out: nothing is mailed. An admin writes per-crop
+instructions keyed to a week of a tenant's rental, and the tenant reads them when they
+open their plot, against the week their own rental is in — see
+[ARCHITECTURE.md §9c](ARCHITECTURE.md#9c-the-weekly-care-guide) for why weeks count
+from a rental's start rather than the calendar.
 
 ## Database
 

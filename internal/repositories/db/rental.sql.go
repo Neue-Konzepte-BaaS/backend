@@ -13,6 +13,97 @@ import (
 	geom "github.com/twpayne/go-geom"
 )
 
+const getActiveRentalsByCustomer = `-- name: GetActiveRentalsByCustomer :many
+SELECT
+    r.id,
+    r.plot,
+    r.customer,
+    r.crop,
+    lower(r.period)::timestamptz AS start_at,
+    upper(r.period)::timestamptz AS end_at,
+    p.name AS plot_name,
+    p.field,
+    f.name AS field_name,
+    f.farm,
+    c.name AS crop_name,
+    c.duration_months AS crop_duration_months,
+    (FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - lower(r.period))) / 604800) + 1)::int AS current_week,
+    CEIL(EXTRACT(EPOCH FROM (upper(r.period) - lower(r.period))) / 604800)::int AS total_weeks
+FROM rental r
+JOIN plot p ON p.id = r.plot
+JOIN field f ON f.id = p.field
+JOIN crop c ON c.id = r.crop
+WHERE r.customer = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
+ORDER BY lower(r.period) DESC
+`
+
+type GetActiveRentalsByCustomerRow struct {
+	ID                 uuid.UUID
+	Plot               uuid.UUID
+	Customer           uuid.UUID
+	Crop               uuid.UUID
+	StartAt            pgtype.Timestamptz
+	EndAt              pgtype.Timestamptz
+	PlotName           string
+	Field              uuid.UUID
+	FieldName          string
+	Farm               uuid.UUID
+	CropName           string
+	CropDurationMonths int32
+	CurrentWeek        int32
+	TotalWeeks         int32
+}
+
+// The customer's rentals covering right now, each with where today falls
+// inside the rental period. Both week numbers are computed from the database
+// clock, for the same reason InsertRentalRequest takes its bounds from it: a
+// host whose clock runs ahead would otherwise put a tenant a week further into
+// their growing season than the rental they were sold.
+//
+// 'approved' is load-bearing, not decoration. Since rental requests, a row
+// exists from the moment a customer *asks* for a plot, and a declined one is
+// never deleted — so filtering on the period alone would hand the care guide
+// to someone who was turned down, or who is still waiting for an answer. This
+// is the same audience rule GetAnnouncementsForCustomer applies to the board.
+//
+// current_week counts from 1 (the period contains CURRENT_TIMESTAMP, so the
+// elapsed time is never negative), and total_weeks rounds up, so a 13-week-
+// and-one-day rental has a week 14 rather than a partial week nobody is shown.
+func (q *Queries) GetActiveRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]GetActiveRentalsByCustomerRow, error) {
+	rows, err := q.db.Query(ctx, getActiveRentalsByCustomer, customer)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetActiveRentalsByCustomerRow
+	for rows.Next() {
+		var i GetActiveRentalsByCustomerRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Plot,
+			&i.Customer,
+			&i.Crop,
+			&i.StartAt,
+			&i.EndAt,
+			&i.PlotName,
+			&i.Field,
+			&i.FieldName,
+			&i.Farm,
+			&i.CropName,
+			&i.CropDurationMonths,
+			&i.CurrentWeek,
+			&i.TotalWeeks,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getRentalByID = `-- name: GetRentalByID :one
 SELECT id, plot, customer, crop, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at, message, decided_at
 FROM rental

@@ -76,6 +76,31 @@ type AccountRepository interface {
 	// customer whose rental has ended is not included: the farmer's licence to
 	// mail them is the rental itself.
 	GetCustomersOfFarmer(ctx context.Context, farmer uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForField narrows GetCustomersOfFarmer to the
+	// customers currently renting a plot of one specific field.
+	GetCustomersOfFarmerForField(ctx context.Context, field uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForPlot narrows GetCustomersOfFarmer to the
+	// customer currently renting one specific plot.
+	GetCustomersOfFarmerForPlot(ctx context.Context, plot uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForFieldAndCrop is the audience for a ripeness
+	// notice: customers with an active rental on a plot of the given field,
+	// growing the given crop.
+	GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, field, crop uuid.UUID) ([]models.Recipient, error)
+}
+
+// PendingRegistrationRepository stores registrations awaiting email
+// verification, separately from AccountRepository: a pending registration is
+// not an account and must never be reachable through the account queries
+// (login, listing, notification recipients) until it is verified.
+type PendingRegistrationRepository interface {
+	// UpsertPendingRegistration stores the registration, replacing any
+	// existing pending registration for the same email (refreshed data and
+	// expiry) rather than erroring — see the ON CONFLICT in the query.
+	UpsertPendingRegistration(ctx context.Context, reg models.PendingRegistration, ttl time.Duration) (uuid.UUID, error)
+	// GetPendingRegistrationByID returns ErrNotFound if the id does not
+	// exist or has expired.
+	GetPendingRegistrationByID(ctx context.Context, id uuid.UUID) (models.PendingRegistration, error)
+	DeletePendingRegistration(ctx context.Context, id uuid.UUID) error
 }
 
 type BroadcastNotificationRepository interface {
@@ -87,14 +112,63 @@ type BroadcastNotificationRepository interface {
 
 type AnnouncementRepository interface {
 	// CreateAnnouncement stores one notice by a farmer and returns it with the
-	// farm name already resolved.
-	CreateAnnouncement(ctx context.Context, farmer uuid.UUID, subject, body string) (models.AnnouncementWithFarm, error)
+	// farm name already resolved. field and plot are the optional scope — at
+	// most one is non-nil; both nil reaches every current renter.
+	CreateAnnouncement(ctx context.Context, farmer uuid.UUID, subject, body string, field, plot *uuid.UUID) (models.AnnouncementWithFarm, error)
 	// GetAnnouncementsByFarmer returns the farmer's own notices, newest first.
 	GetAnnouncementsByFarmer(ctx context.Context, farmer uuid.UUID) ([]models.AnnouncementWithFarm, error)
 	// GetAnnouncementsForCustomer returns the notices of every farmer the
 	// customer currently rents from, newest first, each carrying the farm name
-	// it came from.
+	// it came from. A scoped notice is only included if the customer's active
+	// rental actually covers that field/plot.
 	GetAnnouncementsForCustomer(ctx context.Context, customer uuid.UUID) ([]models.AnnouncementWithFarm, error)
+}
+
+type CareInstructionRepository interface {
+	// CreateCareInstruction adds one task to a crop's weekly guide: the
+	// default guide when farm is nil, that farm's own guide otherwise, which
+	// must already have been started with StartFarmCareGuide. Returns
+	// ErrNotFound if no crop has that id.
+	CreateCareInstruction(ctx context.Context, crop uuid.UUID, farm *uuid.UUID, week int32, title, body string) (models.CareInstruction, error)
+	// UpdateCareInstruction rewrites an instruction's week, title and body.
+	// Returns ErrNotFound if no instruction has that id.
+	UpdateCareInstruction(ctx context.Context, id uuid.UUID, week int32, title, body string) (models.CareInstruction, error)
+	// DeleteCareInstruction removes one instruction, reporting ErrNotFound
+	// rather than succeeding silently when the id is unknown.
+	DeleteCareInstruction(ctx context.Context, id uuid.UUID) error
+	// GetCareInstructionByID returns ErrNotFound if no instruction has that id.
+	GetCareInstructionByID(ctx context.Context, id uuid.UUID) (models.CareInstruction, error)
+	// GetDefaultCareInstructionsByCrop returns one crop's default guide in
+	// week order.
+	GetDefaultCareInstructionsByCrop(ctx context.Context, crop uuid.UUID) ([]models.CareInstruction, error)
+	// StartFarmCareGuide takes the crop's guide over for the farm, copying
+	// the default guide as it stands. Does nothing if the farm already has its
+	// own guide for the crop, so every farmer write may call it first. Returns
+	// ErrNotFound if the crop does not exist.
+	StartFarmCareGuide(ctx context.Context, crop, farm uuid.UUID) error
+	// GetFarmCopyOfCareInstruction returns the farm's copy of a default
+	// instruction, or ErrNotFound if the farm's guide has none.
+	GetFarmCopyOfCareInstruction(ctx context.Context, farm, basedOn uuid.UUID) (models.CareInstruction, error)
+	// DeleteFarmCareGuide drops the farm's own guide for the crop, so its
+	// tenants read the default again. Returns ErrNotFound if the farm has no
+	// guide of its own for the crop.
+	DeleteFarmCareGuide(ctx context.Context, crop, farm uuid.UUID) error
+	// HasFarmCareGuide reports whether the farm has its own guide for the crop.
+	HasFarmCareGuide(ctx context.Context, crop, farm uuid.UUID) (bool, error)
+	// GetEffectiveCareInstructions returns, for each crop grown on a farm, the
+	// guide that farm's tenants read — the farm's own, or else the default —
+	// each in week order. A guide with no instructions is absent from the map
+	// rather than mapping to an empty slice.
+	GetEffectiveCareInstructions(ctx context.Context, guides []models.CropAtFarm) (map[models.CropAtFarm][]models.CareInstruction, error)
+}
+
+type RipenessNoticeRepository interface {
+	// CreateRipenessNotice stores one notice by a farmer and returns it with
+	// the farm, field and crop names already resolved.
+	CreateRipenessNotice(ctx context.Context, farmer, field, crop uuid.UUID) (models.RipenessNoticeWithDetails, error)
+	// GetRipenessNoticesForCustomer returns the notices for fields the
+	// customer currently rents a matching plot on, newest first.
+	GetRipenessNoticesForCustomer(ctx context.Context, customer uuid.UUID) ([]models.RipenessNoticeWithDetails, error)
 }
 
 type FarmRepository interface {
@@ -130,8 +204,8 @@ type PlotRepository interface {
 	CreatePlot(ctx context.Context, plot models.Plot) (models.Plot, error)
 	GetPlotsByFields(ctx context.Context, fields []uuid.UUID) ([]models.Plot, error)
 	// GetNearestPlots returns up to limit plots ordered by distance from the
-	// given point (lon, lat), nearest first.
-	GetNearestPlots(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error)
+	// given point (lon, lat), nearest first — only farm's plots when farm is set.
+	GetNearestPlots(ctx context.Context, lon, lat float64, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error)
 	// GetPlotField returns the id of the field a plot belongs to. Returns
 	// ErrNotFound if the plot does not exist.
 	GetPlotField(ctx context.Context, plot uuid.UUID) (uuid.UUID, error)
@@ -158,6 +232,10 @@ type RentalRepository interface {
 	// GetRentalsByCustomer returns the customer's rentals, newest first,
 	// each with the plot and crop it books.
 	GetRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error)
+	// GetActiveRentalsByCustomer returns only the customer's rentals covering
+	// right now, each with the plot's and field's names, the crop, and which
+	// week of the rental today falls in.
+	GetActiveRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.ActiveRental, error)
 	// GetRentalsByFarm returns every rental on the farm's own plots,
 	// active and historic, newest first, each with its plot, field name, and
 	// customer.

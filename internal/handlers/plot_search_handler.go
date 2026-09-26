@@ -11,6 +11,7 @@ import (
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/webutils"
+	"github.com/google/uuid"
 )
 
 type PlotSearchHandler struct {
@@ -65,6 +66,16 @@ func (h *PlotSearchHandler) FindNearestPlots(w http.ResponseWriter, r *http.Requ
 	postalCode := strings.TrimSpace(query.Get("postalCode"))
 	city := strings.TrimSpace(query.Get("city"))
 
+	var farm *uuid.UUID
+	if farmStr := strings.TrimSpace(query.Get("farm")); farmStr != "" {
+		id, parseErr := uuid.Parse(farmStr)
+		if parseErr != nil {
+			webutils.WriteError(w, http.StatusBadRequest, "farm must be a valid id")
+			return
+		}
+		farm = &id
+	}
+
 	var plots []models.NearbyPlot
 	switch {
 	case latStr != "" && lonStr != "":
@@ -74,9 +85,9 @@ func (h *PlotSearchHandler) FindNearestPlots(w http.ResponseWriter, r *http.Requ
 			webutils.WriteError(w, http.StatusBadRequest, "lat and lon must be numbers")
 			return
 		}
-		plots, err = h.plotSearchService.FindNearestByCoordinates(r.Context(), lon, lat, limit)
+		plots, err = h.plotSearchService.FindNearestByCoordinates(r.Context(), lon, lat, farm, limit)
 	case postalCode != "" || city != "":
-		plots, err = h.plotSearchService.FindNearestByLocation(r.Context(), postalCode, city, limit)
+		plots, err = h.plotSearchService.FindNearestByLocation(r.Context(), postalCode, city, farm, limit)
 	default:
 		webutils.WriteError(w, http.StatusBadRequest, "provide lat and lon, or postalCode or city")
 		return

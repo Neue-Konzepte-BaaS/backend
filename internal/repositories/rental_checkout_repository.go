@@ -48,7 +48,7 @@ func (r *rentalCheckoutRepository) GetCheckoutBySessionID(ctx context.Context, s
 }
 
 func (r *rentalCheckoutRepository) CompleteCheckout(ctx context.Context, id, rental uuid.UUID) (models.RentalCheckout, error) {
-	row, err := r.queries.CompleteRentalCheckout(ctx, database.CompleteRentalCheckoutParams{ID: id, Rental: rental})
+	row, err := r.queries.CompleteRentalCheckout(ctx, database.CompleteRentalCheckoutParams{ID: id, Rental: &rental})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return models.RentalCheckout{}, services.ErrCheckoutAlreadyProcessed
@@ -81,7 +81,7 @@ func (r *rentalCheckoutRepository) ExpireCheckout(ctx context.Context, id uuid.U
 }
 
 func (r *rentalCheckoutRepository) GetCompletedCheckoutByRental(ctx context.Context, rental uuid.UUID) (models.RentalCheckout, error) {
-	row, err := r.queries.GetCompletedRentalCheckoutByRental(ctx, rental)
+	row, err := r.queries.GetCompletedRentalCheckoutByRental(ctx, &rental)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return models.RentalCheckout{}, services.ErrNotFound
@@ -104,11 +104,10 @@ func (r *rentalCheckoutRepository) MarkCheckoutRefunded(ctx context.Context, id 
 
 // toModelRentalCheckout converts the fields every rental_checkout query in
 // sql/queries/rental_checkout.sql returns (they all select the same
-// columns) into the domain model. rental reads as uuid.Nil when the column
-// is SQL NULL -- see the uuid overrides in sqlc.yml -- which this turns
-// into a nil pointer.
-func toModelRentalCheckout(id, customer, plot, crop uuid.UUID, startAt pgtype.Timestamptz, message, sessionID, status string, amountCents int32, rental uuid.UUID, createdAt, updatedAt pgtype.Timestamptz) models.RentalCheckout {
-	checkout := models.RentalCheckout{
+// columns) into the domain model. rental is already a nil pointer when the
+// column is SQL NULL -- sqlc generates nullable uuid columns as *uuid.UUID.
+func toModelRentalCheckout(id, customer, plot, crop uuid.UUID, startAt pgtype.Timestamptz, message, sessionID, status string, amountCents int32, rental *uuid.UUID, createdAt, updatedAt pgtype.Timestamptz) models.RentalCheckout {
+	return models.RentalCheckout{
 		ID:                      id,
 		Customer:                customer,
 		Plot:                    plot,
@@ -118,12 +117,8 @@ func toModelRentalCheckout(id, customer, plot, crop uuid.UUID, startAt pgtype.Ti
 		StripeCheckoutSessionID: sessionID,
 		Status:                  models.CheckoutStatus(status),
 		AmountCents:             amountCents,
+		Rental:                  rental,
 		CreatedAt:               createdAt.Time,
 		UpdatedAt:               updatedAt.Time,
 	}
-	if rental != uuid.Nil {
-		r := rental
-		checkout.Rental = &r
-	}
-	return checkout
 }

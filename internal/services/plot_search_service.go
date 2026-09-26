@@ -10,12 +10,13 @@ import (
 )
 
 type PlotSearchService interface {
-	// FindNearestByCoordinates finds the plots nearest to the given point.
-	FindNearestByCoordinates(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error)
+	// FindNearestByCoordinates finds the plots nearest to the given point,
+	// only farm's plots when farm is non-nil.
+	FindNearestByCoordinates(ctx context.Context, lon, lat float64, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error)
 	// FindNearestByLocation resolves postalCode/city to coordinates, then
 	// finds the plots nearest to that point. Exactly one of
 	// postalCode/city should be set.
-	FindNearestByLocation(ctx context.Context, postalCode, city string, limit int32) ([]models.NearbyPlot, error)
+	FindNearestByLocation(ctx context.Context, postalCode, city string, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error)
 }
 
 type plotSearchService struct {
@@ -28,8 +29,8 @@ func NewPlotSearchService(plotRepo PlotRepository, postalCodeRepo PostalCodeRepo
 	return &plotSearchService{plotRepo: plotRepo, postalCodeRepo: postalCodeRepo, cropRepo: cropRepo}
 }
 
-func (s *plotSearchService) FindNearestByCoordinates(ctx context.Context, lon, lat float64, limit int32) ([]models.NearbyPlot, error) {
-	plots, err := s.plotRepo.GetNearestPlots(ctx, lon, lat, limit)
+func (s *plotSearchService) FindNearestByCoordinates(ctx context.Context, lon, lat float64, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error) {
+	plots, err := s.plotRepo.GetNearestPlots(ctx, lon, lat, farm, limit)
 	if err != nil {
 		return nil, fmt.Errorf("getting nearest plots: %w", err)
 	}
@@ -50,7 +51,7 @@ func (s *plotSearchService) FindNearestByCoordinates(ctx context.Context, lon, l
 	return plots, nil
 }
 
-func (s *plotSearchService) FindNearestByLocation(ctx context.Context, postalCode, city string, limit int32) ([]models.NearbyPlot, error) {
+func (s *plotSearchService) FindNearestByLocation(ctx context.Context, postalCode, city string, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error) {
 	lon, lat, err := s.postalCodeRepo.FindCoordinates(ctx, postalCode, city)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -59,5 +60,5 @@ func (s *plotSearchService) FindNearestByLocation(ctx context.Context, postalCod
 		return nil, fmt.Errorf("resolving location: %w", err)
 	}
 
-	return s.FindNearestByCoordinates(ctx, lon, lat, limit)
+	return s.FindNearestByCoordinates(ctx, lon, lat, farm, limit)
 }

@@ -33,18 +33,25 @@ func (q *Queries) DeletePlotCrops(ctx context.Context, plot uuid.UUID) error {
 const getAllCrops = `-- name: GetAllCrops :many
 SELECT id, name, duration_months
 FROM crop
+WHERE NOT is_placeholder
 ORDER BY name
 `
 
-func (q *Queries) GetAllCrops(ctx context.Context) ([]Crop, error) {
+type GetAllCropsRow struct {
+	ID             uuid.UUID
+	Name           string
+	DurationMonths int32
+}
+
+func (q *Queries) GetAllCrops(ctx context.Context) ([]GetAllCropsRow, error) {
 	rows, err := q.db.Query(ctx, getAllCrops)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Crop
+	var items []GetAllCropsRow
 	for rows.Next() {
-		var i Crop
+		var i GetAllCropsRow
 		if err := rows.Scan(&i.ID, &i.Name, &i.DurationMonths); err != nil {
 			return nil, err
 		}
@@ -63,9 +70,15 @@ WHERE id = $1
 LIMIT 1
 `
 
-func (q *Queries) GetCropByID(ctx context.Context, id uuid.UUID) (Crop, error) {
+type GetCropByIDRow struct {
+	ID             uuid.UUID
+	Name           string
+	DurationMonths int32
+}
+
+func (q *Queries) GetCropByID(ctx context.Context, id uuid.UUID) (GetCropByIDRow, error) {
 	row := q.db.QueryRow(ctx, getCropByID, id)
-	var i Crop
+	var i GetCropByIDRow
 	err := row.Scan(&i.ID, &i.Name, &i.DurationMonths)
 	return i, err
 }
@@ -78,15 +91,21 @@ WHERE pc.plot = $1
 ORDER BY c.name
 `
 
-func (q *Queries) GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]Crop, error) {
+type GetCropsByPlotRow struct {
+	ID             uuid.UUID
+	Name           string
+	DurationMonths int32
+}
+
+func (q *Queries) GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]GetCropsByPlotRow, error) {
 	rows, err := q.db.Query(ctx, getCropsByPlot, plot)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Crop
+	var items []GetCropsByPlotRow
 	for rows.Next() {
-		var i Crop
+		var i GetCropsByPlotRow
 		if err := rows.Scan(&i.ID, &i.Name, &i.DurationMonths); err != nil {
 			return nil, err
 		}

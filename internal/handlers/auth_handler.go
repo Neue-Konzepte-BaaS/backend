@@ -90,8 +90,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	webutils.WriteJSON(w, http.StatusOK, toMeResponse(account))
 }
 
-// Register creates a farmer or customer account and, on success, signs the new
-// user in by setting the same auth cookies as Login.
+// Register validates a farmer or customer signup and emails a verification
+// link. No account exists yet and no auth cookies are set -- that only
+// happens once the link is followed; see VerifyEmail.
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -99,7 +100,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, pair, err := h.authService.Register(r.Context(), services.RegisterInput{
+	err := h.authService.Register(r.Context(), services.RegisterInput{
 		FirstName:   req.FirstName,
 		LastName:    req.LastName,
 		Email:       req.Email,
@@ -122,6 +123,38 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Error("registration failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	webutils.WriteJSON(w, http.StatusAccepted, map[string]string{"message": "verification email sent"})
+}
+
+// verifyEmailRequest is the token from the link in the verification email.
+type verifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
+// VerifyEmail consumes a verification token, creates the account it was
+// issued for, and signs the caller in with the same cookies Login sets.
+func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req verifyEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
+		webutils.WriteError(w, http.StatusBadRequest, "token is required")
+		return
+	}
+
+	account, pair, err := h.authService.VerifyEmail(r.Context(), req.Token)
+	if errors.Is(err, services.ErrInvalidVerificationToken) {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid or expired verification link")
+		return
+	}
+	if errors.Is(err, services.ErrEmailTaken) {
+		webutils.WriteError(w, http.StatusConflict, "email already registered")
+		return
+	}
+	if err != nil {
+		slog.Error("verify email failed", "error", err)
 		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

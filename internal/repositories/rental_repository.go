@@ -175,6 +175,38 @@ func (r *rentalRepository) GetRentalsByCustomer(ctx context.Context, customer uu
 	return rentals, nil
 }
 
+func (r *rentalRepository) GetActiveRentalsByCustomer(ctx context.Context, customer uuid.UUID) ([]models.ActiveRental, error) {
+	rows, err := r.queries.GetActiveRentalsByCustomer(ctx, customer)
+	if err != nil {
+		return nil, err
+	}
+
+	rentals := make([]models.ActiveRental, len(rows))
+	for i, row := range rows {
+		rentals[i] = models.ActiveRental{
+			Rental: models.Rental{
+				ID:       row.ID,
+				PlotID:   row.Plot,
+				CropID:   row.Crop,
+				Customer: row.Customer,
+				StartAt:  row.StartAt.Time,
+				EndAt:    row.EndAt.Time,
+			},
+			PlotName:  row.PlotName,
+			FieldName: row.FieldName,
+			FarmID:    row.Farm,
+			Crop: models.Crop{
+				ID:             row.Crop,
+				Name:           row.CropName,
+				DurationMonths: row.CropDurationMonths,
+			},
+			CurrentWeek: row.CurrentWeek,
+			TotalWeeks:  row.TotalWeeks,
+		}
+	}
+	return rentals, nil
+}
+
 func (r *rentalRepository) GetRentalsByFarm(ctx context.Context, farm uuid.UUID) ([]models.RentalWithPlotAndCustomer, error) {
 	rows, err := r.queries.GetRentalsByFarm(ctx, farm)
 	if err != nil {

@@ -17,9 +17,15 @@ var ErrInvalidToken = errors.New("invalid token")
 const (
 	AccessTTL  = 15 * time.Minute
 	RefreshTTL = 7 * 24 * time.Hour
+	// EmailVerifyTTL is how long a registration stays pending before the
+	// verification link expires. Long enough that a user checking email the
+	// next morning still finds it valid, short enough that an abandoned
+	// pending_registration row does not linger indefinitely.
+	EmailVerifyTTL = 24 * time.Hour
 
-	TypeAccess  = "access"
-	TypeRefresh = "refresh"
+	TypeAccess      = "access"
+	TypeRefresh     = "refresh"
+	TypeEmailVerify = "email_verify"
 )
 
 // Claims carries the user identity. Role is included so authorization checks

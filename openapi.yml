@@ -25,12 +25,16 @@ tags:
     description: Renting plots
   - name: payments
     description: Stripe Checkout sessions that gate a rental's creation on payment
+  - name: care
+    description: The weekly care guide — per-crop instructions, read against a tenant's own rental week
   - name: notifications
     description: Platform-wide notifications sent by an admin
   - name: announcements
     description: The Schwarzes Brett — notices a farmer posts for his current customers
+  - name: ripeness
+    description: Ready-to-harvest notices a farmer posts for a field's current growers
   - name: inbox
-    description: A customer's merged feed of platform broadcasts and announcements
+    description: A customer's merged feed of platform broadcasts, announcements, ripeness notices, and care instructions
   - name: statistics
     description: Aggregate statistics for farmers and admins
   - name: admin
@@ -570,6 +574,100 @@ paths:
               example:
                 error: internal error
 
+  /api/fields/{fieldID}/ripeness:
+    post:
+      tags: [ripeness]
+      summary: Post a ripeness notice for a field
+      description: |
+        Stores the notice and emails it to the customers currently renting a
+        plot of this field with the given crop. The field must be owned by
+        the authenticated farmer. Requires the `farmer` role.
+
+        Unlike the announcement board, a ripeness notice has no separate
+        read endpoint of its own — it appears in the recipients'
+        `GET /api/inbox` feed as a `ripeness_notice` item, mail-only
+        otherwise.
+
+        `recipients` is how many customers the message was queued for, not
+        how many were reached, for the same reason as
+        `POST /api/announcements`: delivery happens after this response,
+        nothing is retried, and a customer growing this crop on several
+        matching plots is counted and mailed once.
+      operationId: createRipenessNotice
+      parameters:
+        - name: fieldID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRipenessNoticeRequest'
+      responses:
+        '201':
+          description: The ripeness notice was stored and queued for delivery.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedRipenessNotice'
+        '400':
+          description: Malformed body, invalid field id, or a missing/invalid `crop_id`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidFieldId:
+                  value:
+                    error: invalid field id
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidCropId:
+                  value:
+                    error: crop_id is required and must be a valid id
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer, or the field is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                insufficientPermissions:
+                  value:
+                    error: insufficient permissions
+                notOwner:
+                  value:
+                    error: field is not owned by this farmer
+        '404':
+          description: Field or crop not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: field or crop not found
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
   /api/plots/nearest:
     get:
       tags: [plots]
@@ -629,6 +727,15 @@ paths:
             maximum: 100
             default: 20
           example: 10
+        - name: farm
+          in: query
+          description: |
+            Optional farm id. Only that farm's free plots are returned (still
+            nearest first), e.g. for a farm's detail page — otherwise a farm
+            whose plots aren't among the overall nearest `limit` would look empty.
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: The nearest plots, ordered by ascending distance.
@@ -763,7 +870,8 @@ paths:
       summary: List the crop catalog
       description: |
         Returns every crop in the catalog, ordered by name. Public endpoint —
-        no authentication required.
+        no authentication required. Placeholder crops (the migration-seeded
+        `unknown` crop that only backfills legacy rentals) are excluded.
       operationId: getAllCrops
       security: []
       responses:
@@ -852,6 +960,381 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: internal error
+
+  /api/crops/{cropID}/care-instructions:
+    get:
+      tags: [care, crops]
+      summary: Read a crop's care guide
+      description: |
+        Returns every care instruction for one crop, in week order. This is the
+        authoring view: the whole guide, not scoped to any rental. Requires the
+        `admin` or `farmer` role. A customer reads it through
+        `GET /api/care-guide` instead, where it is limited to the crops they
+        are actually growing and paired with their own week.
+
+        Which guide comes back depends on the caller:
+
+        - An **admin** reads the crop's **default guide**, the one every farm
+          starts from.
+        - A **farmer** reads the guide their own tenants read: their farm's
+          own version if they have taken the guide over, the default
+          otherwise.
+
+        The `X-Care-Guide-Source` header says which one it is. Each
+        instruction's `farmId` also says it, but an empty farm guide has no
+        instructions to carry it.
+
+        An unknown crop id answers `200` with an empty list rather than `404`:
+        a crop with no guide and a crop that does not exist are the same empty
+        guide to a reader.
+      operationId: getCareInstructions
+      parameters:
+        - $ref: '#/components/parameters/CropID'
+      responses:
+        '200':
+          description: The crop's care guide, in week order.
+          headers:
+            X-Care-Guide-Source:
+              description: |
+                `farm` when the instructions are the calling farmer's own
+                version of the guide, `default` otherwise (always `default`
+                for an admin).
+              schema:
+                type: string
+                enum: [farm, default]
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CareInstruction'
+        '400':
+          description: Invalid crop id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid crop id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: |
+            The authenticated account is neither an admin nor a farmer, or is
+            a farmer without a farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                wrongRole:
+                  value:
+                    error: insufficient permissions
+                noFarm:
+                  value:
+                    error: no farm to write a care guide for
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [care, crops]
+      summary: Add one task to a crop's care guide
+      description: |
+        Creates a care instruction for the given crop and week. Requires the
+        `admin` or `farmer` role:
+
+        - An **admin** adds the step to the crop's **default guide**.
+        - A **farmer** adds it to their **farm's own version**. If the farm
+          has none yet, this first write takes the guide over: the default
+          guide is copied into the farm, and the new step is added to the
+          copy. From then on the farm's tenants read only the farm's version
+          of this crop's guide.
+
+        Several instructions may share a week: a week is a list of tasks, not
+        one task. Weeks count from the start of a tenant's rental, not the
+        calendar.
+      operationId: createCareInstruction
+      parameters:
+        - $ref: '#/components/parameters/CropID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CareInstructionRequest'
+      responses:
+        '201':
+          description: The created instruction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareInstruction'
+        '400':
+          description: Malformed body, invalid crop id, a week outside 1–104, or a missing/oversized title or body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidWeek:
+                  value:
+                    error: week must be between 1 and 104
+                missingTitle:
+                  value:
+                    error: title is required
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: |
+            The authenticated account is neither an admin nor a farmer, or is
+            a farmer without a farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                wrongRole:
+                  value:
+                    error: insufficient permissions
+                noFarm:
+                  value:
+                    error: no farm to write a care guide for
+        '404':
+          description: No crop has that id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: crop not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/care-instructions/{instructionID}:
+    put:
+      tags: [care]
+      summary: Edit a care instruction
+      description: |
+        Rewrites an instruction's week, title and body. Requires the `admin`
+        or `farmer` role. The crop is not editable: moving advice to another
+        crop is a different guide, not an edit, so it is a delete plus a
+        create.
+
+        - An **admin** may edit any instruction: a default one, or a farm's
+          (as moderation).
+        - A **farmer** may edit their farm's own instructions. If they edit a
+          **default** one (the id they were shown before taking the guide
+          over), the farm takes the guide over first, and the farm's copy of
+          that instruction is what changes. The response is then the copy,
+          with a **different `id`** from the one in the path. The default
+          itself is never changed by a farmer.
+        - Another farm's instruction answers `404`, like an unknown id.
+      operationId: updateCareInstruction
+      parameters:
+        - $ref: '#/components/parameters/CareInstructionID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CareInstructionRequest'
+      responses:
+        '200':
+          description: The updated instruction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareInstruction'
+        '400':
+          description: Malformed body, invalid id, a week outside 1–104, or a missing/oversized title or body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: week must be between 1 and 104
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: |
+            The authenticated account is neither an admin nor a farmer, or is
+            a farmer without a farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                wrongRole:
+                  value:
+                    error: insufficient permissions
+                noFarm:
+                  value:
+                    error: no farm to write a care guide for
+        '404':
+          description: No care instruction with that id is visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: care instruction not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [care]
+      summary: Remove a care instruction
+      description: |
+        Deletes one instruction, under the same rules as the `PUT`: an admin
+        deletes the instruction itself, and a farmer deleting a default
+        instruction takes the guide over and deletes only the farm's copy.
+        Requires the `admin` or `farmer` role. Deleting an id that is already
+        gone answers `404` rather than `204`, so a client can tell a removal
+        from a no-op.
+      operationId: deleteCareInstruction
+      parameters:
+        - $ref: '#/components/parameters/CareInstructionID'
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          description: Invalid care instruction id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid care instruction id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: |
+            The authenticated account is neither an admin nor a farmer, or is
+            a farmer without a farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                wrongRole:
+                  value:
+                    error: insufficient permissions
+                noFarm:
+                  value:
+                    error: no farm to write a care guide for
+        '404':
+          description: No care instruction with that id is visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: care instruction not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/crops/{cropID}/farm-care-guide:
+    delete:
+      tags: [care, crops]
+      summary: Reset a crop's care guide to the default
+      description: |
+        Drops the calling farmer's own version of the crop's care guide, so
+        their tenants read the default guide again. Farmers only. Every step
+        of the farm's version is deleted.
+
+        A farm that has not taken this crop's guide over answers `404`: there
+        is nothing to reset.
+      operationId: resetFarmCareGuide
+      parameters:
+        - $ref: '#/components/parameters/CropID'
+      responses:
+        '204':
+          description: Reset; the farm reads the default guide again.
+        '400':
+          description: Invalid crop id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid crop id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a farmer, or has no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: The farm has no version of its own of this crop's guide.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: farm has no care guide of its own for this crop
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/care-guide:
+    get:
+      tags: [care]
+      summary: The tenant's own care guide
+      description: |
+        Returns one entry per plot the authenticated customer is renting right
+        now, each carrying the crop's instructions and where today falls inside
+        that rental (`currentWeek` of `totalWeeks`). Customers only — a farmer
+        or admin receives 403, and reads a crop's whole guide through
+        `GET /api/crops/{cropID}/care-instructions` instead.
+
+        Three rules worth knowing before rendering it:
+
+        - **Only approved rentals appear.** A rental still waiting on the
+          farmer's decision, or declined by them, carries no care guide — the
+          same audience rule `GET /api/announcements` applies to the board.
+        - **Only running rentals appear.** A rental that has ended, or whose
+          approved start date is still in the future, is not in the response
+          at all.
+        - **Instructions past `totalWeeks` are dropped.** A guide is written
+          per crop while rental length comes from that crop's duration in
+          months, so a guide running to week 30 against a 13-week rental would
+          otherwise promise tasks for weeks the tenant never reaches.
+
+        - **The farm's version wins.** Each plot's guide is the one its farm
+          uses for the crop: the farm's own version if the farmer has taken
+          the guide over, the default otherwise.
+
+        A plot whose crop has no guide yet is still returned, with an empty
+        `instructions` array: the tenant's week and rental period are worth
+        showing before anyone writes the advice.
+      operationId: getCareGuide
+      responses:
+        '200':
+          description: One care guide per currently rented plot.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlotCareGuide'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/rentals:
     get:
@@ -1407,6 +1890,14 @@ paths:
         Stores the notice and emails it to the customers currently renting one
         of this farmer's plots. Farmers only — a customer or admin receives 403.
 
+        By default the audience is every current renter. Setting `field_id` or
+        `plot_id` (never both) narrows it to the customers currently renting a
+        plot of that field, or that one plot — the board (`GET
+        /api/announcements`) applies the same scope when a customer reads it.
+        The field or plot must belong to this farmer, or the request is
+        rejected the same way `POST /api/fields/{fieldID}/plots` rejects one
+        it does not own.
+
         Unlike the platform broadcast this answers **201**, because the
         announcement itself is stored before the response is written. The board
         keeps it, so a customer who never receives the mail can still read it.
@@ -1414,8 +1905,8 @@ paths:
         `recipients` is how many customers the message was queued for, not how
         many were reached: delivery happens after the response, nothing is
         retried, and an address the relay rejects is logged and otherwise lost.
-        A customer renting several plots from this farmer is counted and mailed
-        once.
+        A customer renting several matching plots from this farmer is counted
+        and mailed once.
 
         Delivery failing does not fail the request — the announcement is
         already on the board, and `recipients` is then `0`. A `0` is therefore
@@ -1460,6 +1951,15 @@ paths:
                 bodyTooLong:
                   value:
                     error: body is too long
+                bothScoped:
+                  value:
+                    error: at most one of field_id, plot_id may be set
+                invalidFieldId:
+                  value:
+                    error: invalid field id
+                invalidPlotId:
+                  value:
+                    error: invalid plot id
         '401':
           description: Not authenticated.
           content:
@@ -1469,13 +1969,26 @@ paths:
               example:
                 error: not authenticated
         '403':
-          description: The authenticated account is not a farmer.
+          description: The authenticated account is not a farmer, or `field_id`/`plot_id` is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                insufficientPermissions:
+                  value:
+                    error: insufficient permissions
+                notOwner:
+                  value:
+                    error: field or plot is not owned by this farmer
+        '404':
+          description: The given `field_id`/`plot_id` does not exist.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
               example:
-                error: insufficient permissions
+                error: field or plot not found
         '500':
           description: Internal error.
           content:
@@ -1494,11 +2007,16 @@ paths:
         is currently renting from, each notice once however many plots he rents
         from that farmer.
 
+        A notice posted with `field_id`/`plot_id` set only appears for a
+        customer whose active rental actually covers that field/plot — not
+        merely for being that farmer's customer.
+
         The rental decides *which farmers* a customer reads, not *which
         notices*, so the board is not a record of the mail he received: a
         customer who starts renting today also reads everything that farmer
-        posted before, and when a rental ends that farmer's notices leave the
-        board even if the customer was mailed them at the time.
+        posted before (subject to the scope above), and when a rental ends
+        that farmer's notices leave the board even if the customer was mailed
+        them at the time.
 
         Newest first. An admin receives 403: the board belongs to the farms and
         their customers.
@@ -1542,18 +2060,34 @@ paths:
       tags: [inbox]
       summary: Read the authenticated customer's inbox
       description: |
-        A merged, newest-first feed of every platform broadcast plus the
-        announcements of every farmer this customer currently rents from.
-        Customers only — a farmer or admin receives 403.
+        A merged, newest-first feed of every platform broadcast, the
+        announcements of every farmer this customer currently rents from, the
+        ripeness notices for the crops this customer is currently growing, and
+        the care instructions for every week of this customer's current
+        rentals that has already begun. Customers only — a farmer or admin
+        receives 403.
 
-        Each item carries its `kind` (`broadcast` or `announcement`) so a
-        client can render one feed instead of two. `farm_name` is only present
-        on announcement items; broadcasts have no farm to attribute.
+        Each item carries its `kind` (`broadcast`, `announcement`,
+        `ripeness_notice`, or `care`) so a client can render one feed instead
+        of four. `farm_name` is present on announcement and ripeness items;
+        broadcasts and care instructions have no farm to attribute.
+        `field_name`/`crop_name` are present on ripeness and care items.
+
+        A `care` item is one instruction from the crop's weekly care guide
+        (see `GET /api/care-guide`), taken against the same active, approved
+        rentals. Only weeks that have begun appear — upcoming tasks are the
+        care guide's job, not the inbox's. Its `created_at` is when that week
+        of the rental started, its `subject` is `Woche <n>: <title>`, and its
+        `id` is derived from the rental and the instruction, so it is stable
+        across reads and distinct for two plots growing the same crop.
 
         As with `GET /api/announcements`, the rental decides which farmers'
-        announcements appear, not which notices were mailed to this customer:
-        a new renter also reads that farmer's older notices, and an ended
-        rental removes that farmer's notices from the feed.
+        announcements and ripeness notices appear, not which notices were
+        mailed to this customer: a new renter also reads that farmer's older
+        notices (subject to any `field_id`/`plot_id` scope), and an ended
+        rental removes that farmer's notices from the feed. A ripeness notice
+        additionally requires the active rental's crop to match the notice's
+        crop.
       operationId: getInbox
       responses:
         '200':
@@ -1672,6 +2206,20 @@ components:
         minimum: 1
         maximum: 100
         default: 20
+    CropID:
+      name: cropID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CareInstructionID:
+      name: instructionID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     PageOffset:
       name: offset
       in: query
@@ -2094,6 +2642,118 @@ components:
           format: int32
           description: How long renting this crop books a plot for.
           example: 4
+
+    CareInstruction:
+      type: object
+      description: |
+        One task in a crop's weekly care guide. `week` is a week of a tenant's
+        *rental*, counting from 1 for its first seven days — not an ISO
+        calendar week. Rentals start whenever a customer books, so a guide
+        pinned to calendar weeks would tell two tenants of the same crop to do
+        different things at the same point in their own growing period.
+
+        Every crop has a default guide, which an admin maintains. A farmer may
+        take a crop's guide over for their own farm; the farm's tenants then
+        read the farm's version instead.
+      required: [id, cropId, farmId, week, title, body, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        cropId:
+          type: string
+          format: uuid
+        farmId:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            `null` for a step of the crop's default guide, and the farm's id
+            for a step of that farm's own version.
+        week:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 104
+          example: 3
+        title:
+          type: string
+          example: Thin out the seedlings
+        body:
+          type: string
+          example: Leave the strongest plant every 10 cm.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CareInstructionRequest:
+      type: object
+      required: [week, title, body]
+      properties:
+        week:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 104
+          example: 3
+        title:
+          type: string
+          maxLength: 200
+          description: Surrounding whitespace is trimmed. Counted in runes, not bytes.
+          example: Thin out the seedlings
+        body:
+          type: string
+          maxLength: 5000
+          description: Surrounding whitespace is trimmed. Counted in runes, not bytes.
+          example: Leave the strongest plant every 10 cm.
+
+    PlotCareGuide:
+      type: object
+      description: One rented plot's care guide, as its tenant sees it.
+      required: [rentalId, plotId, plotName, fieldName, crop, startAt, endAt, currentWeek, totalWeeks, instructions]
+      properties:
+        rentalId:
+          type: string
+          format: uuid
+        plotId:
+          type: string
+          format: uuid
+        plotName:
+          type: string
+          example: Plot 12
+        fieldName:
+          type: string
+          example: North field
+        crop:
+          $ref: '#/components/schemas/Crop'
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+          description: Exclusive, as everywhere else rentals are returned.
+        currentWeek:
+          type: integer
+          format: int32
+          minimum: 1
+          description: |
+            The rental week today falls in, counted from 1 and measured against
+            the database clock rather than the caller's.
+          example: 3
+        totalWeeks:
+          type: integer
+          format: int32
+          description: How many weeks the rental runs, rounded up.
+          example: 13
+        instructions:
+          type: array
+          description: The crop's guide in week order, limited to weeks this rental reaches.
+          items:
+            $ref: '#/components/schemas/CareInstruction'
 
     CreateCropRequest:
       type: object
@@ -2561,6 +3221,21 @@ components:
             not bytes.
           example: |
             Am Samstag ab 9 Uhr wird geerntet. Bringt bitte eigene Kisten mit.
+        field_id:
+          type: string
+          format: uuid
+          description: |
+            Narrows the audience to the customers currently renting a plot of
+            this field. Must be owned by the authenticated farmer. At most one
+            of `field_id`/`plot_id` may be set; omitting both reaches every
+            current renter.
+        plot_id:
+          type: string
+          format: uuid
+          description: |
+            Narrows the audience to the customer currently renting this one
+            plot. Must belong to a field owned by the authenticated farmer. At
+            most one of `field_id`/`plot_id` may be set.
 
     Announcement:
       type: object
@@ -2585,6 +3260,14 @@ components:
           example: Ernte am Samstag
         body:
           type: string
+        field_id:
+          type: string
+          format: uuid
+          description: Present when the notice was scoped to one field.
+        plot_id:
+          type: string
+          format: uuid
+          description: Present when the notice was scoped to one plot.
         created_at:
           type: string
           format: date-time
@@ -2640,7 +3323,7 @@ components:
       properties:
         kind:
           type: string
-          enum: [broadcast, announcement]
+          enum: [broadcast, announcement, ripeness_notice, care]
           description: Which stored record this item came from.
         id:
           type: string
@@ -2653,12 +3336,77 @@ components:
         farm_name:
           type: string
           description: |
-            The farm the notice came from. Present only on `announcement`
-            items; a `broadcast` has no farm to attribute and omits this field.
+            The farm the notice came from. Present on `announcement` and
+            `ripeness_notice` items; a `broadcast` or `care` item has no farm
+            to attribute and omits this field.
           example: Hof Grünwald
+        field_name:
+          type: string
+          description: The field the notice is about. Present only on `ripeness_notice` and `care` items.
+          example: Feld Nord
+        crop_name:
+          type: string
+          description: The crop that is ready, or the crop the care instruction is for. Present only on `ripeness_notice` and `care` items.
+          example: Zucchini
         created_at:
           type: string
           format: date-time
+
+    CreateRipenessNoticeRequest:
+      type: object
+      required: [crop_id]
+      properties:
+        crop_id:
+          type: string
+          format: uuid
+          description: The crop that is ready to harvest.
+
+    RipenessNotice:
+      type: object
+      required: [id, farmer, farm_name, field, field_name, crop, crop_name, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        farmer:
+          type: string
+          format: uuid
+          description: The account id of the farmer who posted it.
+        farm_name:
+          type: string
+          example: Hof Grünwald
+        field:
+          type: string
+          format: uuid
+        field_name:
+          type: string
+          example: Feld Nord
+        crop:
+          type: string
+          format: uuid
+        crop_name:
+          type: string
+          example: Zucchini
+        created_at:
+          type: string
+          format: date-time
+
+    CreatedRipenessNotice:
+      allOf:
+        - $ref: '#/components/schemas/RipenessNotice'
+        - type: object
+          required: [recipients]
+          properties:
+            recipients:
+              type: integer
+              format: int64
+              description: |
+                How many customers currently growing this crop on this field
+                the notice was queued for. Delivery happens after this
+                response, so it is not a count of successful sends, and it is
+                `0` if the mail could not be queued at all — the notice is
+                stored either way.
+              example: 3
 
 security:
   - accessTokenCookie: []

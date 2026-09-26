@@ -20,7 +20,7 @@ RETURNING id, customer, plot, crop, start_at, message, stripe_checkout_session_i
 `
 
 type CompleteRentalCheckoutParams struct {
-	Rental uuid.UUID
+	Rental *uuid.UUID
 	ID     uuid.UUID
 }
 
@@ -113,7 +113,7 @@ LIMIT 1
 // Used when a farmer declines a rental, to find the payment that must now
 // be refunded. Returns no rows (mapped to ErrNotFound) if the rental was
 // never paid for through Stripe.
-func (q *Queries) GetCompletedRentalCheckoutByRental(ctx context.Context, rental uuid.UUID) (RentalCheckout, error) {
+func (q *Queries) GetCompletedRentalCheckoutByRental(ctx context.Context, rental *uuid.UUID) (RentalCheckout, error) {
 	row := q.db.QueryRow(ctx, getCompletedRentalCheckoutByRental, rental)
 	var i RentalCheckout
 	err := row.Scan(
