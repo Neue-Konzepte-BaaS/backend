@@ -18,6 +18,14 @@ LEFT JOIN plot p ON p.field = fi.id
 WHERE farm.id = $1
 GROUP BY farm.id;
 
+-- name: UpdateFarmByFarmer :one
+-- A farmer edits their own farm, found by owner rather than by id so the
+-- caller cannot name somebody else's. founded_at NULL clears it.
+UPDATE farm
+SET name = sqlc.arg(name), address = sqlc.arg(address), description = sqlc.arg(description), founded_at = sqlc.arg(founded_at)
+WHERE farmer_id = sqlc.arg(farmer_id)
+RETURNING id;
+
 -- name: GetFarmIDByFarmerID :one
 -- Lean lookup for ownership checks: resolves a farmer's own farm id without
 -- the area-summing join GetFarmByID does.

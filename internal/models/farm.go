@@ -16,6 +16,16 @@ type Farm struct {
 	TotalSquareMeters float64
 }
 
+// FarmUpdate is what a farmer may change about their own farm. The area is
+// derived from the plots and the owner is fixed, so neither is here.
+type FarmUpdate struct {
+	Name        string
+	Address     string
+	Description string
+	// FoundedAt nil clears the founding date.
+	FoundedAt *time.Time
+}
+
 // FarmListing is one row of the admin farm list: a farm, the farmer account
 // that owns it, and what it holds.
 //
