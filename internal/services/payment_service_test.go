@@ -292,6 +292,9 @@ func (f *fakePaymentFarmRepo) GetFarmCropRate(context.Context, uuid.UUID, uuid.U
 func (f *fakePaymentFarmRepo) SetFarmCropRates(context.Context, uuid.UUID, []models.FarmCropRate) error {
 	return nil
 }
+func (f *fakePaymentFarmRepo) UpdateFarmByFarmer(context.Context, uuid.UUID, models.FarmUpdate) (uuid.UUID, error) {
+	return uuid.UUID{}, nil
+}
 
 func newTestPaymentService(rentalService *fakePaymentRentalService, rentalRepo *fakePaymentRentalRepo, checkoutRepo *fakeCheckoutRepo, gateway *fakePaymentGateway, plotRepo *fakePaymentPlotRepo, cropRepo *fakePaymentCropRepo, fieldRepo *fakePaymentFieldRepo, farmRepo *fakePaymentFarmRepo) PaymentService {
 	return NewPaymentService(rentalService, rentalRepo, checkoutRepo, gateway, plotRepo, cropRepo, fieldRepo, farmRepo, "https://frontend.example.com")
