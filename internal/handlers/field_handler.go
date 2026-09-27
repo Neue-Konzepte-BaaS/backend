@@ -81,6 +81,15 @@ type fieldWithPlotsResponse struct {
 	Plots       []plotWithCropsResponse `json:"plots"`
 }
 
+type fieldWithPlotStatsResponse struct {
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Farm             string          `json:"farm"`
+	Coordinates      json.RawMessage `json:"coordinates"`
+	PlotCount        int64           `json:"plotCount"`
+	AreaSquareMeters float64         `json:"areaSquareMeters"`
+}
+
 // decodePolygon parses a GeoJSON Polygon geometry, e.g.
 // {"type":"Polygon","coordinates":[[[lon,lat],...]]}.
 func decodePolygon(raw json.RawMessage) (*geom.Polygon, error) {
@@ -171,6 +180,39 @@ func (h *FieldHandler) GetFields(w http.ResponseWriter, r *http.Request) {
 			Farm:        field.Farm.String(),
 			Coordinates: encodePolygon(field.Coordinates),
 			Plots:       plots,
+		}
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, res)
+}
+
+// GetFarmFields returns a farm's fields for a customer browsing its plots —
+// public, no auth required. Each field carries only its currently-available
+// plot count and combined area (see GetFieldsByFarmWithAvailablePlotStats),
+// not the farmer-facing full plot list GetFields returns.
+func (h *FieldHandler) GetFarmFields(w http.ResponseWriter, r *http.Request) {
+	farmID, err := uuid.Parse(chi.URLParam(r, "farmID"))
+	if err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid farm id")
+		return
+	}
+
+	fields, err := h.fieldService.GetFieldsByFarm(r.Context(), farmID)
+	if err != nil {
+		slog.Error("getting farm fields failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	res := make([]fieldWithPlotStatsResponse, len(fields))
+	for i, field := range fields {
+		res[i] = fieldWithPlotStatsResponse{
+			ID:               field.ID.String(),
+			Name:             field.Name,
+			Farm:             field.Farm.String(),
+			Coordinates:      encodePolygon(field.Coordinates),
+			PlotCount:        field.PlotCount,
+			AreaSquareMeters: field.AreaSquareMeters,
 		}
 	}
 

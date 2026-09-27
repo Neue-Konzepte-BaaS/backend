@@ -371,6 +371,55 @@ paths:
               example:
                 error: internal error
 
+  /api/farms/{farmID}/fields:
+    get:
+      tags: [farms, fields]
+      summary: Get a farm's fields for a customer browsing its plots
+      description: |
+        Returns the farm's fields, each with the count and combined area of
+        only its currently-available plots (not its full plot count) — the
+        same "available right now" predicate `GET /api/plots/nearest` uses,
+        so these figures never disagree with what that endpoint actually
+        returns for the field. A field with zero available plots is still
+        included, with `plotCount: 0`, rather than omitted. Public endpoint
+        — no authentication required. An unknown farm id returns an empty
+        list rather than 404, the same as an empty farm would.
+      operationId: getFarmFields
+      security: []
+      parameters:
+        - name: farmID
+          in: path
+          required: true
+          description: ID of the farm, e.g. the `farm` field on a `NearbyPlot`.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The farm's fields, with their currently-available plot stats.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FieldWithPlotStats'
+        '400':
+          description: Malformed farm id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid farm id
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
   /api/farms/crop-rates:
     get:
       tags: [farms, crops]
@@ -2608,6 +2657,27 @@ components:
           description: ID of the farm this field belongs to.
         coordinates:
           $ref: '#/components/schemas/GeoJSONPolygon'
+
+    FieldWithPlotStats:
+      description: |
+        A field as a customer browsing a farm sees it — its name and
+        boundary, plus how many of its plots are available to rent right now
+        and their combined area. See `GET /api/farms/{farmID}/fields`.
+      allOf:
+        - $ref: '#/components/schemas/Field'
+        - type: object
+          required: [plotCount, areaSquareMeters]
+          properties:
+            plotCount:
+              type: integer
+              format: int64
+              description: How many of this field's plots are available to rent right now.
+              example: 12
+            areaSquareMeters:
+              type: number
+              format: double
+              description: Combined area of only this field's currently-available plots.
+              example: 4200.5
 
     Plot:
       type: object
