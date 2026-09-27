@@ -353,7 +353,7 @@ func TestFarmRepository_UpdateFarmByFarmer(t *testing.T) {
 	pool := setupTestDB(t)
 	ctx := context.Background()
 
-	farmRepo := repositories.NewFarmRepository(database.New(pool))
+	farmRepo := repositories.NewFarmRepository(pool, database.New(pool))
 	farmer, farmID, _, _ := seedFarmWithPlots(t, ctx, pool, 1)
 	_, otherFarmID, _, _ := seedFarmWithPlots(t, ctx, pool, 0)
 	otherBefore, err := farmRepo.GetFarmByID(ctx, otherFarmID)
