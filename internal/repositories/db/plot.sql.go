@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	geom "github.com/twpayne/go-geom"
 )
 
@@ -92,18 +93,19 @@ func (q *Queries) GetNearestPlots(ctx context.Context, arg GetNearestPlotsParams
 }
 
 const getPlotByID = `-- name: GetPlotByID :one
-SELECT id, name, field, coordinates, ST_Area(coordinates::geography)::float8 AS area_square_meters
+SELECT id, name, field, coordinates, base_price_cents_per_sqm_per_week, ST_Area(coordinates::geography)::float8 AS area_square_meters
 FROM plot
 WHERE id = $1
 LIMIT 1
 `
 
 type GetPlotByIDRow struct {
-	ID               uuid.UUID
-	Name             string
-	Field            uuid.UUID
-	Coordinates      *geom.Polygon
-	AreaSquareMeters float64
+	ID                          uuid.UUID
+	Name                        string
+	Field                       uuid.UUID
+	Coordinates                 *geom.Polygon
+	BasePriceCentsPerSqmPerWeek pgtype.Int4
+	AreaSquareMeters            float64
 }
 
 func (q *Queries) GetPlotByID(ctx context.Context, id uuid.UUID) (GetPlotByIDRow, error) {
@@ -114,6 +116,7 @@ func (q *Queries) GetPlotByID(ctx context.Context, id uuid.UUID) (GetPlotByIDRow
 		&i.Name,
 		&i.Field,
 		&i.Coordinates,
+		&i.BasePriceCentsPerSqmPerWeek,
 		&i.AreaSquareMeters,
 	)
 	return i, err
@@ -134,18 +137,19 @@ func (q *Queries) GetPlotField(ctx context.Context, id uuid.UUID) (uuid.UUID, er
 }
 
 const getPlotsByFields = `-- name: GetPlotsByFields :many
-SELECT id, name, field, coordinates, ST_Area(coordinates::geography)::float8 AS area_square_meters
+SELECT id, name, field, coordinates, base_price_cents_per_sqm_per_week, ST_Area(coordinates::geography)::float8 AS area_square_meters
 FROM plot
 WHERE field = ANY($1::uuid[])
 ORDER BY name
 `
 
 type GetPlotsByFieldsRow struct {
-	ID               uuid.UUID
-	Name             string
-	Field            uuid.UUID
-	Coordinates      *geom.Polygon
-	AreaSquareMeters float64
+	ID                          uuid.UUID
+	Name                        string
+	Field                       uuid.UUID
+	Coordinates                 *geom.Polygon
+	BasePriceCentsPerSqmPerWeek pgtype.Int4
+	AreaSquareMeters            float64
 }
 
 func (q *Queries) GetPlotsByFields(ctx context.Context, dollar_1 []uuid.UUID) ([]GetPlotsByFieldsRow, error) {
@@ -162,6 +166,7 @@ func (q *Queries) GetPlotsByFields(ctx context.Context, dollar_1 []uuid.UUID) ([
 			&i.Name,
 			&i.Field,
 			&i.Coordinates,
+			&i.BasePriceCentsPerSqmPerWeek,
 			&i.AreaSquareMeters,
 		); err != nil {
 			return nil, err
@@ -195,4 +200,18 @@ func (q *Queries) InsertPlot(ctx context.Context, arg InsertPlotParams) (InsertP
 	var i InsertPlotRow
 	err := row.Scan(&i.ID, &i.AreaSquareMeters)
 	return i, err
+}
+
+const updatePlotBasePrice = `-- name: UpdatePlotBasePrice :exec
+UPDATE plot SET base_price_cents_per_sqm_per_week = $1 WHERE id = $2
+`
+
+type UpdatePlotBasePriceParams struct {
+	BasePriceCentsPerSqmPerWeek pgtype.Int4
+	ID                          uuid.UUID
+}
+
+func (q *Queries) UpdatePlotBasePrice(ctx context.Context, arg UpdatePlotBasePriceParams) error {
+	_, err := q.db.Exec(ctx, updatePlotBasePrice, arg.BasePriceCentsPerSqmPerWeek, arg.ID)
+	return err
 }

@@ -109,6 +109,10 @@ func (f *fakePlotRepo) GetPlotField(_ context.Context, plot uuid.UUID) (uuid.UUI
 	return field, nil
 }
 
+func (f *fakePlotRepo) GetPlotByID(context.Context, uuid.UUID) (models.Plot, error) {
+	panic("not used by these tests")
+}
+
 // fakeNotifier stands in for the notification provider. Only the fan-out the
 // board uses is reachable from this service.
 type fakeNotifier struct {

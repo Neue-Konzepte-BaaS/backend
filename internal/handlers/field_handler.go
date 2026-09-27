@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Neue-Konzepte-BaaS/backend/internal/middleware"
+	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/webutils"
 	"github.com/go-chi/chi/v5"
@@ -51,12 +52,25 @@ type plotResponse struct {
 }
 
 type plotWithCropsResponse struct {
-	ID               string          `json:"id"`
-	Name             string          `json:"name"`
-	Field            string          `json:"field"`
-	Coordinates      json.RawMessage `json:"coordinates"`
-	AreaSquareMeters float64         `json:"areaSquareMeters"`
-	Crops            []cropResponse  `json:"crops"`
+	ID                          string          `json:"id"`
+	Name                        string          `json:"name"`
+	Field                       string          `json:"field"`
+	Coordinates                 json.RawMessage `json:"coordinates"`
+	AreaSquareMeters            float64         `json:"areaSquareMeters"`
+	BasePriceCentsPerSqmPerWeek *int32          `json:"basePriceCentsPerSqmPerWeek"`
+	Crops                       []cropResponse  `json:"crops"`
+}
+
+func toPlotWithCropsResponse(plot models.PlotWithCrops) plotWithCropsResponse {
+	return plotWithCropsResponse{
+		ID:                          plot.ID.String(),
+		Name:                        plot.Name,
+		Field:                       plot.Field.String(),
+		Coordinates:                 encodePolygon(plot.Coordinates),
+		AreaSquareMeters:            plot.AreaSquareMeters,
+		BasePriceCentsPerSqmPerWeek: plot.BasePriceCentsPerSqmPerWeek,
+		Crops:                       toCropResponses(plot.Crops),
+	}
 }
 
 type fieldWithPlotsResponse struct {
@@ -149,14 +163,7 @@ func (h *FieldHandler) GetFields(w http.ResponseWriter, r *http.Request) {
 	for i, field := range fields {
 		plots := make([]plotWithCropsResponse, len(field.Plots))
 		for j, plot := range field.Plots {
-			plots[j] = plotWithCropsResponse{
-				ID:               plot.ID.String(),
-				Name:             plot.Name,
-				Field:            plot.Field.String(),
-				Coordinates:      encodePolygon(plot.Coordinates),
-				AreaSquareMeters: plot.AreaSquareMeters,
-				Crops:            toCropResponses(plot.Crops),
-			}
+			plots[j] = toPlotWithCropsResponse(plot)
 		}
 		res[i] = fieldWithPlotsResponse{
 			ID:          field.ID.String(),

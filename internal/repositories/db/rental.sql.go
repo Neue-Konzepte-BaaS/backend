@@ -104,6 +104,42 @@ func (q *Queries) GetActiveRentalsByCustomer(ctx context.Context, customer uuid.
 	return items, nil
 }
 
+const getRentalByID = `-- name: GetRentalByID :one
+SELECT id, plot, customer, crop, status, lower(period)::timestamptz AS start_at, upper(period)::timestamptz AS end_at, message, decided_at
+FROM rental
+WHERE id = $1
+LIMIT 1
+`
+
+type GetRentalByIDRow struct {
+	ID        uuid.UUID
+	Plot      uuid.UUID
+	Customer  uuid.UUID
+	Crop      uuid.UUID
+	Status    string
+	StartAt   pgtype.Timestamptz
+	EndAt     pgtype.Timestamptz
+	Message   string
+	DecidedAt pgtype.Timestamptz
+}
+
+func (q *Queries) GetRentalByID(ctx context.Context, id uuid.UUID) (GetRentalByIDRow, error) {
+	row := q.db.QueryRow(ctx, getRentalByID, id)
+	var i GetRentalByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Plot,
+		&i.Customer,
+		&i.Crop,
+		&i.Status,
+		&i.StartAt,
+		&i.EndAt,
+		&i.Message,
+		&i.DecidedAt,
+	)
+	return i, err
+}
+
 const getRentalWithFieldByID = `-- name: GetRentalWithFieldByID :one
 SELECT r.id, r.plot, r.customer, r.crop, r.status, p.field
 FROM rental r
@@ -358,6 +394,37 @@ func (q *Queries) InsertRentalRequest(ctx context.Context, arg InsertRentalReque
 		&i.EndAt,
 	)
 	return i, err
+}
+
+const isPlotAvailable = `-- name: IsPlotAvailable :one
+SELECT NOT EXISTS (
+    SELECT 1 FROM rental r
+    WHERE r.plot = $1
+      AND r.status <> 'declined'
+      AND r.period && tstzrange(
+          $2::timestamptz,
+          $2::timestamptz + make_interval(months => $3::int)
+      )
+) AS available
+`
+
+type IsPlotAvailableParams struct {
+	Plot           uuid.UUID
+	StartAt        pgtype.Timestamptz
+	DurationMonths int32
+}
+
+// A fast-fail check only: it never blocks a concurrent booking by itself,
+// the rental_no_overlap exclusion constraint still does that at insert time.
+// This just saves a customer a trip through Stripe for a plot that is
+// obviously already taken. Mirrors the availability predicate in
+// GetNearestPlots -- a still-undecided request blocks the period exactly
+// like an approved rental; only a declined one frees it.
+func (q *Queries) IsPlotAvailable(ctx context.Context, arg IsPlotAvailableParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isPlotAvailable, arg.Plot, arg.StartAt, arg.DurationMonths)
+	var available bool
+	err := row.Scan(&available)
+	return available, err
 }
 
 const updateRentalStatus = `-- name: UpdateRentalStatus :one

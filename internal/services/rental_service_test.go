@@ -64,11 +64,23 @@ func (f *fakeRentalRepo) GetRentalsByFarm(context.Context, uuid.UUID) ([]models.
 	return nil, nil
 }
 
+func (f *fakeRentalRepo) GetRentalByID(context.Context, uuid.UUID) (models.Rental, error) {
+	return models.Rental{}, ErrNotFound
+}
+
+func (f *fakeRentalRepo) IsPlotAvailable(context.Context, uuid.UUID, time.Time, int32) (bool, error) {
+	return true, nil
+}
+
 // Unused by rentalService — the care guide is what reads this; see
 // fakeCareRentalRepo in care_guide_service_test.go.
 func (f *fakeRentalRepo) GetActiveRentalsByCustomer(context.Context, uuid.UUID) ([]models.ActiveRental, error) {
 	return nil, nil
 }
+
+// fakePlotRepo and fakeFieldRepo now live in announcement_service_test.go
+// (shared across this package's tests) -- see that file for GetPlotByID and
+// the farm-filter-aware GetNearestPlots this service's tests also rely on.
 
 // fakeCropRepo is an in-memory CropRepository, only implementing what
 // rentalService needs.
@@ -91,7 +103,9 @@ func (f *fakeCropRepo) GetCropByID(_ context.Context, _ uuid.UUID) (models.Crop,
 	}
 	return f.crop, nil
 }
-func (f *fakeCropRepo) SetPlotCrops(context.Context, uuid.UUID, []uuid.UUID) error { return nil }
+func (f *fakeCropRepo) SetPlotCrops(context.Context, uuid.UUID, int32, []uuid.UUID) error {
+	return nil
+}
 func (f *fakeCropRepo) GetCropsByPlot(_ context.Context, _ uuid.UUID) ([]models.Crop, error) {
 	crops := make([]models.Crop, len(f.offeredCropIDs))
 	for i, id := range f.offeredCropIDs {
@@ -100,6 +114,9 @@ func (f *fakeCropRepo) GetCropsByPlot(_ context.Context, _ uuid.UUID) ([]models.
 	return crops, nil
 }
 func (f *fakeCropRepo) GetCropsByPlots(context.Context, []uuid.UUID) (map[uuid.UUID][]models.Crop, error) {
+	return nil, nil
+}
+func (f *fakeCropRepo) GetPricedCropOfferingsByPlots(context.Context, []uuid.UUID) (map[uuid.UUID][]models.PlotCropOffering, error) {
 	return nil, nil
 }
 

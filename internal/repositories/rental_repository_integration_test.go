@@ -106,7 +106,7 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 
 	queries := database.New(pool)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
-	farmRepo := repositories.NewFarmRepository(queries)
+	farmRepo := repositories.NewFarmRepository(pool, queries)
 	fieldRepo := repositories.NewFieldRepository(queries)
 	plotRepo := repositories.NewPlotRepository(queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
@@ -150,7 +150,7 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 	}
 	cropID := crop.ID
 
-	if err := cropRepo.SetPlotCrops(ctx, plot.ID, []uuid.UUID{cropID}); err != nil {
+	if err := cropRepo.SetPlotCrops(ctx, plot.ID, 100, []uuid.UUID{cropID}); err != nil {
 		t.Fatalf("offering crop on plot: %v", err)
 	}
 

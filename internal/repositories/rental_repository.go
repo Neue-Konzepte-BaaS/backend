@@ -78,6 +78,41 @@ func (r *rentalRepository) UpdateRentalStatus(ctx context.Context, id uuid.UUID,
 	}, nil
 }
 
+func (r *rentalRepository) GetRentalByID(ctx context.Context, id uuid.UUID) (models.Rental, error) {
+	row, err := r.queries.GetRentalByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.Rental{}, services.ErrNotFound
+		}
+		return models.Rental{}, err
+	}
+
+	var decidedAt *time.Time
+	if row.DecidedAt.Valid {
+		decidedAt = &row.DecidedAt.Time
+	}
+
+	return models.Rental{
+		ID:        row.ID,
+		PlotID:    row.Plot,
+		CropID:    row.Crop,
+		Customer:  row.Customer,
+		StartAt:   row.StartAt.Time,
+		EndAt:     row.EndAt.Time,
+		Status:    models.RentalStatus(row.Status),
+		Message:   row.Message,
+		DecidedAt: decidedAt,
+	}, nil
+}
+
+func (r *rentalRepository) IsPlotAvailable(ctx context.Context, plot uuid.UUID, startAt time.Time, durationMonths int32) (bool, error) {
+	return r.queries.IsPlotAvailable(ctx, database.IsPlotAvailableParams{
+		Plot:           plot,
+		StartAt:        pgtype.Timestamptz{Time: startAt, Valid: true},
+		DurationMonths: durationMonths,
+	})
+}
+
 func (r *rentalRepository) GetRentalWithFieldByID(ctx context.Context, id uuid.UUID) (models.RentalWithField, error) {
 	row, err := r.queries.GetRentalWithFieldByID(ctx, id)
 	if err != nil {

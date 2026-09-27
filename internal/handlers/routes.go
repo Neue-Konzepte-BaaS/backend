@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, careGuideHandler *CareGuideHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, ripenessNoticeHandler *RipenessNoticeHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, careGuideHandler *CareGuideHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, paymentHandler *PaymentHandler, ripenessNoticeHandler *RipenessNoticeHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -108,6 +108,16 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		})
 
 		r.Get("/{farmID}", farmHandler.GetFarm)
+
+		// A static segment alongside {farmID} is safe: chi's router
+		// prioritizes it over the param, same as /api/rentals/farm already
+		// does alongside /api/rentals/{rentalID}/... below.
+		r.Route("/crop-rates", func(r chi.Router) {
+			r.Use(appmiddleware.RequireAuth(authService))
+			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Get("/", farmHandler.GetCropRates)
+			r.Put("/", farmHandler.SetCropRates)
+		})
 	})
 
 	r.Route("/api/fields", func(r chi.Router) {
@@ -178,7 +188,6 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireRole(models.RoleCustomer))
-			r.Post("/", rentalHandler.RentPlot)
 			r.Get("/", rentalHandler.GetRentals)
 		})
 
@@ -188,6 +197,25 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			r.Post("/{rentalID}/approve", rentalHandler.ApproveRental)
 			r.Post("/{rentalID}/decline", rentalHandler.DeclineRental)
 		})
+	})
+
+	// A rental is only ever created once Stripe confirms payment -- see
+	// POST /api/webhooks/stripe below -- so there is deliberately no
+	// customer-facing POST here that creates one on the click itself.
+	r.Route("/api/payments", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+		r.Use(appmiddleware.RequireRole(models.RoleCustomer))
+
+		r.Post("/checkout-sessions", paymentHandler.CreateCheckoutSession)
+		r.Get("/checkout-sessions/{sessionID}", paymentHandler.GetCheckoutSessionStatus)
+	})
+
+	// Public: Stripe itself is the caller, authenticated by the
+	// Stripe-Signature header rather than our own auth. Mixing a guarded and
+	// unguarded route group under the same top-level router already happens
+	// above (GET /api/plots/nearest), so this needs no structural change.
+	r.Route("/api/webhooks", func(r chi.Router) {
+		r.Post("/stripe", paymentHandler.HandleStripeWebhook)
 	})
 
 	r.Route("/api/statistics", func(r chi.Router) {

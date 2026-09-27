@@ -181,3 +181,43 @@ func TestValidateSMTP_ReportsEveryMissingFieldAtOnce(t *testing.T) {
 		t.Errorf("got %d errors, want 3 (host, sender name, sender email): %v", len(errs), errs)
 	}
 }
+
+func TestValidateStripe_ValidConfigPasses(t *testing.T) {
+	c := Config{StripeSecretKey: "sk_test_123", StripeWebhookSecret: "whsec_123"}
+
+	if errs := validateStripe(c); len(errs) != 0 {
+		t.Errorf("unexpected errors: %v", errs)
+	}
+}
+
+func TestValidateStripe_RequiresBothKeysUnconditionally(t *testing.T) {
+	// Unlike SMTP there is no disabled/degraded mode: a missing key must
+	// always be reported, not just when some flag enables payments.
+	tests := []struct {
+		name    string
+		c       Config
+		wantErr string
+	}{
+		{name: "missing secret key", c: Config{StripeWebhookSecret: "whsec_123"}, wantErr: "StripeSecretKey"},
+		{name: "missing webhook secret", c: Config{StripeSecretKey: "sk_test_123"}, wantErr: "StripeWebhookSecret"},
+		{name: "missing both", c: Config{}, wantErr: "StripeSecretKey"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validateStripe(tt.c)
+			if len(errs) == 0 {
+				t.Fatal("expected at least one error")
+			}
+			found := false
+			for _, err := range errs {
+				if strings.Contains(err.Error(), tt.wantErr) {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("errors = %v, want one naming %s", errs, tt.wantErr)
+			}
+		})
+	}
+}

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -17,18 +16,12 @@ import (
 )
 
 type RentalHandler struct {
-	rentalService services.RentalService
+	rentalService  services.RentalService
+	paymentService services.PaymentService
 }
 
-func NewRentalHandler(rentalService services.RentalService) *RentalHandler {
-	return &RentalHandler{rentalService: rentalService}
-}
-
-type rentPlotRequest struct {
-	PlotID  string `json:"plotId"`
-	CropID  string `json:"cropId"`
-	StartAt string `json:"startAt"`
-	Message string `json:"message"`
+func NewRentalHandler(rentalService services.RentalService, paymentService services.PaymentService) *RentalHandler {
+	return &RentalHandler{rentalService: rentalService, paymentService: paymentService}
 }
 
 type rentalResponse struct {
@@ -62,62 +55,6 @@ type rentalWithPlotAndCustomerResponse struct {
 	Customer  customerResponse `json:"customer"`
 }
 
-// RentPlot submits the authenticated customer's request to book a plot,
-// pending the owning farmer's approval. It must be mounted behind
-// RequireAuth and RequireRole(models.RoleCustomer).
-func (h *RentalHandler) RentPlot(w http.ResponseWriter, r *http.Request) {
-	var req rentPlotRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		webutils.WriteError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	plotID, err := uuid.Parse(req.PlotID)
-	if err != nil {
-		webutils.WriteError(w, http.StatusBadRequest, "invalid plot id")
-		return
-	}
-
-	cropID, err := uuid.Parse(req.CropID)
-	if err != nil {
-		webutils.WriteError(w, http.StatusBadRequest, "invalid crop id")
-		return
-	}
-
-	startAt, err := time.Parse(time.RFC3339, req.StartAt)
-	if err != nil {
-		webutils.WriteError(w, http.StatusBadRequest, "invalid start date")
-		return
-	}
-
-	claims := middleware.MustClaimsFromContext(r.Context())
-
-	rental, err := h.rentalService.RequestRental(r.Context(), claims.UserID, plotID, cropID, startAt, req.Message)
-	if errors.Is(err, services.ErrInvalidRentalRequest) {
-		webutils.WriteError(w, http.StatusBadRequest, "start date must be 1 to 60 days from now and message must not be blank")
-		return
-	}
-	if errors.Is(err, services.ErrNotFound) {
-		webutils.WriteError(w, http.StatusNotFound, "plot or crop not found")
-		return
-	}
-	if errors.Is(err, services.ErrCropNotOffered) {
-		webutils.WriteError(w, http.StatusConflict, "crop is not offered by this plot")
-		return
-	}
-	if errors.Is(err, services.ErrPlotUnavailable) {
-		webutils.WriteError(w, http.StatusConflict, "plot is already requested or rented for that period")
-		return
-	}
-	if err != nil {
-		slog.Error("requesting rental failed", "error", err)
-		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	webutils.WriteJSON(w, http.StatusCreated, toRentalResponse(rental))
-}
-
 // ApproveRental approves a still-requested rental on one of the
 // authenticated farmer's own plots. It must be mounted behind RequireAuth
 // and RequireRole(models.RoleFarmer).
@@ -128,11 +65,22 @@ func (h *RentalHandler) ApproveRental(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeclineRental declines a still-requested rental on one of the
-// authenticated farmer's own plots, freeing the plot for that period. It
-// must be mounted behind RequireAuth and RequireRole(models.RoleFarmer).
+// authenticated farmer's own plots, freeing the plot for that period. If
+// the rental had already been paid for, the payment is refunded. It must be
+// mounted behind RequireAuth and RequireRole(models.RoleFarmer).
 func (h *RentalHandler) DeclineRental(w http.ResponseWriter, r *http.Request) {
 	h.decideRental(w, r, func(ctx context.Context, farmer, rentalID uuid.UUID) (models.Rental, error) {
-		return h.rentalService.DeclineRental(ctx, farmer, rentalID)
+		rental, err := h.rentalService.DeclineRental(ctx, farmer, rentalID)
+		if err != nil {
+			return models.Rental{}, err
+		}
+		// The decline itself already succeeded and the plot is freed; a
+		// refund failure must not undo that. It is logged so it can be
+		// chased up out of band instead.
+		if err := h.paymentService.RefundIfPaid(ctx, rental.ID); err != nil {
+			slog.Error("refunding declined rental failed", "rental", rental.ID, "error", err)
+		}
+		return rental, nil
 	})
 }
 

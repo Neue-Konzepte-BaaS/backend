@@ -57,6 +57,14 @@ var (
 	// rental that is not (or no longer) in the Requested state, including
 	// when the id does not exist.
 	ErrRentalAlreadyDecided = errors.New("rental already decided")
+	// ErrCheckoutAlreadyProcessed is returned when a rental_checkout row is
+	// no longer in the state a webhook handler's state transition requires,
+	// e.g. a retried Stripe webhook delivery for a session that was already
+	// completed. Callers treat it as a no-op, not an error.
+	ErrCheckoutAlreadyProcessed = errors.New("checkout already processed")
+	// ErrInvalidWebhookSignature is returned when a Stripe webhook payload's
+	// signature does not verify against the configured webhook secret.
+	ErrInvalidWebhookSignature = errors.New("invalid webhook signature")
 	// ErrInvalidVerificationToken covers a verify-email token that is
 	// malformed, expired, of the wrong type, or whose pending registration
 	// has expired or already been consumed. Collapsed into one error, the

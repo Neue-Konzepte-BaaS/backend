@@ -80,6 +80,12 @@ type FarmCareGuide struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type FarmCropRate struct {
+	Farm                    uuid.UUID
+	Crop                    uuid.UUID
+	PriceCentsPerSqmPerWeek int32
+}
+
 type Farmer struct {
 	AccountID  uuid.UUID
 	PostalCode int32
@@ -108,10 +114,11 @@ type PendingRegistration struct {
 }
 
 type Plot struct {
-	ID          uuid.UUID
-	Name        string
-	Field       uuid.UUID
-	Coordinates *geom.Polygon
+	ID                          uuid.UUID
+	Name                        string
+	Field                       uuid.UUID
+	Coordinates                 *geom.Polygon
+	BasePriceCentsPerSqmPerWeek pgtype.Int4
 }
 
 type PlotCrop struct {
@@ -136,6 +143,21 @@ type Rental struct {
 	Status    string
 	Message   string
 	DecidedAt pgtype.Timestamptz
+}
+
+type RentalCheckout struct {
+	ID                      uuid.UUID
+	Customer                uuid.UUID
+	Plot                    uuid.UUID
+	Crop                    uuid.UUID
+	StartAt                 pgtype.Timestamptz
+	Message                 string
+	StripeCheckoutSessionID string
+	Status                  string
+	AmountCents             int32
+	Rental                  *uuid.UUID
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
 }
 
 type RipenessNotice struct {
