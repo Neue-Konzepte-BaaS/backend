@@ -92,6 +92,10 @@ func (h *PaymentHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Re
 		webutils.WriteError(w, http.StatusConflict, "crop is not offered by this plot")
 		return
 	}
+	if errors.Is(err, services.ErrOutsideSeason) {
+		webutils.WriteError(w, http.StatusConflict, "rental period is outside the crop's season")
+		return
+	}
 	if errors.Is(err, services.ErrPlotUnavailable) {
 		webutils.WriteError(w, http.StatusConflict, "plot is already rented")
 		return

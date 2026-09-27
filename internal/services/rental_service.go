@@ -26,6 +26,8 @@ type RentalService interface {
 	// startAt must be between 1 and 60 days from now. Returns
 	// ErrInvalidRentalRequest if startAt is out of that window or message is
 	// blank, ErrCropNotOffered if the plot does not offer that crop,
+	// ErrOutsideSeason if the crop is season-dependent and the rental period
+	// does not fall entirely within that season for the plot's farm,
 	// ErrPlotUnavailable if the plot is already requested or rented for part
 	// of that period, and ErrNotFound if the plot or crop does not exist.
 	RequestRental(ctx context.Context, customer, plot, crop uuid.UUID, startAt time.Time, message string) (models.Rental, error)
@@ -53,10 +55,11 @@ type rentalService struct {
 	rentalRepo RentalRepository
 	plotRepo   PlotRepository
 	cropRepo   CropRepository
+	seasonRepo SeasonRepository
 }
 
-func NewRentalService(farmRepo FarmRepository, fieldRepo FieldRepository, rentalRepo RentalRepository, plotRepo PlotRepository, cropRepo CropRepository) RentalService {
-	return &rentalService{farmRepo: farmRepo, fieldRepo: fieldRepo, rentalRepo: rentalRepo, plotRepo: plotRepo, cropRepo: cropRepo}
+func NewRentalService(farmRepo FarmRepository, fieldRepo FieldRepository, rentalRepo RentalRepository, plotRepo PlotRepository, cropRepo CropRepository, seasonRepo SeasonRepository) RentalService {
+	return &rentalService{farmRepo: farmRepo, fieldRepo: fieldRepo, rentalRepo: rentalRepo, plotRepo: plotRepo, cropRepo: cropRepo, seasonRepo: seasonRepo}
 }
 
 func (s *rentalService) RequestRental(ctx context.Context, customer, plot, crop uuid.UUID, startAt time.Time, message string) (models.Rental, error) {
@@ -79,7 +82,8 @@ func (s *rentalService) RequestRental(ctx context.Context, customer, plot, crop 
 	// A plot lookup also validates the plot exists: GetCropsByPlot alone
 	// would silently return no rows for a bad plot id, which would otherwise
 	// misreport a 404 as ErrCropNotOffered below.
-	if _, err := s.plotRepo.GetPlotField(ctx, plot); err != nil {
+	field, err := s.plotRepo.GetPlotField(ctx, plot)
+	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return models.Rental{}, err
 		}
@@ -92,6 +96,22 @@ func (s *rentalService) RequestRental(ctx context.Context, customer, plot, crop 
 	}
 	if !cropOffered(offeredCrops, crop) {
 		return models.Rental{}, ErrCropNotOffered
+	}
+
+	endAt := startAt.AddDate(0, int(cropDetails.DurationMonths), 0)
+	farm, err := s.fieldRepo.GetFieldFarm(ctx, field)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return models.Rental{}, err
+		}
+		return models.Rental{}, fmt.Errorf("looking up field farm: %w", err)
+	}
+	season, restricted, err := s.seasonRepo.GetEffectiveSeasonForCrop(ctx, crop, farm)
+	if err != nil {
+		return models.Rental{}, fmt.Errorf("getting effective season: %w", err)
+	}
+	if restricted && !seasonContainsPeriod(season, startAt, endAt) {
+		return models.Rental{}, ErrOutsideSeason
 	}
 
 	rental, err := s.rentalRepo.CreateRentalRequest(ctx, plot, customer, crop, startAt, cropDetails.DurationMonths, message)
@@ -153,6 +173,42 @@ func cropOffered(crops []models.Crop, crop uuid.UUID) bool {
 		}
 	}
 	return false
+}
+
+// seasonContainsPeriod reports whether [startAt, endAt) falls entirely within
+// one occurrence of the season, correctly handling a season that wraps the
+// new year (e.g. Winter: Dec 1 - Feb 28): the window is anchored to concrete
+// timestamps in the calendar year containing startAt, rolling the start back
+// a year when startAt itself falls in the wrap's post-New-Year fragment.
+func seasonContainsPeriod(season models.Season, startAt, endAt time.Time) bool {
+	windowStart, windowEnd := seasonWindowContaining(season, startAt)
+	return !startAt.Before(windowStart) && !endAt.After(windowEnd)
+}
+
+// seasonWindowContaining returns the concrete start/end timestamps of the
+// single season occurrence that at's calendar date falls within, given the
+// season repeats every year. For a non-wrapping season (start <= end) this is
+// always the occurrence in at's own year. For a wrapping season (e.g.
+// Dec 1 - Feb 28), at in the "before New Year's" fragment (Dec) belongs to
+// the occurrence that started that same year and ends the next; at in the
+// "after New Year's" fragment (Jan-Feb) belongs to the occurrence that
+// started the previous year.
+func seasonWindowContaining(season models.Season, at time.Time) (time.Time, time.Time) {
+	year := at.Year()
+	start := time.Date(year, time.Month(season.StartMonth), int(season.StartDay), 0, 0, 0, 0, at.Location())
+	end := time.Date(year, time.Month(season.EndMonth), int(season.EndDay), 0, 0, 0, 0, at.Location())
+	end = end.AddDate(0, 0, 1) // the season includes the whole end day
+
+	if start.Before(end) || start.Equal(end) {
+		return start, end
+	}
+	// Wrapping season: start > end within the same year. at's date falls
+	// either in the [start, Dec 31] fragment (this year's start, next year's
+	// end) or the [Jan 1, end] fragment (last year's start, this year's end).
+	if at.Before(end) {
+		return start.AddDate(-1, 0, 0), end
+	}
+	return start, end.AddDate(1, 0, 0)
 }
 
 func (s *rentalService) GetRentals(ctx context.Context, customer uuid.UUID) ([]models.RentalWithPlot, error) {

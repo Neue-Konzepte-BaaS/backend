@@ -23,10 +23,11 @@ type plotSearchService struct {
 	plotRepo       PlotRepository
 	postalCodeRepo PostalCodeRepository
 	cropRepo       CropRepository
+	seasonRepo     SeasonRepository
 }
 
-func NewPlotSearchService(plotRepo PlotRepository, postalCodeRepo PostalCodeRepository, cropRepo CropRepository) PlotSearchService {
-	return &plotSearchService{plotRepo: plotRepo, postalCodeRepo: postalCodeRepo, cropRepo: cropRepo}
+func NewPlotSearchService(plotRepo PlotRepository, postalCodeRepo PostalCodeRepository, cropRepo CropRepository, seasonRepo SeasonRepository) PlotSearchService {
+	return &plotSearchService{plotRepo: plotRepo, postalCodeRepo: postalCodeRepo, cropRepo: cropRepo, seasonRepo: seasonRepo}
 }
 
 func (s *plotSearchService) FindNearestByCoordinates(ctx context.Context, lon, lat float64, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error) {
@@ -45,8 +46,35 @@ func (s *plotSearchService) FindNearestByCoordinates(ctx context.Context, lon, l
 		return nil, fmt.Errorf("getting plot crop offerings: %w", err)
 	}
 
+	// One (crop, farm) pair per distinct crop offered on each plot, so a crop
+	// offered on several plots of the same farm resolves its season once.
+	seen := make(map[models.CropAtFarm]struct{})
+	var pairs []models.CropAtFarm
+	for _, plot := range plots {
+		for _, offering := range offeringsByPlot[plot.ID] {
+			key := models.CropAtFarm{Crop: offering.ID, Farm: plot.Farm}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			pairs = append(pairs, key)
+		}
+	}
+	seasonsByCropAndFarm, err := s.seasonRepo.GetEffectiveSeasonsForCrops(ctx, pairs)
+	if err != nil {
+		return nil, fmt.Errorf("getting effective seasons: %w", err)
+	}
+
 	for i, plot := range plots {
-		plots[i].Crops = offeringsByPlot[plot.ID]
+		offerings := offeringsByPlot[plot.ID]
+		withSeasons := make([]models.PlotCropOffering, len(offerings))
+		for j, offering := range offerings {
+			withSeasons[j] = offering
+			if season, ok := seasonsByCropAndFarm[models.CropAtFarm{Crop: offering.ID, Farm: plot.Farm}]; ok {
+				withSeasons[j].Season = &season
+			}
+		}
+		plots[i].Crops = withSeasons
 	}
 	return plots, nil
 }

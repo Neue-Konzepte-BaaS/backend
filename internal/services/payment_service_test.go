@@ -226,6 +226,9 @@ func (f *fakePaymentCropRepo) CreateCrop(context.Context, string, int32) (models
 	return models.Crop{}, nil
 }
 func (f *fakePaymentCropRepo) DeleteCrop(context.Context, uuid.UUID) error { return nil }
+func (f *fakePaymentCropRepo) UpdateCrop(context.Context, uuid.UUID, string, int32) (models.Crop, error) {
+	return models.Crop{}, nil
+}
 func (f *fakePaymentCropRepo) GetAllCrops(context.Context) ([]models.Crop, error) {
 	return nil, nil
 }
@@ -297,7 +300,7 @@ func (f *fakePaymentFarmRepo) UpdateFarmByFarmer(context.Context, uuid.UUID, mod
 }
 
 func newTestPaymentService(rentalService *fakePaymentRentalService, rentalRepo *fakePaymentRentalRepo, checkoutRepo *fakeCheckoutRepo, gateway *fakePaymentGateway, plotRepo *fakePaymentPlotRepo, cropRepo *fakePaymentCropRepo, fieldRepo *fakePaymentFieldRepo, farmRepo *fakePaymentFarmRepo) PaymentService {
-	return NewPaymentService(rentalService, rentalRepo, checkoutRepo, gateway, plotRepo, cropRepo, fieldRepo, farmRepo, "https://frontend.example.com")
+	return NewPaymentService(rentalService, rentalRepo, checkoutRepo, gateway, plotRepo, cropRepo, fieldRepo, farmRepo, &fakeSeasonRepo{}, "https://frontend.example.com")
 }
 
 func validCheckoutInputs() (plotID, cropID uuid.UUID, startAt time.Time, message string) {

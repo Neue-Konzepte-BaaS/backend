@@ -93,6 +93,9 @@ type fakeCropRepo struct {
 func (f *fakeCropRepo) CreateCrop(context.Context, string, int32) (models.Crop, error) {
 	return models.Crop{}, nil
 }
+func (f *fakeCropRepo) UpdateCrop(context.Context, uuid.UUID, string, int32) (models.Crop, error) {
+	return models.Crop{}, nil
+}
 func (f *fakeCropRepo) DeleteCrop(context.Context, uuid.UUID) error { return nil }
 func (f *fakeCropRepo) GetAllCrops(context.Context) ([]models.Crop, error) {
 	return nil, nil
@@ -120,8 +123,64 @@ func (f *fakeCropRepo) GetPricedCropOfferingsByPlots(context.Context, []uuid.UUI
 	return nil, nil
 }
 
+// fakeSeasonRepo is an in-memory SeasonRepository, only implementing what
+// rentalService needs: resolving the effective season for a (crop, farm)
+// pair.
+type fakeSeasonRepo struct {
+	// seasonByCropAndFarm holds the rule a farm sees for a crop, keyed by
+	// crop and then farm. A crop absent here, or a farm absent under it, is
+	// unrestricted for that farm.
+	seasonByCropAndFarm map[uuid.UUID]map[uuid.UUID]models.Season
+}
+
+func (f *fakeSeasonRepo) CreateSeason(context.Context, *uuid.UUID, string, int32, int32, int32, int32) (models.Season, error) {
+	return models.Season{}, nil
+}
+func (f *fakeSeasonRepo) UpdateSeason(context.Context, uuid.UUID, string, int32, int32, int32, int32) (models.Season, error) {
+	return models.Season{}, nil
+}
+func (f *fakeSeasonRepo) DeleteSeason(context.Context, uuid.UUID) error { return nil }
+func (f *fakeSeasonRepo) GetSeasonByID(context.Context, uuid.UUID) (models.Season, error) {
+	return models.Season{}, nil
+}
+func (f *fakeSeasonRepo) GetDefaultSeasons(context.Context) ([]models.Season, error) { return nil, nil }
+func (f *fakeSeasonRepo) GetFarmSeasons(context.Context, uuid.UUID) ([]models.Season, error) {
+	return nil, nil
+}
+func (f *fakeSeasonRepo) CreateCropSeasonRule(context.Context, uuid.UUID, *uuid.UUID, uuid.UUID) (models.CropSeasonRule, error) {
+	return models.CropSeasonRule{}, nil
+}
+func (f *fakeSeasonRepo) UpdateCropSeasonRule(context.Context, uuid.UUID, uuid.UUID) (models.CropSeasonRule, error) {
+	return models.CropSeasonRule{}, nil
+}
+func (f *fakeSeasonRepo) DeleteCropSeasonRule(context.Context, uuid.UUID) error { return nil }
+func (f *fakeSeasonRepo) GetCropSeasonRuleByID(context.Context, uuid.UUID) (models.CropSeasonRule, error) {
+	return models.CropSeasonRule{}, nil
+}
+func (f *fakeSeasonRepo) GetCropSeasonRuleForCrop(context.Context, uuid.UUID, *uuid.UUID) (models.CropSeasonRule, error) {
+	return models.CropSeasonRule{}, nil
+}
+func (f *fakeSeasonRepo) GetEffectiveSeasonForCrop(_ context.Context, crop, farm uuid.UUID) (models.Season, bool, error) {
+	byFarm, ok := f.seasonByCropAndFarm[crop]
+	if !ok {
+		return models.Season{}, false, nil
+	}
+	season, ok := byFarm[farm]
+	if !ok {
+		return models.Season{}, false, nil
+	}
+	return season, true, nil
+}
+func (f *fakeSeasonRepo) GetEffectiveSeasonsForCrops(context.Context, []models.CropAtFarm) (map[models.CropAtFarm]models.Season, error) {
+	return nil, nil
+}
+
 func newTestRentalService(rentalRepo *fakeRentalRepo, plotRepo *fakePlotRepo, cropRepo *fakeCropRepo, farmRepo *fakeFarmRepo, fieldRepo *fakeFieldRepo) RentalService {
-	return NewRentalService(farmRepo, fieldRepo, rentalRepo, plotRepo, cropRepo)
+	return newTestRentalServiceWithSeasons(rentalRepo, plotRepo, cropRepo, farmRepo, fieldRepo, &fakeSeasonRepo{})
+}
+
+func newTestRentalServiceWithSeasons(rentalRepo *fakeRentalRepo, plotRepo *fakePlotRepo, cropRepo *fakeCropRepo, farmRepo *fakeFarmRepo, fieldRepo *fakeFieldRepo, seasonRepo *fakeSeasonRepo) RentalService {
+	return NewRentalService(farmRepo, fieldRepo, rentalRepo, plotRepo, cropRepo, seasonRepo)
 }
 
 func TestRentalService_RequestRental_RejectsStartDateOutsideWindow(t *testing.T) {
@@ -163,11 +222,13 @@ func TestRentalService_RequestRental_RejectsBlankMessage(t *testing.T) {
 
 func TestRentalService_RequestRental_OK(t *testing.T) {
 	plot := uuid.New()
+	field := uuid.New()
 	crop := uuid.New()
 	customer := uuid.New()
-	plotRepo := &fakePlotRepo{fieldByPlot: map[uuid.UUID]uuid.UUID{plot: uuid.New()}}
+	plotRepo := &fakePlotRepo{fieldByPlot: map[uuid.UUID]uuid.UUID{plot: field}}
 	cropRepo := &fakeCropRepo{crop: models.Crop{ID: crop, DurationMonths: 6}, offeredCropIDs: []uuid.UUID{crop}}
-	svc := newTestRentalService(&fakeRentalRepo{}, plotRepo, cropRepo, &fakeFarmRepo{}, &fakeFieldRepo{})
+	fieldRepo := &fakeFieldRepo{farmByField: map[uuid.UUID]uuid.UUID{field: uuid.New()}}
+	svc := newTestRentalService(&fakeRentalRepo{}, plotRepo, cropRepo, &fakeFarmRepo{}, fieldRepo)
 
 	startAt := time.Now().Add(10 * 24 * time.Hour)
 	rental, err := svc.RequestRental(context.Background(), customer, plot, crop, startAt, "please let me rent this")
@@ -226,6 +287,108 @@ func TestRentalService_ApproveRental_OK(t *testing.T) {
 	}
 	if rental.Status != models.RentalStatusApproved {
 		t.Errorf("status = %v, want %v", rental.Status, models.RentalStatusApproved)
+	}
+}
+
+func TestRentalService_RequestRental_Season(t *testing.T) {
+	// startAt must also satisfy the 1-60 day notice window (see
+	// minRentalNotice/maxRentalNotice), so it is fixed relative to "now" and
+	// the season is built around it rather than the other way around.
+	startAt := time.Now().AddDate(0, 0, 10)
+
+	containingSeason := models.Season{
+		Name:       "Test-Season",
+		StartMonth: int32(startAt.AddDate(0, 0, -3).Month()), StartDay: int32(startAt.AddDate(0, 0, -3).Day()),
+		EndMonth: int32(startAt.AddDate(0, 1, 3).Month()), EndDay: int32(startAt.AddDate(0, 1, 3).Day()),
+	}
+	laterSeason := models.Season{
+		Name:       "Test-Season",
+		StartMonth: int32(startAt.AddDate(0, 0, 5).Month()), StartDay: int32(startAt.AddDate(0, 0, 5).Day()),
+		EndMonth: int32(startAt.AddDate(0, 1, 5).Month()), EndDay: int32(startAt.AddDate(0, 1, 5).Day()),
+	}
+
+	cases := []struct {
+		name    string
+		season  *models.Season // nil means the crop has no season rule at all: unrestricted
+		wantErr error
+	}{
+		{name: "no rule on crop is unaffected"},
+		{name: "fits inside season", season: &containingSeason},
+		{name: "starts before season", season: &laterSeason, wantErr: ErrOutsideSeason},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plot := uuid.New()
+			field := uuid.New()
+			farm := uuid.New()
+			cropID := uuid.New()
+
+			crop := models.Crop{ID: cropID, DurationMonths: 1}
+
+			plotRepo := &fakePlotRepo{fieldByPlot: map[uuid.UUID]uuid.UUID{plot: field}}
+			fieldRepo := &fakeFieldRepo{farmByField: map[uuid.UUID]uuid.UUID{field: farm}}
+			cropRepo := &fakeCropRepo{crop: crop, offeredCropIDs: []uuid.UUID{cropID}}
+
+			seasonRepo := &fakeSeasonRepo{}
+			if tc.season != nil {
+				seasonRepo.seasonByCropAndFarm = map[uuid.UUID]map[uuid.UUID]models.Season{
+					cropID: {farm: *tc.season},
+				}
+			}
+
+			svc := newTestRentalServiceWithSeasons(&fakeRentalRepo{}, plotRepo, cropRepo, &fakeFarmRepo{}, fieldRepo, seasonRepo)
+
+			_, err := svc.RequestRental(context.Background(), uuid.New(), plot, cropID, startAt, "please")
+			if tc.wantErr == nil {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestSeasonContainsPeriod_Wraparound(t *testing.T) {
+	winter := models.Season{StartMonth: 12, StartDay: 1, EndMonth: 2, EndDay: 28}
+
+	cases := []struct {
+		name    string
+		startAt time.Time
+		endAt   time.Time
+		want    bool
+	}{
+		{
+			name:    "rental crossing new year fits inside wraparound season",
+			startAt: time.Date(2026, time.December, 20, 0, 0, 0, 0, time.UTC),
+			endAt:   time.Date(2027, time.January, 20, 0, 0, 0, 0, time.UTC),
+			want:    true,
+		},
+		{
+			name:    "rental just outside wraparound season",
+			startAt: time.Date(2027, time.March, 1, 0, 0, 0, 0, time.UTC),
+			endAt:   time.Date(2027, time.March, 15, 0, 0, 0, 0, time.UTC),
+			want:    false,
+		},
+		{
+			name:    "rental entirely in the january fragment",
+			startAt: time.Date(2027, time.January, 5, 0, 0, 0, 0, time.UTC),
+			endAt:   time.Date(2027, time.February, 1, 0, 0, 0, 0, time.UTC),
+			want:    true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := seasonContainsPeriod(winter, tc.startAt, tc.endAt)
+			if got != tc.want {
+				t.Errorf("seasonContainsPeriod() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

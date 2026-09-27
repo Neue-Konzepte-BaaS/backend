@@ -21,9 +21,10 @@ type PaymentService interface {
 	// CreateCheckoutSession validates the plot/crop/startAt/message exactly
 	// like RentalService.RequestRental would -- crop exists, plot exists,
 	// the plot offers that crop and both halves of its price are set, the
-	// start date falls in the allowed window -- minus the final insert,
-	// plus a fast-fail availability check, so a customer who could not book
-	// anyway never reaches Stripe. On success it opens a Stripe Embedded
+	// start date falls in the allowed window, the rental period falls
+	// within the crop's effective season if it has one -- minus the final
+	// insert, plus a fast-fail availability check, so a customer who could
+	// not book anyway never reaches Stripe. On success it opens a Stripe Embedded
 	// Checkout session for the computed price and records a Pending
 	// rental_checkout row. No rental exists yet: one is only ever created
 	// once the checkout.session.completed webhook confirms payment.
@@ -53,10 +54,11 @@ type paymentService struct {
 	cropRepo       CropRepository
 	fieldRepo      FieldRepository
 	farmRepo       FarmRepository
+	seasonRepo     SeasonRepository
 	frontendURL    string
 }
 
-func NewPaymentService(rentalService RentalService, rentalRepo RentalRepository, checkoutRepo RentalCheckoutRepository, paymentGateway PaymentGateway, plotRepo PlotRepository, cropRepo CropRepository, fieldRepo FieldRepository, farmRepo FarmRepository, frontendURL string) PaymentService {
+func NewPaymentService(rentalService RentalService, rentalRepo RentalRepository, checkoutRepo RentalCheckoutRepository, paymentGateway PaymentGateway, plotRepo PlotRepository, cropRepo CropRepository, fieldRepo FieldRepository, farmRepo FarmRepository, seasonRepo SeasonRepository, frontendURL string) PaymentService {
 	return &paymentService{
 		rentalService:  rentalService,
 		rentalRepo:     rentalRepo,
@@ -66,6 +68,7 @@ func NewPaymentService(rentalService RentalService, rentalRepo RentalRepository,
 		cropRepo:       cropRepo,
 		fieldRepo:      fieldRepo,
 		farmRepo:       farmRepo,
+		seasonRepo:     seasonRepo,
 		frontendURL:    frontendURL,
 	}
 }
@@ -121,6 +124,19 @@ func (s *paymentService) CreateCheckoutSession(ctx context.Context, customer, pl
 			return models.CheckoutSessionResult{}, ErrCropNotOffered
 		}
 		return models.CheckoutSessionResult{}, fmt.Errorf("getting farm crop rate: %w", err)
+	}
+
+	// A fast-fail check only: RequestRental in the webhook re-checks the
+	// season, since it may have changed between here and payment completing.
+	// This just saves a customer a trip through Stripe for a period that is
+	// obviously already out of season.
+	season, restricted, err := s.seasonRepo.GetEffectiveSeasonForCrop(ctx, crop, farmID)
+	if err != nil {
+		return models.CheckoutSessionResult{}, fmt.Errorf("getting effective season: %w", err)
+	}
+	endAt := startAt.AddDate(0, int(cropDetails.DurationMonths), 0)
+	if restricted && !seasonContainsPeriod(season, startAt, endAt) {
+		return models.CheckoutSessionResult{}, ErrOutsideSeason
 	}
 
 	// A fast-fail check only: rental_no_overlap on the rental table is what
@@ -228,14 +244,14 @@ func (s *paymentService) completeCheckout(ctx context.Context, checkout models.R
 
 	rental, err := s.rentalService.RequestRental(ctx, checkout.Customer, checkout.Plot, checkout.Crop, checkout.StartAt, checkout.Message)
 	if err != nil {
-		if errors.Is(err, ErrPlotUnavailable) || errors.Is(err, ErrCropNotOffered) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalidRentalRequest) {
+		if errors.Is(err, ErrPlotUnavailable) || errors.Is(err, ErrCropNotOffered) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalidRentalRequest) || errors.Is(err, ErrOutsideSeason) {
 			// The money was already captured by Stripe but no rental could
 			// be created -- refund it rather than leave the customer
 			// charged for nothing. ErrPlotUnavailable is the realistic
 			// case: two customers paid for an overlapping period and only
 			// one insert can win the exclusion constraint. The others are
-			// unlikely (e.g. the crop was un-offered in between) but
-			// handled the same way defensively.
+			// unlikely (e.g. the crop was un-offered, or its season rule
+			// changed, in between) but handled the same way defensively.
 			if refundErr := s.paymentGateway.RefundCheckoutSession(ctx, checkout.StripeCheckoutSessionID); refundErr != nil {
 				return fmt.Errorf("refunding after failed rental creation: %w", refundErr)
 			}

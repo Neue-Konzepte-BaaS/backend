@@ -245,3 +245,28 @@ func (q *Queries) InsertPlotCrop(ctx context.Context, arg InsertPlotCropParams) 
 	_, err := q.db.Exec(ctx, insertPlotCrop, arg.Plot, arg.Crop)
 	return err
 }
+
+const updateCrop = `-- name: UpdateCrop :one
+UPDATE crop SET name = $2, duration_months = $3
+WHERE id = $1
+RETURNING id, name, duration_months
+`
+
+type UpdateCropParams struct {
+	ID             uuid.UUID
+	Name           string
+	DurationMonths int32
+}
+
+type UpdateCropRow struct {
+	ID             uuid.UUID
+	Name           string
+	DurationMonths int32
+}
+
+func (q *Queries) UpdateCrop(ctx context.Context, arg UpdateCropParams) (UpdateCropRow, error) {
+	row := q.db.QueryRow(ctx, updateCrop, arg.ID, arg.Name, arg.DurationMonths)
+	var i UpdateCropRow
+	err := row.Scan(&i.ID, &i.Name, &i.DurationMonths)
+	return i, err
+}

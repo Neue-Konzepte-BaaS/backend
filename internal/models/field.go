@@ -38,11 +38,16 @@ type FieldWithPlots struct {
 
 // PlotCropOffering is a crop as a customer sees it on a specific plot: what
 // it is, plus the total price for renting that plot with it for its full
-// duration. It only ever represents a crop that is actually priced -- see
-// GetPricedCropOfferingsByPlots.
+// duration, and the season a rental of it on that plot's farm must fall
+// within (the farm's own rule if it has one, the default rule otherwise, or
+// nil if the crop is unrestricted there). It only ever represents a crop
+// that is actually priced -- see GetPricedCropOfferingsByPlots. Letting a
+// customer see the season before requesting a rental means they don't have
+// to find out by getting an ErrOutsideSeason back.
 type PlotCropOffering struct {
 	Crop
 	PriceCents int32
+	Season     *Season
 }
 
 type NearbyPlot struct {
