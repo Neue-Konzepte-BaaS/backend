@@ -46,6 +46,12 @@ type SeasonService interface {
 	// default rule if one exists, or to unrestricted otherwise. Returns
 	// ErrNotFound if no such rule exists.
 	RemoveCropSeasonRule(ctx context.Context, editor SeasonEditor, crop uuid.UUID) error
+	// GetCropSeasons returns every crop in the catalog paired with the season
+	// it is effectively checked against for the editor: the default rule for
+	// an admin, or the effective rule (their own farm's if it has one, the
+	// default otherwise) for a farmer. A crop with no rule at all pairs with
+	// a nil season.
+	GetCropSeasons(ctx context.Context, editor SeasonEditor) ([]models.CropWithSeason, error)
 }
 
 // SeasonEditor is who is writing: an admin edits the default seasons and
@@ -58,10 +64,11 @@ type SeasonEditor struct {
 type seasonService struct {
 	seasonRepo SeasonRepository
 	farmRepo   FarmRepository
+	cropRepo   CropRepository
 }
 
-func NewSeasonService(seasonRepo SeasonRepository, farmRepo FarmRepository) SeasonService {
-	return &seasonService{seasonRepo: seasonRepo, farmRepo: farmRepo}
+func NewSeasonService(seasonRepo SeasonRepository, farmRepo FarmRepository, cropRepo CropRepository) SeasonService {
+	return &seasonService{seasonRepo: seasonRepo, farmRepo: farmRepo, cropRepo: cropRepo}
 }
 
 // editorFarm resolves which set an editor writes: nil for an admin (the
@@ -192,11 +199,15 @@ func (s *seasonService) AssignCropSeason(ctx context.Context, editor SeasonEdito
 		}
 		return models.CropSeasonRule{}, fmt.Errorf("getting season: %w", err)
 	}
+	// An admin may only tie a crop to a default season. A farmer may tie a
+	// crop to either a default season or one of their own farm's — but never
+	// another farm's — season; this does not let them edit or delete the
+	// default season itself, only point a rule of their own at it.
 	if farm == nil {
 		if seasonDetails.Farm != nil {
 			return models.CropSeasonRule{}, ErrForbidden
 		}
-	} else if seasonDetails.Farm == nil || *seasonDetails.Farm != *farm {
+	} else if seasonDetails.Farm != nil && *seasonDetails.Farm != *farm {
 		return models.CropSeasonRule{}, ErrForbidden
 	}
 
@@ -242,4 +253,45 @@ func (s *seasonService) RemoveCropSeasonRule(ctx context.Context, editor SeasonE
 		return fmt.Errorf("deleting crop season rule: %w", err)
 	}
 	return nil
+}
+
+// noFarmSentinel stands in for "no farm" in GetEffectiveSeasonsForCrops when
+// resolving an admin's view: real farm ids are never uuid.Nil, so the
+// override branch of that query can never match it, leaving only each crop's
+// default rule (exactly what an admin's view should show).
+var noFarmSentinel = uuid.UUID{}
+
+func (s *seasonService) GetCropSeasons(ctx context.Context, editor SeasonEditor) ([]models.CropWithSeason, error) {
+	farm, err := s.editorFarm(ctx, editor)
+	if err != nil {
+		return nil, err
+	}
+
+	crops, err := s.cropRepo.GetAllCrops(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting crops: %w", err)
+	}
+
+	resolveFarm := noFarmSentinel
+	if farm != nil {
+		resolveFarm = *farm
+	}
+	pairs := make([]models.CropAtFarm, len(crops))
+	for i, crop := range crops {
+		pairs[i] = models.CropAtFarm{Crop: crop.ID, Farm: resolveFarm}
+	}
+	seasons, err := s.seasonRepo.GetEffectiveSeasonsForCrops(ctx, pairs)
+	if err != nil {
+		return nil, fmt.Errorf("getting effective seasons: %w", err)
+	}
+
+	result := make([]models.CropWithSeason, len(crops))
+	for i, crop := range crops {
+		result[i] = models.CropWithSeason{Crop: crop}
+		if season, ok := seasons[models.CropAtFarm{Crop: crop.ID, Farm: resolveFarm}]; ok {
+			s := season
+			result[i].Season = &s
+		}
+	}
+	return result, nil
 }

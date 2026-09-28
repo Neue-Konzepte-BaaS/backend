@@ -202,7 +202,51 @@ func (f *fakeSeasonServiceRepo) GetEffectiveSeasonForCrop(_ context.Context, cro
 	return models.Season{}, false, nil
 }
 
-func (f *fakeSeasonServiceRepo) GetEffectiveSeasonsForCrops(context.Context, []models.CropAtFarm) (map[models.CropAtFarm]models.Season, error) {
+// GetEffectiveSeasonsForCrops mirrors GetEffectiveSeasonForCrop, batched: a
+// pair with no rule at all is simply absent from the result, same as the
+// real repository.
+func (f *fakeSeasonServiceRepo) GetEffectiveSeasonsForCrops(ctx context.Context, pairs []models.CropAtFarm) (map[models.CropAtFarm]models.Season, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make(map[models.CropAtFarm]models.Season, len(pairs))
+	for _, pair := range pairs {
+		if season, ok, _ := f.GetEffectiveSeasonForCrop(ctx, pair.Crop, pair.Farm); ok {
+			out[pair] = season
+		}
+	}
+	return out, nil
+}
+
+// fakeSeasonServiceCropRepo is an in-memory CropRepository, only
+// implementing what seasonService.GetCropSeasons needs.
+type fakeSeasonServiceCropRepo struct {
+	crops []models.Crop
+}
+
+func (f *fakeSeasonServiceCropRepo) CreateCrop(context.Context, string, int32) (models.Crop, error) {
+	return models.Crop{}, nil
+}
+func (f *fakeSeasonServiceCropRepo) UpdateCrop(context.Context, uuid.UUID, string, int32) (models.Crop, error) {
+	return models.Crop{}, nil
+}
+func (f *fakeSeasonServiceCropRepo) DeleteCrop(context.Context, uuid.UUID) error { return nil }
+func (f *fakeSeasonServiceCropRepo) GetAllCrops(context.Context) ([]models.Crop, error) {
+	return f.crops, nil
+}
+func (f *fakeSeasonServiceCropRepo) GetCropByID(context.Context, uuid.UUID) (models.Crop, error) {
+	return models.Crop{}, nil
+}
+func (f *fakeSeasonServiceCropRepo) SetPlotCrops(context.Context, uuid.UUID, int32, []uuid.UUID) error {
+	return nil
+}
+func (f *fakeSeasonServiceCropRepo) GetCropsByPlot(context.Context, uuid.UUID) ([]models.Crop, error) {
+	return nil, nil
+}
+func (f *fakeSeasonServiceCropRepo) GetCropsByPlots(context.Context, []uuid.UUID) (map[uuid.UUID][]models.Crop, error) {
+	return nil, nil
+}
+func (f *fakeSeasonServiceCropRepo) GetPricedCropOfferingsByPlots(context.Context, []uuid.UUID) (map[uuid.UUID][]models.PlotCropOffering, error) {
 	return nil, nil
 }
 
@@ -210,6 +254,7 @@ func (f *fakeSeasonServiceRepo) GetEffectiveSeasonsForCrops(context.Context, []m
 type seasonFixture struct {
 	farmer, farm uuid.UUID
 	farmRepo     *fakeFarmRepo
+	cropRepo     *fakeSeasonServiceCropRepo
 }
 
 func newSeasonFixture() seasonFixture {
@@ -218,6 +263,7 @@ func newSeasonFixture() seasonFixture {
 		farmer:   farmer,
 		farm:     farm,
 		farmRepo: &fakeFarmRepo{farmIDByFarmer: map[uuid.UUID]uuid.UUID{farmer: farm}},
+		cropRepo: &fakeSeasonServiceCropRepo{},
 	}
 }
 
@@ -241,7 +287,7 @@ func TestSeasonAuthoring(t *testing.T) {
 	t.Run("an admin writes the default set", func(t *testing.T) {
 		c := newSeasonFixture()
 		repo := newFakeSeasonRepo()
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		created, err := service.CreateSeason(ctx, seasonAdminEditor, "Spring", 3, 1, 5, 31)
 		if err != nil {
@@ -257,7 +303,7 @@ func TestSeasonAuthoring(t *testing.T) {
 		repo := newFakeSeasonRepo(
 			models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31},
 		)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		created, err := service.CreateSeason(ctx, c.farmerEditor(), "Monsoon", 7, 1, 9, 30)
 		if err != nil {
@@ -288,7 +334,7 @@ func TestSeasonAuthoring(t *testing.T) {
 		c := newSeasonFixture()
 		own := models.Season{ID: uuid.New(), Farm: &c.farm, Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		repo := newFakeSeasonRepo(own)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		updated, err := service.UpdateSeason(ctx, c.farmerEditor(), own.ID, "Spring", 2, 15, 5, 31)
 		if err != nil {
@@ -303,7 +349,7 @@ func TestSeasonAuthoring(t *testing.T) {
 		c := newSeasonFixture()
 		defaultSeason := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		repo := newFakeSeasonRepo(defaultSeason)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if _, err := service.UpdateSeason(ctx, c.farmerEditor(), defaultSeason.ID, "Spring", 2, 1, 5, 31); !errors.Is(err, ErrNotFound) {
 			t.Errorf("err = %v, want ErrNotFound", err)
@@ -318,7 +364,7 @@ func TestSeasonAuthoring(t *testing.T) {
 		otherFarm := uuid.New()
 		theirs := models.Season{ID: uuid.New(), Farm: &otherFarm, Name: "Theirs", StartMonth: 1, StartDay: 1, EndMonth: 2, EndDay: 1}
 		repo := newFakeSeasonRepo(theirs)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if _, err := service.UpdateSeason(ctx, c.farmerEditor(), theirs.ID, "Mine now", 1, 1, 2, 1); !errors.Is(err, ErrNotFound) {
 			t.Errorf("update err = %v, want ErrNotFound", err)
@@ -333,7 +379,7 @@ func TestSeasonAuthoring(t *testing.T) {
 		defaultSeason := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		own := models.Season{ID: uuid.New(), Farm: &c.farm, Name: "Monsoon", StartMonth: 7, StartDay: 1, EndMonth: 9, EndDay: 30}
 		repo := newFakeSeasonRepo(defaultSeason, own)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if err := service.DeleteSeason(ctx, c.farmerEditor(), own.ID); err != nil {
 			t.Fatalf("DeleteSeason: %v", err)
@@ -349,7 +395,7 @@ func TestSeasonAuthoring(t *testing.T) {
 	})
 
 	t.Run("a farmer without a farm is forbidden", func(t *testing.T) {
-		service := NewSeasonService(newFakeSeasonRepo(), &fakeFarmRepo{})
+		service := NewSeasonService(newFakeSeasonRepo(), &fakeFarmRepo{}, &fakeSeasonServiceCropRepo{})
 		farmless := SeasonEditor{AccountID: uuid.New(), Role: models.RoleFarmer}
 
 		if _, err := service.CreateSeason(ctx, farmless, "Spring", 3, 1, 5, 31); !errors.Is(err, ErrForbidden) {
@@ -358,7 +404,7 @@ func TestSeasonAuthoring(t *testing.T) {
 	})
 
 	t.Run("a customer is never an editor", func(t *testing.T) {
-		service := NewSeasonService(newFakeSeasonRepo(), &fakeFarmRepo{})
+		service := NewSeasonService(newFakeSeasonRepo(), &fakeFarmRepo{}, &fakeSeasonServiceCropRepo{})
 		customer := SeasonEditor{AccountID: uuid.New(), Role: models.RoleCustomer}
 
 		if _, err := service.GetSeasons(ctx, customer); !errors.Is(err, ErrForbidden) {
@@ -375,7 +421,7 @@ func TestCropSeasonAssignment(t *testing.T) {
 		c := newSeasonFixture()
 		spring := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		repo := newFakeSeasonRepo(spring)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		rule, err := service.AssignCropSeason(ctx, seasonAdminEditor, crop, spring.ID)
 		if err != nil {
@@ -394,7 +440,7 @@ func TestCropSeasonAssignment(t *testing.T) {
 		spring := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		summer := models.Season{ID: uuid.New(), Name: "Summer", StartMonth: 6, StartDay: 1, EndMonth: 8, EndDay: 31}
 		repo := newFakeSeasonRepo(spring, summer)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		first, err := service.AssignCropSeason(ctx, seasonAdminEditor, crop, spring.ID)
 		if err != nil {
@@ -416,7 +462,7 @@ func TestCropSeasonAssignment(t *testing.T) {
 		c := newSeasonFixture()
 		own := models.Season{ID: uuid.New(), Farm: &c.farm, Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		repo := newFakeSeasonRepo(own)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		rule, err := service.AssignCropSeason(ctx, c.farmerEditor(), crop, own.ID)
 		if err != nil {
@@ -427,12 +473,30 @@ func TestCropSeasonAssignment(t *testing.T) {
 		}
 	})
 
+	t.Run("a farmer assigns a default season to their crop", func(t *testing.T) {
+		c := newSeasonFixture()
+		defaultSeason := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
+		repo := newFakeSeasonRepo(defaultSeason)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
+
+		rule, err := service.AssignCropSeason(ctx, c.farmerEditor(), crop, defaultSeason.ID)
+		if err != nil {
+			t.Fatalf("AssignCropSeason: %v", err)
+		}
+		if rule.Farm == nil || *rule.Farm != c.farm {
+			t.Errorf("rule farm = %v, want the farmer's own farm %v (the rule, not the season, scopes to the farmer)", rule.Farm, c.farm)
+		}
+		if rule.Season != defaultSeason.ID {
+			t.Errorf("rule season = %v, want %v", rule.Season, defaultSeason.ID)
+		}
+	})
+
 	t.Run("a farmer cannot assign a rule pointing at another farm's season", func(t *testing.T) {
 		c := newSeasonFixture()
 		otherFarm := uuid.New()
 		theirs := models.Season{ID: uuid.New(), Farm: &otherFarm, Name: "Theirs", StartMonth: 1, StartDay: 1, EndMonth: 2, EndDay: 1}
 		repo := newFakeSeasonRepo(theirs)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if _, err := service.AssignCropSeason(ctx, c.farmerEditor(), crop, theirs.ID); !errors.Is(err, ErrForbidden) {
 			t.Errorf("err = %v, want ErrForbidden", err)
@@ -443,7 +507,7 @@ func TestCropSeasonAssignment(t *testing.T) {
 		c := newSeasonFixture()
 		own := models.Season{ID: uuid.New(), Farm: &c.farm, Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		repo := newFakeSeasonRepo(own)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if _, err := service.AssignCropSeason(ctx, seasonAdminEditor, crop, own.ID); !errors.Is(err, ErrForbidden) {
 			t.Errorf("err = %v, want ErrForbidden", err)
@@ -455,7 +519,7 @@ func TestCropSeasonAssignment(t *testing.T) {
 		defaultSeason := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		own := models.Season{ID: uuid.New(), Farm: &c.farm, Name: "Monsoon", StartMonth: 7, StartDay: 1, EndMonth: 9, EndDay: 30}
 		repo := newFakeSeasonRepo(defaultSeason, own)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if _, err := service.AssignCropSeason(ctx, seasonAdminEditor, crop, defaultSeason.ID); err != nil {
 			t.Fatalf("admin AssignCropSeason: %v", err)
@@ -483,7 +547,7 @@ func TestCropSeasonAssignment(t *testing.T) {
 		c := newSeasonFixture()
 		defaultSeason := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		repo := newFakeSeasonRepo(defaultSeason)
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if _, err := service.AssignCropSeason(ctx, seasonAdminEditor, crop, defaultSeason.ID); err != nil {
 			t.Fatalf("AssignCropSeason: %v", err)
@@ -501,10 +565,70 @@ func TestCropSeasonAssignment(t *testing.T) {
 	t.Run("removing a rule that does not exist is not found", func(t *testing.T) {
 		c := newSeasonFixture()
 		repo := newFakeSeasonRepo()
-		service := NewSeasonService(repo, c.farmRepo)
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if err := service.RemoveCropSeasonRule(ctx, c.farmerEditor(), crop); !errors.Is(err, ErrNotFound) {
 			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+func TestGetCropSeasons(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("an admin sees each crop's default rule, unrestricted crops paired with nil", func(t *testing.T) {
+		c := newSeasonFixture()
+		spring := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
+		restricted, unrestricted := uuid.New(), uuid.New()
+		repo := newFakeSeasonRepo(spring)
+		c.cropRepo.crops = []models.Crop{{ID: restricted, Name: "Karotte"}, {ID: unrestricted, Name: "Tomate"}}
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
+
+		if _, err := service.AssignCropSeason(ctx, seasonAdminEditor, restricted, spring.ID); err != nil {
+			t.Fatalf("AssignCropSeason: %v", err)
+		}
+
+		result, err := service.GetCropSeasons(ctx, seasonAdminEditor)
+		if err != nil {
+			t.Fatalf("GetCropSeasons: %v", err)
+		}
+		if len(result) != 2 {
+			t.Fatalf("len(result) = %d, want 2", len(result))
+		}
+		byID := make(map[uuid.UUID]models.CropWithSeason, len(result))
+		for _, r := range result {
+			byID[r.Crop.ID] = r
+		}
+		if byID[restricted].Season == nil || byID[restricted].Season.ID != spring.ID {
+			t.Errorf("restricted crop's season = %+v, want %v", byID[restricted].Season, spring.ID)
+		}
+		if byID[unrestricted].Season != nil {
+			t.Errorf("unrestricted crop's season = %+v, want nil", byID[unrestricted].Season)
+		}
+	})
+
+	t.Run("a farmer sees the effective season: their own rule over the default", func(t *testing.T) {
+		c := newSeasonFixture()
+		crop := uuid.New()
+		defaultSeason := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
+		own := models.Season{ID: uuid.New(), Farm: &c.farm, Name: "Monsoon", StartMonth: 7, StartDay: 1, EndMonth: 9, EndDay: 30}
+		repo := newFakeSeasonRepo(defaultSeason, own)
+		c.cropRepo.crops = []models.Crop{{ID: crop, Name: "Karotte"}}
+		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
+
+		if _, err := service.AssignCropSeason(ctx, seasonAdminEditor, crop, defaultSeason.ID); err != nil {
+			t.Fatalf("admin AssignCropSeason: %v", err)
+		}
+		if _, err := service.AssignCropSeason(ctx, c.farmerEditor(), crop, own.ID); err != nil {
+			t.Fatalf("farmer AssignCropSeason: %v", err)
+		}
+
+		result, err := service.GetCropSeasons(ctx, c.farmerEditor())
+		if err != nil {
+			t.Fatalf("GetCropSeasons: %v", err)
+		}
+		if len(result) != 1 || result[0].Season == nil || result[0].Season.ID != own.ID {
+			t.Fatalf("result = %+v, want one crop with season %v", result, own.ID)
 		}
 	})
 }

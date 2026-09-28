@@ -191,6 +191,11 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			r.Use(appmiddleware.RequireAnyRole(models.RoleAdmin, models.RoleFarmer))
 			r.Put("/{cropID}/season", seasonHandler.AssignCropSeason)
 			r.Delete("/{cropID}/season", seasonHandler.RemoveCropSeasonRule)
+			// Static "/seasons" is safe alongside "/{cropID}/season" above:
+			// chi prioritizes a static segment over a param at the same
+			// level, same as "/crop-rates" does alongside "/{farmID}" on
+			// /api/farms.
+			r.Get("/seasons", seasonHandler.GetCropSeasons)
 		})
 	})
 

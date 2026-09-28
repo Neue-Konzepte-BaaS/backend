@@ -33,6 +33,15 @@ type CropSeasonRule struct {
 	Farm   *uuid.UUID
 }
 
+// CropWithSeason is a crop from the catalog together with the season it is
+// effectively checked against for the caller: the default rule for an admin,
+// or the effective rule (their own farm's if it has one, the default
+// otherwise) for a farmer. Nil means the crop is unrestricted for them.
+type CropWithSeason struct {
+	Crop   Crop
+	Season *Season
+}
+
 // Contains reports whether the given month/day falls within the season,
 // handling a season that wraps the new year (e.g. Winter: Dec 1 - Feb 28) by
 // treating start > end as "wraps": in season from start to Dec 31, and from

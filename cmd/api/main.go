@@ -184,7 +184,7 @@ func main() {
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo, cropRepo, seasonRepo)
 	rentalService := services.NewRentalService(farmRepo, fieldRepo, rentalRepo, plotRepo, cropRepo, seasonRepo)
 	cropService := services.NewCropService(farmRepo, fieldRepo, plotRepo, cropRepo)
-	seasonService := services.NewSeasonService(seasonRepo, farmRepo)
+	seasonService := services.NewSeasonService(seasonRepo, farmRepo, cropRepo)
 	statisticsService := services.NewStatisticsService(farmRepo, statisticsRepo)
 	paymentService := services.NewPaymentService(rentalService, rentalRepo, rentalCheckoutRepo, paymentGateway, plotRepo, cropRepo, fieldRepo, farmRepo, seasonRepo, c.FrontendURL)
 

@@ -59,6 +59,15 @@ type cropSeasonRuleResponse struct {
 	FarmID *string `json:"farmId"`
 }
 
+// cropSeasonResponse is one crop paired with the season it is effectively
+// checked against for the caller - the default rule for an admin, or the
+// effective rule (their own farm's if it has one, the default otherwise)
+// for a farmer. Null season means the crop is unrestricted for them.
+type cropSeasonResponse struct {
+	cropResponse
+	Season *seasonResponse `json:"season"`
+}
+
 func toSeasonResponse(season models.Season) seasonResponse {
 	var farmID *string
 	if season.Farm != nil {
@@ -301,4 +310,33 @@ func (h *SeasonHandler) RemoveCropSeasonRule(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetCropSeasons returns every crop in the catalog paired with the season it
+// is effectively checked against for the caller: the default rule for an
+// admin, or the effective rule (their own farm's if it has one, the default
+// otherwise) for a farmer. It must be mounted behind RequireAuth and
+// RequireAnyRole(models.RoleAdmin, models.RoleFarmer).
+func (h *SeasonHandler) GetCropSeasons(w http.ResponseWriter, r *http.Request) {
+	cropSeasons, err := h.seasonService.GetCropSeasons(r.Context(), seasonEditor(r))
+	if errors.Is(err, services.ErrForbidden) {
+		webutils.WriteError(w, http.StatusForbidden, "no farm to read crop seasons for")
+		return
+	}
+	if err != nil {
+		slog.Error("getting crop seasons failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	res := make([]cropSeasonResponse, len(cropSeasons))
+	for i, cs := range cropSeasons {
+		res[i] = cropSeasonResponse{cropResponse: toCropResponse(cs.Crop)}
+		if cs.Season != nil {
+			season := toSeasonResponse(*cs.Season)
+			res[i].Season = &season
+		}
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, res)
 }
