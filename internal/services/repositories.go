@@ -245,6 +245,11 @@ type FieldRepository interface {
 	// GetFieldFarm returns the id of the farm a field belongs to.
 	GetFieldFarm(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	GetFieldsByFarm(ctx context.Context, farm uuid.UUID) ([]models.Field, error)
+	// GetFieldsByFarmWithAvailablePlotStats is the public, customer-facing
+	// counterpart to GetFieldsByFarm: each field's plot count/area only
+	// counts plots available to rent right now — see the query's own doc
+	// comment for why that must match GetNearestPlots's own predicate.
+	GetFieldsByFarmWithAvailablePlotStats(ctx context.Context, farm uuid.UUID) ([]models.FieldWithPlotStats, error)
 }
 
 type PlotRepository interface {

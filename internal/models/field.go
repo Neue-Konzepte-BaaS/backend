@@ -36,6 +36,18 @@ type FieldWithPlots struct {
 	Plots []PlotWithCrops
 }
 
+// FieldWithPlotStats is a field as a customer browsing a farm sees it: its
+// name and boundary, plus how many of its plots are available to rent right
+// now and their combined area. PlotCount/AreaSquareMeters only ever count
+// currently-available plots -- see GetFieldsByFarmWithAvailablePlotStats --
+// so they agree with what GET /api/plots/nearest actually returns for this
+// field, rather than counting plots a customer could not book anyway.
+type FieldWithPlotStats struct {
+	Field
+	PlotCount        int64
+	AreaSquareMeters float64
+}
+
 // PlotCropOffering is a crop as a customer sees it on a specific plot: what
 // it is, plus the total price for renting that plot with it for its full
 // duration, and the season a rental of it on that plot's farm must fall

@@ -15,6 +15,11 @@ type FieldService interface {
 	// GetFieldsWithPlots returns all fields owned by the farmer, along with
 	// the plots belonging to each of those fields.
 	GetFieldsWithPlots(ctx context.Context, farmer uuid.UUID) ([]models.FieldWithPlots, error)
+	// GetFieldsByFarm is the public, customer-facing counterpart: a farm's
+	// fields by id (no owning-farmer check — anyone browsing that farm's
+	// plots may call this), each with its currently-available plot count
+	// and area rather than the full plot list GetFieldsWithPlots returns.
+	GetFieldsByFarm(ctx context.Context, farm uuid.UUID) ([]models.FieldWithPlotStats, error)
 }
 
 type PlotService interface {
@@ -105,6 +110,14 @@ func (s *fieldService) GetFieldsWithPlots(ctx context.Context, farmer uuid.UUID)
 		}
 	}
 	return result, nil
+}
+
+func (s *fieldService) GetFieldsByFarm(ctx context.Context, farm uuid.UUID) ([]models.FieldWithPlotStats, error) {
+	fields, err := s.fieldRepo.GetFieldsByFarmWithAvailablePlotStats(ctx, farm)
+	if err != nil {
+		return nil, fmt.Errorf("getting fields: %w", err)
+	}
+	return fields, nil
 }
 
 type plotService struct {

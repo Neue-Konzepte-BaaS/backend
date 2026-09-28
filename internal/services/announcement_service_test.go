@@ -60,10 +60,14 @@ func (f *fakeAnnouncementRepo) GetAnnouncementsForCustomer(context.Context, uuid
 }
 
 // fakeFieldRepo is an in-memory FieldRepository for exercising ownership
-// checks without a database. farmByField maps a field id to the farm it
-// belongs to; a field missing from the map behaves as not found.
+// checks (and, via fieldsWithStats/fieldsWithStatsErr, field_service_test.go's
+// GetFieldsByFarm tests) without a database. farmByField maps a field id to
+// the farm it belongs to; a field missing from the map behaves as not found.
 type fakeFieldRepo struct {
 	farmByField map[uuid.UUID]uuid.UUID
+
+	fieldsWithStats    []models.FieldWithPlotStats
+	fieldsWithStatsErr error
 }
 
 func (f *fakeFieldRepo) CreateField(context.Context, models.Field) (uuid.UUID, error) {
@@ -80,6 +84,13 @@ func (f *fakeFieldRepo) GetFieldFarm(_ context.Context, id uuid.UUID) (uuid.UUID
 
 func (f *fakeFieldRepo) GetFieldsByFarm(context.Context, uuid.UUID) ([]models.Field, error) {
 	panic("not used by these tests")
+}
+
+func (f *fakeFieldRepo) GetFieldsByFarmWithAvailablePlotStats(context.Context, uuid.UUID) ([]models.FieldWithPlotStats, error) {
+	if f.fieldsWithStatsErr != nil {
+		return nil, f.fieldsWithStatsErr
+	}
+	return f.fieldsWithStats, nil
 }
 
 // fakePlotRepo is an in-memory PlotRepository for exercising ownership checks
