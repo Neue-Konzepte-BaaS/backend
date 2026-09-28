@@ -265,6 +265,9 @@ func (f *fakePaymentFieldRepo) GetFieldFarm(context.Context, uuid.UUID) (uuid.UU
 func (f *fakePaymentFieldRepo) GetFieldsByFarm(context.Context, uuid.UUID) ([]models.Field, error) {
 	return nil, nil
 }
+func (f *fakePaymentFieldRepo) GetFieldsByFarmWithAvailablePlotStats(context.Context, uuid.UUID) ([]models.FieldWithPlotStats, error) {
+	return nil, nil
+}
 
 type fakePaymentFarmRepo struct {
 	rate    int32

@@ -60,3 +60,25 @@ func (r *fieldRepository) GetFieldsByFarm(ctx context.Context, farm uuid.UUID) (
 	}
 	return fields, nil
 }
+
+func (r *fieldRepository) GetFieldsByFarmWithAvailablePlotStats(ctx context.Context, farm uuid.UUID) ([]models.FieldWithPlotStats, error) {
+	rows, err := r.queries.GetFieldsByFarmWithAvailablePlotStats(ctx, farm)
+	if err != nil {
+		return nil, err
+	}
+
+	fields := make([]models.FieldWithPlotStats, len(rows))
+	for i, row := range rows {
+		fields[i] = models.FieldWithPlotStats{
+			Field: models.Field{
+				ID:          row.ID,
+				Name:        row.Name,
+				Farm:        row.Farm,
+				Coordinates: row.Coordinates,
+			},
+			PlotCount:        row.PlotCount,
+			AreaSquareMeters: row.AreaSquareMeters,
+		}
+	}
+	return fields, nil
+}

@@ -109,6 +109,11 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 
 		r.Get("/{farmID}", farmHandler.GetFarm)
 
+		// Public, same as GetFarm above: a customer browsing this farm's
+		// plots needs field names/boundaries to group them by, and there is
+		// nobody to authenticate as here — anyone can look at a farm's page.
+		r.Get("/{farmID}/fields", fieldHandler.GetFarmFields)
+
 		// A static segment alongside {farmID} is safe: chi's router
 		// prioritizes it over the param, same as /api/rentals/farm already
 		// does alongside /api/rentals/{rentalID}/... below.
