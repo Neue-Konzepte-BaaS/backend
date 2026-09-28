@@ -70,8 +70,12 @@ func (s *inboxService) GetInboxForCustomer(ctx context.Context, customer uuid.UU
 		})
 	}
 	for _, a := range announcements {
+		kind := models.InboxItemAnnouncement
+		if a.Plot != nil {
+			kind = models.InboxItemPrivateMessage
+		}
 		items = append(items, models.InboxItem{
-			Kind:      models.InboxItemAnnouncement,
+			Kind:      kind,
 			ID:        a.ID,
 			Subject:   a.Subject,
 			Body:      a.Body,
