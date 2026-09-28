@@ -12,6 +12,7 @@ type InboxItemKind string
 const (
 	InboxItemBroadcast      InboxItemKind = "broadcast"
 	InboxItemAnnouncement   InboxItemKind = "announcement"
+	InboxItemPrivateMessage InboxItemKind = "private_message"
 	InboxItemRipenessNotice InboxItemKind = "ripeness_notice"
 	InboxItemCare           InboxItemKind = "care"
 )
