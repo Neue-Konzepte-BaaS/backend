@@ -167,3 +167,24 @@ type RipenessNotice struct {
 	Crop      uuid.UUID
 	CreatedAt pgtype.Timestamptz
 }
+
+type Season struct {
+	ID         uuid.UUID
+	Farm       *uuid.UUID
+	Name       string
+	StartMonth int16
+	StartDay   int16
+	EndMonth   int16
+	EndDay     int16
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+}
+
+type SeasonCrop struct {
+	ID        uuid.UUID
+	SeasonID  uuid.UUID
+	CropID    uuid.UUID
+	FarmID    *uuid.UUID
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}

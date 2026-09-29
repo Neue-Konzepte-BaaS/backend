@@ -71,6 +71,13 @@ var (
 	// same way credentials.ErrInvalidToken collapses every JWT failure, so a
 	// caller cannot distinguish "expired" from "already used" from "forged".
 	ErrInvalidVerificationToken = errors.New("invalid or expired verification token")
+	// ErrOutsideSeason is returned when a rental's period does not fall
+	// entirely within its crop's season, for the farm that owns the plot.
+	ErrOutsideSeason = errors.New("rental period is outside the crop's season")
+	// ErrCropSeasonRuleExists is returned when assigning a crop's season
+	// rule for a set (the defaults, or one farm's own) that already has one -
+	// the caller should update the existing rule instead.
+	ErrCropSeasonRuleExists = errors.New("crop already has a season rule in this set")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

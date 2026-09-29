@@ -21,6 +21,8 @@ tags:
     description: Public plot search, and which crops a plot offers
   - name: crops
     description: The crop catalog
+  - name: seasons
+    description: Recurring yearly calendar windows season-dependent crops must be rented within
   - name: rentals
     description: Renting plots
   - name: payments
@@ -832,6 +834,11 @@ paths:
         rental covering the present moment is omitted, and reappears once that
         rental's period has elapsed.
 
+        Each crop a plot offers carries the season a rental of it there must
+        fall within, if any (see `PlotCropOffering`), so a customer can check
+        before paying via `POST /api/payments/checkout-sessions` rather than
+        finding out from its 409 response.
+
         The search point is given either as coordinates (`lat` and `lon`
         together) or as a German location (`postalCode` or `city`). Exactly
         one of these two approaches must be used; `lat`/`lon` take
@@ -1111,6 +1118,185 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: internal error
+
+  /api/crops/{cropID}:
+    put:
+      tags: [crops]
+      summary: Update a crop
+      description: |
+        Overwrites a crop's name and duration. Requires the `admin` role. A
+        crop's season rule is managed separately, see
+        `PUT /api/crops/{cropID}/season`.
+      operationId: updateCrop
+      parameters:
+        - $ref: '#/components/parameters/CropID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCropRequest'
+      responses:
+        '200':
+          description: Crop updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Crop'
+        '400':
+          description: Malformed body, invalid crop id, missing name, or a non-positive duration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidCropID:
+                  value:
+                    error: invalid crop id
+                missingName:
+                  value:
+                    error: name is required
+                invalidDuration:
+                  value:
+                    error: durationMonths must be positive
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not an admin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: No crop has this id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: crop not found
+        '409':
+          description: Another crop with this name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: crop name already exists
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/crops/{cropID}/season:
+    put:
+      tags: [crops, seasons]
+      summary: Tie a crop to a season
+      description: |
+        Assigns the crop's default season rule (admin) or the caller's own
+        farm's rule (farmer), creating it if none exists yet or repointing it
+        at the given season otherwise. Renting the crop is then only allowed
+        inside that season's window — see `POST /api/rentals`.
+
+        An admin's season must be one of the defaults; a farmer's must belong
+        to their own farm.
+      operationId: assignCropSeason
+      parameters:
+        - $ref: '#/components/parameters/CropID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignCropSeasonRequest'
+      responses:
+        '200':
+          description: The crop's season rule, created or repointed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CropSeasonRule'
+        '400':
+          description: Malformed body, invalid crop id, or invalid season id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidCropID:
+                  value:
+                    error: invalid crop id
+                invalidSeasonID:
+                  value:
+                    error: invalid season id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not an admin or farmer, a farmer has no farm, or the season does not belong to the caller's set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: season does not belong to the caller's set
+        '404':
+          description: No crop or season with the given id exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: crop or season not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [crops, seasons]
+      summary: Remove a crop's season rule
+      description: |
+        Drops the crop's default rule (admin) or the caller's own farm's rule
+        (farmer), reverting it to the default rule if one exists, or to
+        unrestricted otherwise.
+      operationId: removeCropSeasonRule
+      parameters:
+        - $ref: '#/components/parameters/CropID'
+      responses:
+        '204':
+          description: Rule removed.
+        '400':
+          description: Invalid crop id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid crop id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not an admin or farmer, or a farmer has no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: The crop has no season rule in the caller's set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: crop has no season rule in the caller's set
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/crops/{cropID}/care-instructions:
     get:
@@ -1487,6 +1673,202 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/seasons:
+    get:
+      tags: [seasons]
+      summary: List the caller's seasons
+      description: |
+        Returns the default set (admin) or the union of the default set and
+        the caller's own farm's seasons (farmer) — everything they could pick
+        when assigning a crop's season. Requires the `admin` or `farmer` role.
+      operationId: getSeasons
+      responses:
+        '200':
+          description: The caller's seasons.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Season'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not an admin or farmer, or a farmer has no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [seasons]
+      summary: Add a season
+      description: |
+        Adds a season to the default set (admin) or the caller's own farm's
+        seasons (farmer) — a farmer may create and manage their own seasons at
+        any time, independent of the defaults and of any crop. Requires the
+        `admin` or `farmer` role.
+      operationId: createSeason
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSeasonRequest'
+      responses:
+        '201':
+          description: Season created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Season'
+        '400':
+          description: Malformed body, missing name, or a month/day outside its valid range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                missingName:
+                  value:
+                    error: name is required
+                invalidMonth:
+                  value:
+                    error: startMonth and endMonth must be between 1 and 12
+                invalidDay:
+                  value:
+                    error: startDay and endDay must be between 1 and 31
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not an admin or farmer, or a farmer has no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/seasons/{seasonID}:
+    put:
+      tags: [seasons]
+      summary: Update a season
+      description: |
+        Rewrites an existing season. An admin may edit any default season, a
+        farmer only their own farm's. Requires the `admin` or `farmer` role.
+      operationId: updateSeason
+      parameters:
+        - name: seasonID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSeasonRequest'
+      responses:
+        '200':
+          description: Season updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Season'
+        '400':
+          description: Malformed body, invalid season id, missing name, or a month/day outside its valid range.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidSeasonID:
+                  value:
+                    error: invalid season id
+                missingName:
+                  value:
+                    error: name is required
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not an admin or farmer, or a farmer has no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: No season with this id is visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: season not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [seasons]
+      summary: Delete a season
+      description: |
+        Removes one season, under the same ownership rules as
+        `PUT /api/seasons/{seasonID}`. Requires the `admin` or `farmer` role.
+      operationId: deleteSeason
+      parameters:
+        - name: seasonID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Season deleted.
+        '400':
+          description: Invalid season id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid season id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not an admin or farmer, or a farmer has no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: No season with this id is visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: season not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/rentals:
     get:
       tags: [rentals]
@@ -1583,16 +1965,25 @@ paths:
         customer to pay for renting a plot with a crop. Customers only — a
         farmer or admin receives 403.
 
-        This performs the same validation `POST /api/rentals` used to
-        perform before payment gated the flow — crop exists, plot exists,
-        the plot offers that crop and both halves of its price are set, the
-        start date is 1 to 60 days out — plus a fast-fail availability
-        check, so a customer who could not book anyway never reaches
-        Stripe. No rental is created here: one is only created once Stripe
-        confirms the payment, via the `checkout.session.completed` webhook.
-        Poll `GET /api/payments/checkout-sessions/{sessionId}` (using the
+        This performs the same validation renting a plot always has — crop
+        exists, plot exists, the plot offers that crop and both halves of
+        its price are set, the start date is 1 to 60 days out — plus a
+        fast-fail availability check, so a customer who could not book
+        anyway never reaches Stripe. No rental is created here: one is only
+        created once Stripe confirms the payment, via the
+        `checkout.session.completed` webhook. Poll
+        `GET /api/payments/checkout-sessions/{sessionId}` (using the
         `session_id` Stripe's `return_url` redirects back with) to find out
         when that happened.
+
+        If the crop has a season rule (see `PUT /api/crops/{cropID}/season`),
+        the rental's whole period must fall within that season for the
+        plot's farm — its own rule if it has one, the default rule otherwise
+        — or the request fails with 409. The rental does not need to span
+        the whole season, only fit inside it. This is checked again when the
+        webhook actually creates the rental; if the season rule changed
+        between checkout and payment and the period no longer fits, the
+        charge is refunded automatically.
       operationId: createCheckoutSession
       requestBody:
         required: true
@@ -1653,8 +2044,9 @@ paths:
         '409':
           description: |
             The crop is not offered by the plot (including if it is offered
-            but not fully priced yet), or the plot is already rented for an
-            overlapping period.
+            but not fully priced yet), the rental period is outside the
+            crop's season, or the plot is already rented for an overlapping
+            period.
           content:
             application/json:
               schema:
@@ -1663,6 +2055,9 @@ paths:
                 cropNotOffered:
                   value:
                     error: crop is not offered by this plot
+                outsideSeason:
+                  value:
+                    error: rental period is outside the crop's season
                 plotUnavailable:
                   value:
                     error: plot is already rented
@@ -2745,10 +3140,12 @@ components:
           type: array
           description: |
             The crops this plot actually offers a customer, each with the
-            total price for renting this plot with it for its full duration.
-            A crop the plot lists but that is missing either half of its
-            price (the plot's own base rate or the crop's farm-wide rate) is
-            left out entirely — it is not a real offer yet.
+            total price for renting this plot with it for its full duration,
+            and the season a rental of it here must fall within (if any) so
+            a customer can check before paying rather than finding out from
+            a 409. A crop the plot lists but that is missing either half of
+            its price (the plot's own base rate or the crop's farm-wide
+            rate) is left out entirely — it is not a real offer yet.
           items:
             $ref: '#/components/schemas/PlotCropOffering'
 
@@ -2758,7 +3155,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/Crop'
         - type: object
-          required: [priceCents]
+          required: [priceCents, season]
           properties:
             priceCents:
               type: integer
@@ -2769,6 +3166,13 @@ components:
                 farm rate) × plot area × duration in weeks`, computed
                 server-side.
               example: 4500
+            season:
+              $ref: '#/components/schemas/Season'
+              nullable: true
+              description: |
+                The season a rental of this crop on this plot's farm must fall
+                within - the farm's own rule if it has one, the default rule
+                otherwise. Null if the crop can be rented year-round here.
 
     PlotWithCrops:
       type: object
@@ -2830,7 +3234,10 @@ components:
 
     Crop:
       type: object
-      description: A crop in the catalog, with the fixed duration renting it books for.
+      description: |
+        A crop in the catalog, with the fixed duration renting it books for.
+        Whether it is season-dependent, and which season, is a separate rule -
+        see `CropSeasonRule` and `PUT /api/crops/{cropID}/season`.
       required: [id, name, durationMonths]
       properties:
         id:
@@ -2844,6 +3251,151 @@ components:
           format: int32
           description: How long renting this crop books a plot for.
           example: 4
+
+    Season:
+      type: object
+      description: |
+        A recurring yearly calendar window - "Spring: Mar 1 - May 31" - that
+        repeats every year regardless of which specific year a rental falls
+        in. There is one default set, which an admin maintains and every farm
+        starts from; a farmer may also create, edit and delete their own
+        seasons at any time, independent of the defaults and of any crop. A
+        crop's season rule (see `CropSeasonRule`) points at one of these rows.
+      required: [id, name, farmId, startMonth, startDay, endMonth, endDay, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Spring
+        farmId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null for one of the global defaults, the farm's id for that farm's own version.
+        startMonth:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+        startDay:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 31
+        endMonth:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+        endDay:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 31
+          description: |
+            A season whose endMonth/endDay is earlier in the year than its
+            startMonth/startDay wraps the new year (e.g. Winter: Dec 1 - Feb 28).
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateSeasonRequest:
+      type: object
+      required: [name, startMonth, startDay, endMonth, endDay]
+      properties:
+        name:
+          type: string
+          description: Surrounding whitespace is trimmed.
+          example: Spring
+        startMonth:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+        startDay:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 31
+        endMonth:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+        endDay:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 31
+
+    UpdateSeasonRequest:
+      type: object
+      required: [name, startMonth, startDay, endMonth, endDay]
+      properties:
+        name:
+          type: string
+          example: Spring
+        startMonth:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+        startDay:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 31
+        endMonth:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+        endDay:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 31
+
+    CropSeasonRule:
+      type: object
+      description: |
+        Ties a crop to a season, so renting it is only allowed inside that
+        season's window. The default rule (farmId null) applies to every farm
+        that has not overridden it; a farm's own rule (farmId set) points at
+        one of that farm's own seasons instead. A crop with no rule at all,
+        for a farm or as a default, is unrestricted / year-round.
+      required: [id, cropId, seasonId, farmId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        cropId:
+          type: string
+          format: uuid
+        seasonId:
+          type: string
+          format: uuid
+        farmId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Null for the default rule, the farm's id for that farm's own rule.
+
+    AssignCropSeasonRequest:
+      type: object
+      required: [seasonId]
+      properties:
+        seasonId:
+          type: string
+          format: uuid
+          description: |
+            Must be one of the defaults (admin) or belong to the caller's own
+            farm (farmer).
 
     CareInstruction:
       type: object
@@ -2958,6 +3510,20 @@ components:
             $ref: '#/components/schemas/CareInstruction'
 
     CreateCropRequest:
+      type: object
+      required: [name, durationMonths]
+      properties:
+        name:
+          type: string
+          description: Surrounding whitespace is trimmed; must be unique in the catalog.
+          example: Tomatoes
+        durationMonths:
+          type: integer
+          format: int32
+          minimum: 1
+          example: 4
+
+    UpdateCropRequest:
       type: object
       required: [name, durationMonths]
       properties:

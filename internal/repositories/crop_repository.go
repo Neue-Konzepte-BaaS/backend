@@ -38,6 +38,24 @@ func (r *cropRepository) CreateCrop(ctx context.Context, name string, durationMo
 	return models.Crop{ID: id, Name: name, DurationMonths: durationMonths}, nil
 }
 
+func (r *cropRepository) UpdateCrop(ctx context.Context, id uuid.UUID, name string, durationMonths int32) (models.Crop, error) {
+	row, err := r.queries.UpdateCrop(ctx, database.UpdateCropParams{
+		ID:             id,
+		Name:           name,
+		DurationMonths: durationMonths,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.Crop{}, fmt.Errorf("db error: %w %w", err, services.ErrNotFound)
+		}
+		if isUniqueViolation(err) {
+			return models.Crop{}, services.ErrCropNameTaken
+		}
+		return models.Crop{}, err
+	}
+	return models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}, nil
+}
+
 func (r *cropRepository) DeleteCrop(ctx context.Context, id uuid.UUID) error {
 	err := r.queries.DeleteCrop(ctx, id)
 	if err != nil {

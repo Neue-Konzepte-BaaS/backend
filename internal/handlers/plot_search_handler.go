@@ -22,9 +22,15 @@ func NewPlotSearchHandler(plotSearchService services.PlotSearchService) *PlotSea
 	return &PlotSearchHandler{plotSearchService: plotSearchService}
 }
 
+// plotCropOfferingResponse is a crop as offered on a specific plot: what it
+// is, the total price for renting that plot with it for its full duration,
+// and the season a rental of it here must fall within - null if it can be
+// rented year-round. Lets a customer see the season before requesting a
+// rental, rather than finding out from a 409 on checkout.
 type plotCropOfferingResponse struct {
 	cropResponse
-	PriceCents int32 `json:"priceCents"`
+	PriceCents int32           `json:"priceCents"`
+	Season     *seasonResponse `json:"season"`
 }
 
 type nearbyPlotResponse struct {
@@ -44,6 +50,10 @@ func toPlotCropOfferingResponses(offerings []models.PlotCropOffering) []plotCrop
 		res[i] = plotCropOfferingResponse{
 			cropResponse: toCropResponse(offering.Crop),
 			PriceCents:   offering.PriceCents,
+		}
+		if offering.Season != nil {
+			season := toSeasonResponse(*offering.Season)
+			res[i].Season = &season
 		}
 	}
 	return res

@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, careGuideHandler *CareGuideHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, statisticsHandler *StatisticsHandler, paymentHandler *PaymentHandler, ripenessNoticeHandler *RipenessNoticeHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, careGuideHandler *CareGuideHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, seasonHandler *SeasonHandler, statisticsHandler *StatisticsHandler, paymentHandler *PaymentHandler, ripenessNoticeHandler *RipenessNoticeHandler, authService services.AuthService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -165,6 +165,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Use(appmiddleware.RequireRole(models.RoleAdmin))
 			r.Post("/", cropHandler.CreateCrop)
+			r.Put("/{cropID}", cropHandler.UpdateCrop)
 			r.Delete("/{cropID}", cropHandler.DeleteCrop)
 		})
 
@@ -186,6 +187,33 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
 			r.Delete("/{cropID}/farm-care-guide", careGuideHandler.ResetFarmCareGuide)
 		})
+
+		// The rule tying a crop to a season, so renting it is only allowed
+		// inside that season's window: the default rule for an admin, and
+		// for a farmer their own farm's rule.
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireAuth(authService))
+			r.Use(appmiddleware.RequireAnyRole(models.RoleAdmin, models.RoleFarmer))
+			r.Put("/{cropID}/season", seasonHandler.AssignCropSeason)
+			r.Delete("/{cropID}/season", seasonHandler.RemoveCropSeasonRule)
+			// Static "/seasons" is safe alongside "/{cropID}/season" above:
+			// chi prioritizes a static segment over a param at the same
+			// level, same as "/crop-rates" does alongside "/{farmID}" on
+			// /api/farms.
+			r.Get("/seasons", seasonHandler.GetCropSeasons)
+		})
+	})
+
+	// The seasons a crop can be tied to: the default set for an admin, and
+	// for a farmer the union of the defaults and their own farm's seasons.
+	r.Route("/api/seasons", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+		r.Use(appmiddleware.RequireAnyRole(models.RoleAdmin, models.RoleFarmer))
+
+		r.Get("/", seasonHandler.GetSeasons)
+		r.Post("/", seasonHandler.CreateSeason)
+		r.Put("/{seasonID}", seasonHandler.UpdateSeason)
+		r.Delete("/{seasonID}", seasonHandler.DeleteSeason)
 	})
 
 	r.Route("/api/rentals", func(r chi.Router) {

@@ -164,6 +164,7 @@ func main() {
 	broadcastNotificationRepo := repositories.NewBroadcastNotificationRepository(queries)
 	pendingRegistrationRepo := repositories.NewPendingRegistrationRepository(queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
+	seasonRepo := repositories.NewSeasonRepository(pool, queries)
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
 	paymentGateway := repositories.NewStripeGateway(c.StripeSecretKey, c.StripeWebhookSecret)
 	ripenessNoticeRepo := repositories.NewRipenessNoticeRepository(queries)
@@ -180,11 +181,12 @@ func main() {
 	ripenessNoticeService := services.NewRipenessNoticeService(farmRepo, fieldRepo, ripenessNoticeRepo, notificationService)
 	inboxService := services.NewInboxService(broadcastNotificationRepo, announcementRepo, ripenessNoticeRepo, careGuideService)
 	plotService := services.NewPlotService(farmRepo, fieldRepo, plotRepo)
-	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo, cropRepo)
-	rentalService := services.NewRentalService(farmRepo, fieldRepo, rentalRepo, plotRepo, cropRepo)
+	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo, cropRepo, seasonRepo)
+	rentalService := services.NewRentalService(farmRepo, fieldRepo, rentalRepo, plotRepo, cropRepo, seasonRepo)
 	cropService := services.NewCropService(farmRepo, fieldRepo, plotRepo, cropRepo)
+	seasonService := services.NewSeasonService(seasonRepo, farmRepo, cropRepo)
 	statisticsService := services.NewStatisticsService(farmRepo, statisticsRepo)
-	paymentService := services.NewPaymentService(rentalService, rentalRepo, rentalCheckoutRepo, paymentGateway, plotRepo, cropRepo, fieldRepo, farmRepo, c.FrontendURL)
+	paymentService := services.NewPaymentService(rentalService, rentalRepo, rentalCheckoutRepo, paymentGateway, plotRepo, cropRepo, fieldRepo, farmRepo, seasonRepo, c.FrontendURL)
 
 	accountHandler := handlers.NewAccountHandler(accountService)
 	authHandler := handlers.NewAuthHandler(authService, c)
@@ -197,11 +199,12 @@ func main() {
 	plotSearchHandler := handlers.NewPlotSearchHandler(plotSearchService)
 	rentalHandler := handlers.NewRentalHandler(rentalService, paymentService)
 	cropHandler := handlers.NewCropHandler(cropService)
+	seasonHandler := handlers.NewSeasonHandler(seasonService)
 	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	ripenessNoticeHandler := handlers.NewRipenessNoticeHandler(ripenessNoticeService)
 
-	router := handlers.NewRouter(accountHandler, authHandler, announcementHandler, careGuideHandler, farmHandler, fieldHandler, notificationHandler, inboxHandler, plotSearchHandler, rentalHandler, cropHandler, statisticsHandler, paymentHandler, ripenessNoticeHandler, authService, c)
+	router := handlers.NewRouter(accountHandler, authHandler, announcementHandler, careGuideHandler, farmHandler, fieldHandler, notificationHandler, inboxHandler, plotSearchHandler, rentalHandler, cropHandler, seasonHandler, statisticsHandler, paymentHandler, ripenessNoticeHandler, authService, c)
 
 	// Shutdown is graceful because notifications are delivered after the
 	// response is written: killing the process on SIGTERM would drop mail that

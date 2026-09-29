@@ -162,6 +162,51 @@ type CareInstructionRepository interface {
 	GetEffectiveCareInstructions(ctx context.Context, guides []models.CropAtFarm) (map[models.CropAtFarm][]models.CareInstruction, error)
 }
 
+type SeasonRepository interface {
+	// CreateSeason adds a season to the default set when farm is nil, or that
+	// farm's own set otherwise.
+	CreateSeason(ctx context.Context, farm *uuid.UUID, name string, startMonth, startDay, endMonth, endDay int32) (models.Season, error)
+	// UpdateSeason rewrites a season's name and date range. Returns
+	// ErrNotFound if no season has that id.
+	UpdateSeason(ctx context.Context, id uuid.UUID, name string, startMonth, startDay, endMonth, endDay int32) (models.Season, error)
+	// DeleteSeason removes one season, reporting ErrNotFound rather than
+	// succeeding silently when the id is unknown.
+	DeleteSeason(ctx context.Context, id uuid.UUID) error
+	// GetSeasonByID returns ErrNotFound if no season has that id.
+	GetSeasonByID(ctx context.Context, id uuid.UUID) (models.Season, error)
+	// GetDefaultSeasons returns the global default set, ordered by start date.
+	GetDefaultSeasons(ctx context.Context) ([]models.Season, error)
+	// GetFarmSeasons returns the farm's own seasons, ordered by start date.
+	GetFarmSeasons(ctx context.Context, farm uuid.UUID) ([]models.Season, error)
+	// CreateCropSeasonRule ties a crop to a season: the default rule when
+	// farm is nil, that farm's own rule otherwise. Returns
+	// ErrCropSeasonRuleExists if a rule already exists for that crop in that
+	// set (the defaults, or that farm's own).
+	CreateCropSeasonRule(ctx context.Context, crop uuid.UUID, farm *uuid.UUID, season uuid.UUID) (models.CropSeasonRule, error)
+	// UpdateCropSeasonRule repoints an existing rule at a different season.
+	// Returns ErrNotFound if no rule has that id.
+	UpdateCropSeasonRule(ctx context.Context, id uuid.UUID, season uuid.UUID) (models.CropSeasonRule, error)
+	// DeleteCropSeasonRule removes one rule, reporting ErrNotFound rather
+	// than succeeding silently when the id is unknown.
+	DeleteCropSeasonRule(ctx context.Context, id uuid.UUID) error
+	// GetCropSeasonRuleByID returns ErrNotFound if no rule has that id.
+	GetCropSeasonRuleByID(ctx context.Context, id uuid.UUID) (models.CropSeasonRule, error)
+	// GetCropSeasonRuleForCrop returns the rule for a crop in exactly one
+	// set: the default rule when farm is nil, that farm's own rule
+	// otherwise. Unlike GetEffectiveSeasonForCrop, it never falls back from a
+	// farm's set to the defaults. Returns ErrNotFound if no such rule exists.
+	GetCropSeasonRuleForCrop(ctx context.Context, crop uuid.UUID, farm *uuid.UUID) (models.CropSeasonRule, error)
+	// GetEffectiveSeasonForCrop returns the season a crop is checked against
+	// for a given farm: that farm's own rule if it has one, the default rule
+	// otherwise. The bool is false if neither exists, meaning the crop is
+	// unrestricted for that farm.
+	GetEffectiveSeasonForCrop(ctx context.Context, crop, farm uuid.UUID) (models.Season, bool, error)
+	// GetEffectiveSeasonsForCrops is GetEffectiveSeasonForCrop batched over
+	// several (crop, farm) pairs. A pair absent from the returned map has no
+	// rule and is unrestricted.
+	GetEffectiveSeasonsForCrops(ctx context.Context, pairs []models.CropAtFarm) (map[models.CropAtFarm]models.Season, error)
+}
+
 type RipenessNoticeRepository interface {
 	// CreateRipenessNotice stores one notice by a farmer and returns it with
 	// the farm, field and crop names already resolved.
@@ -259,6 +304,9 @@ type RentalRepository interface {
 type CropRepository interface {
 	// CreateCrop adds a new crop to the catalog.
 	CreateCrop(ctx context.Context, name string, durationMonths int32) (models.Crop, error)
+	// UpdateCrop overwrites a crop's editable fields. Returns ErrNotFound if
+	// the crop does not exist.
+	UpdateCrop(ctx context.Context, id uuid.UUID, name string, durationMonths int32) (models.Crop, error)
 	// DeleteCrop removes a crop from the catalog. Crops referenced by active
 	// rentals cannot be removed (the DB enforces the FK).
 	DeleteCrop(ctx context.Context, id uuid.UUID) error
