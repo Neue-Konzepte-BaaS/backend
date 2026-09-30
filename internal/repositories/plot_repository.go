@@ -93,6 +93,10 @@ func fromPgInt4(v pgtype.Int4) *int32 {
 	return &value
 }
 
+func (r *plotRepository) CountPlotsByFarm(ctx context.Context, farm uuid.UUID) (int64, error) {
+	return r.queries.CountPlotsByFarm(ctx, farm)
+}
+
 func (r *plotRepository) GetNearestPlots(ctx context.Context, lon, lat float64, farm *uuid.UUID, limit int32) ([]models.NearbyPlot, error) {
 	rows, err := r.queries.GetNearestPlots(ctx, database.GetNearestPlotsParams{
 		Lon:         lon,

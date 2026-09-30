@@ -72,6 +72,52 @@ func seedAdmin(ctx context.Context, accountRepo services.AccountRepository, cfg 
 	slog.Info("admin seed: account created", "email", cfg.AdminEmail)
 }
 
+// seedSubscriptionPlanDefaults are placeholder prices and plot caps for the
+// three tiers, seeded once at first boot. Correct them afterward via
+// PUT /api/admin/subscription-plans/{planID}/price -- these numbers are
+// deliberately not final, only enough to have real Stripe Price objects to
+// point checkout sessions at from day one.
+var seedSubscriptionPlanDefaults = []struct {
+	code        models.SubscriptionPlanCode
+	displayName string
+	maxPlots    *int32
+	priceCents  int32
+}{
+	{models.SubscriptionPlanCheap, "Cheap", int32Ptr(5), 990},
+	{models.SubscriptionPlanModest, "Modest", int32Ptr(20), 2900},
+	{models.SubscriptionPlanExpensive, "Expensive", nil, 9900},
+}
+
+func int32Ptr(v int32) *int32 { return &v }
+
+// seedSubscriptionPlans creates the three fixed subscription tiers on first
+// boot, same idempotent "skip if exists" shape as seedAdmin. Creating a
+// Stripe Price requires calling Stripe, which a pure SQL migration cannot
+// do -- that is why this seeding happens here instead of in the migration
+// itself.
+func seedSubscriptionPlans(ctx context.Context, planRepo services.SubscriptionPlanRepository, paymentGateway services.PaymentGateway) {
+	for _, plan := range seedSubscriptionPlanDefaults {
+		if _, err := planRepo.GetSubscriptionPlanByCode(ctx, plan.code); err == nil {
+			continue
+		} else if !errors.Is(err, services.ErrNotFound) {
+			slog.Error("subscription plan seed: looking up plan failed", "code", plan.code, "error", err)
+			continue
+		}
+
+		stripePriceID, err := paymentGateway.CreateSubscriptionPrice(ctx, plan.displayName, int64(plan.priceCents))
+		if err != nil {
+			slog.Error("subscription plan seed: creating stripe price failed", "code", plan.code, "error", err)
+			continue
+		}
+
+		if err := planRepo.CreateSubscriptionPlan(ctx, plan.code, plan.displayName, plan.maxPlots, plan.priceCents, stripePriceID); err != nil {
+			slog.Error("subscription plan seed: creating plan failed", "code", plan.code, "error", err)
+			continue
+		}
+		slog.Info("subscription plan seed: plan created", "code", plan.code)
+	}
+}
+
 // shutdownTimeout bounds both draining in-flight requests and waiting for
 // background notification sends. smtp.SendMail has no timeout of its own, so
 // without a deadline here a hung relay would keep the process alive.
@@ -168,19 +214,23 @@ func main() {
 	statisticsRepo := repositories.NewStatisticsRepository(queries)
 	paymentGateway := repositories.NewStripeGateway(c.StripeSecretKey, c.StripeWebhookSecret)
 	ripenessNoticeRepo := repositories.NewRipenessNoticeRepository(queries)
+	subscriptionPlanRepo := repositories.NewSubscriptionPlanRepository(queries)
+	farmerSubscriptionRepo := repositories.NewFarmerSubscriptionRepository(queries)
+	seedSubscriptionPlans(ctx, subscriptionPlanRepo, paymentGateway)
 
 	dispatcher := services.NewDispatcher(notificationConcurrency)
 
 	accountService := services.NewAccountService(accountRepo)
 	farmService := services.NewFarmService(farmRepo)
-	fieldService := services.NewFieldService(farmRepo, fieldRepo, plotRepo, cropRepo)
 	notificationService := services.NewNotificationService(newEmailSender(c), accountRepo, broadcastNotificationRepo, emailtemplates.FS, dispatcher)
 	authService := services.NewAuthService(accountRepo, pendingRegistrationRepo, credentials.NewIssuer(c.JWTSecret), notificationService, dispatcher, c.FrontendURL)
 	announcementService := services.NewAnnouncementService(farmRepo, fieldRepo, plotRepo, announcementRepo, notificationService)
 	careGuideService := services.NewCareGuideService(careInstructionRepo, rentalRepo, farmRepo)
 	ripenessNoticeService := services.NewRipenessNoticeService(farmRepo, fieldRepo, ripenessNoticeRepo, notificationService)
 	inboxService := services.NewInboxService(broadcastNotificationRepo, announcementRepo, ripenessNoticeRepo, careGuideService)
-	plotService := services.NewPlotService(farmRepo, fieldRepo, plotRepo)
+	subscriptionService := services.NewSubscriptionService(farmerSubscriptionRepo, subscriptionPlanRepo, paymentGateway, accountRepo, c.FrontendURL)
+	fieldService := services.NewFieldService(farmRepo, fieldRepo, plotRepo, cropRepo)
+	plotService := services.NewPlotService(farmRepo, fieldRepo, plotRepo, subscriptionService)
 	plotSearchService := services.NewPlotSearchService(plotRepo, postalCodeRepo, cropRepo, seasonRepo)
 	rentalService := services.NewRentalService(farmRepo, fieldRepo, rentalRepo, plotRepo, cropRepo, seasonRepo)
 	cropService := services.NewCropService(farmRepo, fieldRepo, plotRepo, cropRepo)
@@ -201,10 +251,11 @@ func main() {
 	cropHandler := handlers.NewCropHandler(cropService)
 	seasonHandler := handlers.NewSeasonHandler(seasonService)
 	statisticsHandler := handlers.NewStatisticsHandler(statisticsService)
-	paymentHandler := handlers.NewPaymentHandler(paymentService)
+	subscriptionHandler := handlers.NewSubscriptionHandler(subscriptionService)
+	paymentHandler := handlers.NewPaymentHandler(paymentService, subscriptionService)
 	ripenessNoticeHandler := handlers.NewRipenessNoticeHandler(ripenessNoticeService)
 
-	router := handlers.NewRouter(accountHandler, authHandler, announcementHandler, careGuideHandler, farmHandler, fieldHandler, notificationHandler, inboxHandler, plotSearchHandler, rentalHandler, cropHandler, seasonHandler, statisticsHandler, paymentHandler, ripenessNoticeHandler, authService, c)
+	router := handlers.NewRouter(accountHandler, authHandler, announcementHandler, careGuideHandler, farmHandler, fieldHandler, notificationHandler, inboxHandler, plotSearchHandler, rentalHandler, cropHandler, seasonHandler, statisticsHandler, paymentHandler, ripenessNoticeHandler, subscriptionHandler, authService, subscriptionService, c)
 
 	// Shutdown is graceful because notifications are delivered after the
 	// response is written: killing the process on SIGTERM would drop mail that

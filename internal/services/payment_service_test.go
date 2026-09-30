@@ -188,6 +188,12 @@ func (f *fakePaymentGateway) ParseWebhookEvent([]byte, string) (WebhookEvent, bo
 	}
 	return f.event, f.eventOK, nil
 }
+func (f *fakePaymentGateway) CreateSubscriptionPrice(context.Context, string, int64) (string, error) {
+	return "", nil
+}
+func (f *fakePaymentGateway) CreateSubscriptionCheckoutSession(context.Context, string, string, *string, string) (string, string, string, error) {
+	return "", "", "", nil
+}
 
 // fakePaymentPlotRepo, fakePaymentCropRepo, fakePaymentFieldRepo and
 // fakePaymentFarmRepo each implement only what CreateCheckoutSession needs;
@@ -214,6 +220,9 @@ func (f *fakePaymentPlotRepo) GetPlotByID(context.Context, uuid.UUID) (models.Pl
 		return models.Plot{}, f.plotErr
 	}
 	return f.plot, nil
+}
+func (f *fakePaymentPlotRepo) CountPlotsByFarm(context.Context, uuid.UUID) (int64, error) {
+	return 0, nil
 }
 
 type fakePaymentCropRepo struct {

@@ -91,6 +91,19 @@ type Farmer struct {
 	PostalCode int32
 }
 
+type FarmerSubscription struct {
+	ID                      uuid.UUID
+	Farmer                  uuid.UUID
+	Plan                    uuid.UUID
+	StripeCustomerID        string
+	StripeSubscriptionID    pgtype.Text
+	StripeCheckoutSessionID pgtype.Text
+	Status                  string
+	CurrentPeriodEnd        pgtype.Timestamptz
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+}
+
 type Field struct {
 	ID          uuid.UUID
 	Name        string
@@ -187,4 +200,16 @@ type SeasonCrop struct {
 	FarmID    *uuid.UUID
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
+}
+
+type SubscriptionPlan struct {
+	ID            uuid.UUID
+	Code          string
+	DisplayName   string
+	MaxPlots      pgtype.Int4
+	PriceCents    int32
+	StripePriceID string
+	IsActive      bool
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
 }

@@ -16,11 +16,12 @@ import (
 )
 
 type PaymentHandler struct {
-	paymentService services.PaymentService
+	paymentService      services.PaymentService
+	subscriptionService services.SubscriptionService
 }
 
-func NewPaymentHandler(paymentService services.PaymentService) *PaymentHandler {
-	return &PaymentHandler{paymentService: paymentService}
+func NewPaymentHandler(paymentService services.PaymentService, subscriptionService services.SubscriptionService) *PaymentHandler {
+	return &PaymentHandler{paymentService: paymentService, subscriptionService: subscriptionService}
 }
 
 // maxWebhookBodyBytes bounds how much of a Stripe webhook request body is
@@ -150,14 +151,22 @@ func (h *PaymentHandler) GetCheckoutSessionStatus(w http.ResponseWriter, r *http
 // endpoint (no auth required) -- Stripe itself is the caller, authenticated
 // instead by the Stripe-Signature header. It must be mounted without
 // RequireAuth.
+//
+// One Stripe dashboard webhook endpoint serves both the rental (payment
+// mode) and subscription flows: paymentService and subscriptionService each
+// independently parse the same payload+signature via the shared
+// PaymentGateway and no-op on event types they do not act on, rather than
+// splitting into two dashboard-configured URLs/secrets for no real
+// isolation benefit.
 func (h *PaymentHandler) HandleStripeWebhook(w http.ResponseWriter, r *http.Request) {
 	payload, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBodyBytes))
 	if err != nil {
 		webutils.WriteError(w, http.StatusBadRequest, "could not read request body")
 		return
 	}
+	sigHeader := r.Header.Get("Stripe-Signature")
 
-	err = h.paymentService.HandleWebhookEvent(r.Context(), payload, r.Header.Get("Stripe-Signature"))
+	err = h.paymentService.HandleWebhookEvent(r.Context(), payload, sigHeader)
 	if errors.Is(err, services.ErrInvalidWebhookSignature) {
 		webutils.WriteError(w, http.StatusBadRequest, "invalid webhook signature")
 		return
@@ -166,6 +175,12 @@ func (h *PaymentHandler) HandleStripeWebhook(w http.ResponseWriter, r *http.Requ
 		// A non-2xx response makes Stripe retry delivery later, which is
 		// what we want for an error that might be transient.
 		slog.Error("handling stripe webhook failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if err := h.subscriptionService.HandleWebhookEvent(r.Context(), payload, sigHeader); err != nil {
+		slog.Error("handling stripe subscription webhook failed", "error", err)
 		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

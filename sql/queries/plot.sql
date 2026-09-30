@@ -23,6 +23,14 @@ ORDER BY name;
 -- name: UpdatePlotBasePrice :exec
 UPDATE plot SET base_price_cents_per_sqm_per_week = sqlc.arg(base_price_cents_per_sqm_per_week) WHERE id = sqlc.arg(id);
 
+-- name: CountPlotsByFarm :one
+-- Used by the subscription plot-count cap: how many plots a farm currently
+-- offers, regardless of rental status.
+SELECT COUNT(*)::bigint
+FROM plot
+JOIN field ON field.id = plot.field
+WHERE field.farm = sqlc.arg(farm);
+
 -- name: GetNearestPlots :many
 SELECT
     plot.id,
