@@ -78,6 +78,15 @@ var (
 	// rule for a set (the defaults, or one farm's own) that already has one -
 	// the caller should update the existing rule instead.
 	ErrCropSeasonRuleExists = errors.New("crop already has a season rule in this set")
+	// ErrSubscriptionAlreadyActive is returned when a farmer who already has
+	// a non-canceled subscription tries to start another checkout.
+	ErrSubscriptionAlreadyActive = errors.New("farmer already has an active subscription")
+	// ErrSubscriptionRequired is returned by RequireActiveSubscription when
+	// the caller has no Active or PastDue subscription.
+	ErrSubscriptionRequired = errors.New("an active subscription is required")
+	// ErrPlotCapExceeded is returned when creating a plot would put a farm
+	// over its subscription plan's plot limit.
+	ErrPlotCapExceeded = errors.New("subscription plan plot limit reached")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

@@ -13,7 +13,7 @@ import (
 )
 
 // NewRouter chains up all routes located in the different handlers
-func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, careGuideHandler *CareGuideHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, seasonHandler *SeasonHandler, statisticsHandler *StatisticsHandler, paymentHandler *PaymentHandler, ripenessNoticeHandler *RipenessNoticeHandler, authService services.AuthService, cfg config.Config) http.Handler {
+func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announcementHandler *AnnouncementHandler, careGuideHandler *CareGuideHandler, farmHandler *FarmHandler, fieldHandler *FieldHandler, notificationHandler *NotificationHandler, inboxHandler *InboxHandler, plotSearchHandler *PlotSearchHandler, rentalHandler *RentalHandler, cropHandler *CropHandler, seasonHandler *SeasonHandler, statisticsHandler *StatisticsHandler, paymentHandler *PaymentHandler, ripenessNoticeHandler *RipenessNoticeHandler, subscriptionHandler *SubscriptionHandler, authService services.AuthService, subscriptionService services.SubscriptionService, cfg config.Config) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 	r.Use(middleware.Logger)
@@ -56,6 +56,9 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 
 		r.Get("/accounts", accountHandler.ListAccounts)
 		r.Get("/farms", farmHandler.ListFarms)
+		r.Get("/subscription-plans", subscriptionHandler.ListPlansAdmin)
+		r.Put("/subscription-plans/{planID}/price", subscriptionHandler.UpdatePlanPrice)
+		r.Put("/subscription-plans/{planID}/active", subscriptionHandler.SetPlanActive)
 	})
 
 	r.Route("/api/announcements", func(r chi.Router) {
@@ -63,6 +66,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Use(appmiddleware.RequireActiveSubscription(subscriptionService))
 			r.Post("/", announcementHandler.Create)
 		})
 
@@ -103,6 +107,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Use(appmiddleware.RequireActiveSubscription(subscriptionService))
 			r.Get("/me", farmHandler.GetMyFarm)
 			r.Put("/me", farmHandler.UpdateMyFarm)
 		})
@@ -120,6 +125,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Route("/crop-rates", func(r chi.Router) {
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Use(appmiddleware.RequireActiveSubscription(subscriptionService))
 			r.Get("/", farmHandler.GetCropRates)
 			r.Put("/", farmHandler.SetCropRates)
 		})
@@ -128,6 +134,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 	r.Route("/api/fields", func(r chi.Router) {
 		r.Use(appmiddleware.RequireAuth(authService))
 		r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+		r.Use(appmiddleware.RequireActiveSubscription(subscriptionService))
 
 		r.Post("/", fieldHandler.CreateField)
 		r.Get("/", fieldHandler.GetFields)
@@ -154,6 +161,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Use(appmiddleware.RequireActiveSubscription(subscriptionService))
 			r.Put("/{plotID}/crops", cropHandler.SetPlotCrops)
 		})
 	})
@@ -185,6 +193,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Use(appmiddleware.RequireActiveSubscription(subscriptionService))
 			r.Delete("/{cropID}/farm-care-guide", careGuideHandler.ResetFarmCareGuide)
 		})
 
@@ -226,6 +235,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Use(appmiddleware.RequireActiveSubscription(subscriptionService))
 			r.Get("/farm", rentalHandler.GetFarmRentals)
 			r.Post("/{rentalID}/approve", rentalHandler.ApproveRental)
 			r.Post("/{rentalID}/decline", rentalHandler.DeclineRental)
@@ -241,6 +251,22 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 
 		r.Post("/checkout-sessions", paymentHandler.CreateCheckoutSession)
 		r.Get("/checkout-sessions/{sessionID}", paymentHandler.GetCheckoutSessionStatus)
+	})
+
+	// The three subscription tiers on offer, public so a prospective farmer
+	// can see pricing before registering -- same precedent as GET
+	// /api/crops. CreateCheckoutSession and GetSubscriptionStatus are
+	// deliberately not behind RequireActiveSubscription: a farmer with no
+	// subscription yet is exactly who needs to reach them.
+	r.Route("/api/subscriptions", func(r chi.Router) {
+		r.Get("/plans", subscriptionHandler.GetPlans)
+
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireAuth(authService))
+			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
+			r.Post("/checkout-sessions", subscriptionHandler.CreateCheckoutSession)
+			r.Get("/me", subscriptionHandler.GetSubscriptionStatus)
+		})
 	})
 
 	// Public: Stripe itself is the caller, authenticated by the

@@ -121,18 +121,41 @@ func (s *fieldService) GetFieldsByFarm(ctx context.Context, farm uuid.UUID) ([]m
 }
 
 type plotService struct {
-	farmRepo  FarmRepository
-	fieldRepo FieldRepository
-	plotRepo  PlotRepository
+	farmRepo            FarmRepository
+	fieldRepo           FieldRepository
+	plotRepo            PlotRepository
+	subscriptionService SubscriptionService
 }
 
-func NewPlotService(farmRepo FarmRepository, fieldRepo FieldRepository, plotRepo PlotRepository) PlotService {
-	return &plotService{farmRepo: farmRepo, fieldRepo: fieldRepo, plotRepo: plotRepo}
+func NewPlotService(farmRepo FarmRepository, fieldRepo FieldRepository, plotRepo PlotRepository, subscriptionService SubscriptionService) PlotService {
+	return &plotService{farmRepo: farmRepo, fieldRepo: fieldRepo, plotRepo: plotRepo, subscriptionService: subscriptionService}
 }
 
+// CreatePlot is the one place a farm's plot count is compared against its
+// subscription plan's cap. RequireActiveSubscription (mounted on every
+// farmer route) already rejects a farmer with no subscription at all before
+// a request gets here, so HasCapacityForAdditionalPlot only ever needs to
+// handle "has a plan, but it is full" -- never "has no plan".
 func (s *plotService) CreatePlot(ctx context.Context, farmer uuid.UUID, fieldID uuid.UUID, name string, coordinates *geom.Polygon) (models.Plot, error) {
 	if err := checkFieldOwnership(ctx, s.farmRepo, s.fieldRepo, farmer, fieldID); err != nil {
 		return models.Plot{}, err
+	}
+
+	farmID, err := s.farmRepo.GetFarmIDByFarmerID(ctx, farmer)
+	if err != nil {
+		return models.Plot{}, fmt.Errorf("looking up farm: %w", err)
+	}
+
+	plotCount, err := s.plotRepo.CountPlotsByFarm(ctx, farmID)
+	if err != nil {
+		return models.Plot{}, fmt.Errorf("counting farm plots: %w", err)
+	}
+	hasCapacity, err := s.subscriptionService.HasCapacityForAdditionalPlot(ctx, farmer, plotCount)
+	if err != nil {
+		return models.Plot{}, fmt.Errorf("checking subscription capacity: %w", err)
+	}
+	if !hasCapacity {
+		return models.Plot{}, ErrPlotCapExceeded
 	}
 
 	plot := models.Plot{

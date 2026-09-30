@@ -22,14 +22,33 @@ type WebhookEventType string
 const (
 	WebhookEventCheckoutCompleted WebhookEventType = "checkout.session.completed"
 	WebhookEventCheckoutExpired   WebhookEventType = "checkout.session.expired"
+	// Subscription-family events. checkout.session.completed/expired for a
+	// subscription-mode session share the same Stripe event *type* as the
+	// payment-mode ones above -- ParseWebhookEvent tells them apart by the
+	// session's mode field and maps to these distinct WebhookEventTypes
+	// instead, so callers never need to inspect mode themselves.
+	WebhookEventSubscriptionCheckoutCompleted WebhookEventType = "subscription_checkout.session.completed"
+	WebhookEventSubscriptionCheckoutExpired   WebhookEventType = "subscription_checkout.session.expired"
+	WebhookEventSubscriptionDeleted           WebhookEventType = "customer.subscription.deleted"
+	WebhookEventInvoicePaymentFailed          WebhookEventType = "invoice.payment_failed"
+	WebhookEventInvoicePaymentSucceeded       WebhookEventType = "invoice.payment_succeeded"
 )
 
 // WebhookEvent is the subset of a Stripe webhook event this codebase acts
 // on, already reduced from the Stripe SDK's own types so that nothing above
 // the repositories package needs to import it.
 type WebhookEvent struct {
-	Type              WebhookEventType
+	Type WebhookEventType
+	// CheckoutSessionID is set for the checkout.session.* event family
+	// (both payment and subscription mode).
 	CheckoutSessionID string
+	// StripeSubscriptionID is set for the subscription/invoice event family:
+	// customer.subscription.deleted, invoice.payment_failed,
+	// invoice.payment_succeeded.
+	StripeSubscriptionID string
+	// CurrentPeriodEnd is set for invoice.payment_succeeded, the renewed
+	// subscription's next billing date.
+	CurrentPeriodEnd *time.Time
 }
 
 // PaymentGateway is an outbound port to Stripe, in the same
@@ -52,6 +71,20 @@ type PaymentGateway interface {
 	// no-op, not an error. Returns ErrInvalidWebhookSignature if
 	// verification fails.
 	ParseWebhookEvent(payload []byte, sigHeader string) (event WebhookEvent, ok bool, err error)
+
+	// CreateSubscriptionPrice creates a new Stripe Product+Price pair with
+	// monthly recurring billing, for a plan being created or repriced by an
+	// admin. Products/Prices are never mutated once created -- a repriced
+	// plan gets a brand new one, see subscription_plan's migration comment.
+	CreateSubscriptionPrice(ctx context.Context, displayName string, amountCents int64) (stripePriceID string, err error)
+	// CreateSubscriptionCheckoutSession opens a Stripe Embedded Checkout
+	// session in subscription mode for the given Stripe Price. If
+	// existingStripeCustomerID is nil, Stripe creates a new Customer for
+	// customerEmail; otherwise the existing customer is reused so a farmer
+	// resubscribing after a cancellation is billed under the same Customer.
+	// Returns the session id, client secret, and the Stripe Customer id (new
+	// or reused) to persist against the local farmer_subscription row.
+	CreateSubscriptionCheckoutSession(ctx context.Context, stripePriceID, customerEmail string, existingStripeCustomerID *string, returnURL string) (sessionID, clientSecret, stripeCustomerID string, err error)
 }
 
 type AccountRepository interface {
@@ -265,6 +298,9 @@ type PlotRepository interface {
 	// GetPlotByID returns the plot, including its computed area and its own
 	// base price. Returns ErrNotFound if the plot does not exist.
 	GetPlotByID(ctx context.Context, plot uuid.UUID) (models.Plot, error)
+	// CountPlotsByFarm returns how many plots the farm currently offers,
+	// regardless of rental status. Used by the subscription plot-count cap.
+	CountPlotsByFarm(ctx context.Context, farm uuid.UUID) (int64, error)
 }
 
 type RentalRepository interface {
@@ -359,6 +395,66 @@ type RentalCheckoutRepository interface {
 	// MarkCheckoutRefunded marks a still-Completed checkout Refunded. Same
 	// idempotency guard as CompleteCheckout.
 	MarkCheckoutRefunded(ctx context.Context, id uuid.UUID) (models.RentalCheckout, error)
+}
+
+// SubscriptionPlanRepository manages the fixed catalog of subscription
+// tiers a farmer may choose from.
+type SubscriptionPlanRepository interface {
+	// CreateSubscriptionPlan seeds one of the three fixed tiers. Used only
+	// at startup (see seedSubscriptionPlans in main.go) -- there is no
+	// route to create an arbitrary new tier at runtime.
+	CreateSubscriptionPlan(ctx context.Context, code models.SubscriptionPlanCode, displayName string, maxPlots *int32, priceCents int32, stripePriceID string) error
+	// GetActiveSubscriptionPlans returns the plans currently open to new
+	// subscriptions, cheapest first.
+	GetActiveSubscriptionPlans(ctx context.Context) ([]models.SubscriptionPlan, error)
+	GetSubscriptionPlanByID(ctx context.Context, id uuid.UUID) (models.SubscriptionPlan, error)
+	GetSubscriptionPlanByCode(ctx context.Context, code models.SubscriptionPlanCode) (models.SubscriptionPlan, error)
+	// ListSubscriptionPlans is the admin view: every plan, active or
+	// retired.
+	ListSubscriptionPlans(ctx context.Context) ([]models.SubscriptionPlan, error)
+	// UpdateSubscriptionPlanPrice repoints a plan at a newly created Stripe
+	// Price. Existing subscribers keep paying whatever Price their own
+	// subscription already references.
+	UpdateSubscriptionPlanPrice(ctx context.Context, id uuid.UUID, priceCents int32, stripePriceID string) (models.SubscriptionPlan, error)
+	// SetSubscriptionPlanActive retires or reactivates a tier without
+	// deleting it, since existing subscriptions still reference it.
+	SetSubscriptionPlanActive(ctx context.Context, id uuid.UUID, active bool) error
+}
+
+// FarmerSubscriptionRepository tracks a farmer's subscription lifecycle, in
+// the same relationship to Stripe's own subscription object that
+// RentalCheckoutRepository has to a rental: this is the ledger, Stripe is
+// the source of truth for billing state, kept in sync via webhook.
+type FarmerSubscriptionRepository interface {
+	// CreateSubscription records a new Stripe subscription Checkout Session
+	// in the Pending state.
+	CreateSubscription(ctx context.Context, sub models.FarmerSubscription) (models.FarmerSubscription, error)
+	GetSubscriptionBySessionID(ctx context.Context, sessionID string) (models.FarmerSubscription, error)
+	GetSubscriptionByStripeSubscriptionID(ctx context.Context, stripeSubscriptionID string) (models.FarmerSubscription, error)
+	// GetActiveSubscriptionByFarmer returns the farmer's current
+	// active-or-past_due subscription. Returns ErrNotFound if the farmer has
+	// never subscribed, or their only subscription is pending or canceled.
+	GetActiveSubscriptionByFarmer(ctx context.Context, farmer uuid.UUID) (models.FarmerSubscription, error)
+	// GetSubscriptionByFarmer returns the farmer's current non-terminal
+	// subscription regardless of status, including Pending, so a farmer
+	// mid-checkout can poll their own status.
+	GetSubscriptionByFarmer(ctx context.Context, farmer uuid.UUID) (models.FarmerSubscription, error)
+	// ActivateSubscription marks a still-Pending subscription Active.
+	// Returns ErrCheckoutAlreadyProcessed if it is not Pending, so a
+	// retried webhook delivery cannot double-process it.
+	ActivateSubscription(ctx context.Context, id uuid.UUID, stripeSubscriptionID string, currentPeriodEnd time.Time) (models.FarmerSubscription, error)
+	// ExpireSubscription marks a still-Pending subscription Canceled (its
+	// checkout session expired unpaid). Same idempotency guard as
+	// ActivateSubscription.
+	ExpireSubscription(ctx context.Context, id uuid.UUID) (models.FarmerSubscription, error)
+	// MarkSubscriptionPastDue marks a still-Active subscription PastDue.
+	MarkSubscriptionPastDue(ctx context.Context, stripeSubscriptionID string) (models.FarmerSubscription, error)
+	// ReactivateSubscription marks an Active-or-PastDue subscription Active
+	// and refreshes its current period end, covering both a routine renewal
+	// and recovery from PastDue.
+	ReactivateSubscription(ctx context.Context, stripeSubscriptionID string, currentPeriodEnd time.Time) (models.FarmerSubscription, error)
+	// CancelSubscription marks a non-terminal subscription Canceled.
+	CancelSubscription(ctx context.Context, stripeSubscriptionID string) (models.FarmerSubscription, error)
 }
 
 type PostalCodeRepository interface {

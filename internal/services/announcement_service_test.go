@@ -124,6 +124,10 @@ func (f *fakePlotRepo) GetPlotByID(context.Context, uuid.UUID) (models.Plot, err
 	panic("not used by these tests")
 }
 
+func (f *fakePlotRepo) CountPlotsByFarm(context.Context, uuid.UUID) (int64, error) {
+	panic("not used by these tests")
+}
+
 // fakeNotifier stands in for the notification provider. Only the fan-out the
 // board uses is reachable from this service.
 type fakeNotifier struct {

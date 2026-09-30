@@ -13,6 +13,22 @@ import (
 	geom "github.com/twpayne/go-geom"
 )
 
+const countPlotsByFarm = `-- name: CountPlotsByFarm :one
+SELECT COUNT(*)::bigint
+FROM plot
+JOIN field ON field.id = plot.field
+WHERE field.farm = $1
+`
+
+// Used by the subscription plot-count cap: how many plots a farm currently
+// offers, regardless of rental status.
+func (q *Queries) CountPlotsByFarm(ctx context.Context, farm uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countPlotsByFarm, farm)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getNearestPlots = `-- name: GetNearestPlots :many
 SELECT
     plot.id,
