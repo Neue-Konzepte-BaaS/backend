@@ -45,6 +45,9 @@ SELECT
     )::float8 AS distance_meters
 FROM plot
 JOIN field ON field.id = plot.field
+JOIN farm ON farm.id = field.farm
+-- A deleted farmer's plots are kept for their rental history, never offered.
+JOIN account farmer_account ON farmer_account.id = farm.farmer_id AND farmer_account.deleted_at IS NULL
 -- Only plots that are free right now; a rental that has run out stops
 -- hiding its plot. A still-undecided request hides the plot too, same as
 -- the rental_no_overlap exclusion constraint -- only a declined request

@@ -52,4 +52,11 @@ LEFT JOIN LATERAL (
       )
 ) available ON TRUE
 WHERE field.farm = $1
+  -- Same as GetFarmByID: a deleted farmer's farm has nothing to browse.
+  AND EXISTS (
+      SELECT 1
+      FROM farm
+      JOIN account a ON a.id = farm.farmer_id
+      WHERE farm.id = field.farm AND a.deleted_at IS NULL
+  )
 ORDER BY field.name;

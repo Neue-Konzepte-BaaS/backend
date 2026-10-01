@@ -80,3 +80,8 @@ JOIN customer c ON c.account_id = a.id
 JOIN rental r ON r.customer = c.account_id
 WHERE r.plot = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
 ORDER BY a.email;
+
+-- name: DeleteAnnouncementsByFarmer :exec
+-- Part of deleting a farmer's account: a post is free text the farmer wrote,
+-- and his renters have already had it mailed to them.
+DELETE FROM announcement WHERE farmer = $1;

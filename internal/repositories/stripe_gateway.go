@@ -140,6 +140,13 @@ func (g *stripeGateway) RefundCheckoutSession(ctx context.Context, sessionID str
 	return nil
 }
 
+func (g *stripeGateway) CancelSubscription(ctx context.Context, stripeSubscriptionID string) error {
+	if _, err := g.client.V1Subscriptions.Cancel(ctx, stripeSubscriptionID, nil); err != nil {
+		return fmt.Errorf("canceling stripe subscription: %w", err)
+	}
+	return nil
+}
+
 // eventDataString reads a top-level string field from an untyped webhook
 // payload, e.g. event.Data.Object["id"].
 func eventDataString(object map[string]any, key string) (string, bool) {

@@ -12,6 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteAnnouncementsByFarmer = `-- name: DeleteAnnouncementsByFarmer :exec
+DELETE FROM announcement WHERE farmer = $1
+`
+
+// Part of deleting a farmer's account: a post is free text the farmer wrote,
+// and his renters have already had it mailed to them.
+func (q *Queries) DeleteAnnouncementsByFarmer(ctx context.Context, farmer uuid.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAnnouncementsByFarmer, farmer)
+	return err
+}
+
 const getAnnouncementsByFarmer = `-- name: GetAnnouncementsByFarmer :many
 SELECT a.id, a.farmer, a.subject, a.body, a.created_at, a.field, a.plot, farm.name AS farm_name
 FROM announcement a

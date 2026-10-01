@@ -13,9 +13,12 @@ SELECT
     farm.founded_at,
     COALESCE(SUM(ST_Area(p.coordinates::geography)), 0)::float8 AS total_square_meters
 FROM farm
+JOIN account a ON a.id = farm.farmer_id
 LEFT JOIN field fi ON fi.farm = farm.id
 LEFT JOIN plot p ON p.field = fi.id
-WHERE farm.id = $1
+-- A deleted farmer's farm stays in the table for the rentals hanging off it,
+-- but is gone as far as anyone browsing is concerned.
+WHERE farm.id = $1 AND a.deleted_at IS NULL
 GROUP BY farm.id;
 
 -- name: UpdateFarmByFarmer :one
@@ -74,7 +77,7 @@ WITH listed AS (
         COALESCE(farm_rentals.active, 0)::bigint AS active_rental_count
     FROM farm
     JOIN farmer fr ON fr.account_id = farm.farmer_id
-    JOIN account a ON a.id = farm.farmer_id
+    JOIN account a ON a.id = farm.farmer_id AND a.deleted_at IS NULL
     LEFT JOIN LATERAL (
         SELECT
             COUNT(*)::bigint AS total,
@@ -136,3 +139,11 @@ WHERE (
 -- Farm names are not unique, so id breaks the tie and keeps paging stable.
 ORDER BY listed.name, listed.id
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);
+
+-- name: AnonymizeFarmByFarmer :exec
+-- Part of deleting a farmer's account. The row itself must stay -- fields, and
+-- through them every past rental, reference it -- but a family farm's name and
+-- address are personal data of the person who ran it.
+UPDATE farm
+SET name = 'Gelöschter Hof', address = '', description = '', founded_at = NULL
+WHERE farmer_id = $1;

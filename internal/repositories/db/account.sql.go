@@ -12,6 +12,30 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const anonymizeAccount = `-- name: AnonymizeAccount :execrows
+UPDATE account
+SET first_name = 'Gelöschtes',
+    last_name = 'Konto',
+    email = 'deleted-' || id::text || '@deleted.invalid',
+    password_hash = '',
+    deleted_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+// The email is replaced by one derived from the id rather than blanked: it
+// stays UNIQUE, and freeing the real address lets its owner register again.
+// .invalid is reserved (RFC 2606), so nothing can ever be mailed to it. An
+// empty password_hash is not a PHC string, so no password can verify against
+// it -- belt and braces, since the deleted_at filter on GetAccountByEmail
+// already keeps the row out of login.
+func (q *Queries) AnonymizeAccount(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, anonymizeAccount, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getAccountByEmail = `-- name: GetAccountByEmail :one
 SELECT
     a.id,
@@ -30,7 +54,7 @@ FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id
 LEFT JOIN customer c ON c.account_id = a.id
-WHERE a.email = $1
+WHERE a.email = $1 AND a.deleted_at IS NULL
 LIMIT 1
 `
 
@@ -81,7 +105,7 @@ FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id
 LEFT JOIN customer c ON c.account_id = a.id
-WHERE a.id = $1
+WHERE a.id = $1 AND a.deleted_at IS NULL
 LIMIT 1
 `
 
@@ -108,6 +132,52 @@ func (q *Queries) GetAccountByID(ctx context.Context, id uuid.UUID) (GetAccountB
 	return i, err
 }
 
+const getAccountDeletionBlockers = `-- name: GetAccountDeletionBlockers :one
+SELECT
+    EXISTS (
+        SELECT 1
+        FROM rental r
+        JOIN plot p ON p.id = r.plot
+        JOIN field f ON f.id = p.field
+        JOIN farm fa ON fa.id = f.farm
+        WHERE (r.customer = $1 OR fa.farmer_id = $1)
+          AND r.status <> 'declined'
+          AND upper(r.period) > CURRENT_TIMESTAMP
+    ) AS has_open_rentals,
+    EXISTS (
+        SELECT 1
+        FROM rental_checkout rc
+        JOIN plot p ON p.id = rc.plot
+        JOIN field f ON f.id = p.field
+        JOIN farm fa ON fa.id = f.farm
+        WHERE (rc.customer = $1 OR fa.farmer_id = $1)
+          AND rc.status = 'pending'
+    ) AS has_pending_rental_payment,
+    EXISTS (
+        SELECT 1
+        FROM farmer_subscription fs
+        WHERE fs.farmer = $1 AND fs.status = 'pending'
+    ) AS has_pending_subscription_payment
+`
+
+type GetAccountDeletionBlockersRow struct {
+	HasOpenRentals                bool
+	HasPendingRentalPayment       bool
+	HasPendingSubscriptionPayment bool
+}
+
+// What still ties an account to someone else's money or plot. One query serves
+// both roles: a customer's id never matches farm.farmer_id and a farmer's never
+// matches rental.customer, so each side of the OR only ever fires for its own
+// role. "Open" mirrors rental_no_overlap -- only a declined request no longer
+// holds a plot -- restricted to rentals that have not run out yet.
+func (q *Queries) GetAccountDeletionBlockers(ctx context.Context, account uuid.UUID) (GetAccountDeletionBlockersRow, error) {
+	row := q.db.QueryRow(ctx, getAccountDeletionBlockers, account)
+	var i GetAccountDeletionBlockersRow
+	err := row.Scan(&i.HasOpenRentals, &i.HasPendingRentalPayment, &i.HasPendingSubscriptionPayment)
+	return i, err
+}
+
 const getAllRecipients = `-- name: GetAllRecipients :many
 SELECT
     a.id,
@@ -115,8 +185,11 @@ SELECT
     a.first_name,
     a.last_name
 FROM account a
-WHERE EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
-   OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
+WHERE a.deleted_at IS NULL
+  AND (
+      EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
+      OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
+  )
 ORDER BY a.email
 `
 
@@ -153,6 +226,21 @@ func (q *Queries) GetAllRecipients(ctx context.Context) ([]GetAllRecipientsRow, 
 		return nil, err
 	}
 	return items, nil
+}
+
+const getPasswordHashByID = `-- name: GetPasswordHashByID :one
+SELECT password_hash
+FROM account
+WHERE id = $1 AND deleted_at IS NULL
+`
+
+// Only for re-confirming the password of an already signed-in account, e.g.
+// before deleting it. GetAccountByID deliberately does not carry the hash.
+func (q *Queries) GetPasswordHashByID(ctx context.Context, id uuid.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, getPasswordHashByID, id)
+	var password_hash string
+	err := row.Scan(&password_hash)
+	return password_hash, err
 }
 
 const insertAccount = `-- name: InsertAccount :one
@@ -242,6 +330,7 @@ WITH listed AS (
     LEFT JOIN admin ad ON ad.account_id = a.id
     LEFT JOIN farmer f ON f.account_id = a.id
     LEFT JOIN customer c ON c.account_id = a.id
+    WHERE a.deleted_at IS NULL
 )
 SELECT
     listed.id,

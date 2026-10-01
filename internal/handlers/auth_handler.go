@@ -189,8 +189,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 // clear them itself; expiring them here is the only way to actually end the
 // session. Safe to call when not logged in (it just re-clears empty cookies).
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	h.clearCookie(w, middleware.AccessCookieName, "/")
-	h.clearCookie(w, middleware.RefreshCookieName, "/api/auth/refresh")
+	clearAuthCookies(w, h.cfg)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -211,11 +210,18 @@ func (h *AuthHandler) setCookie(w http.ResponseWriter, name, value, path string,
 	})
 }
 
+// clearAuthCookies expires both auth cookies, ending the session in the
+// browser.
+func clearAuthCookies(w http.ResponseWriter, cfg config.Config) {
+	clearCookie(w, cfg, middleware.AccessCookieName, "/")
+	clearCookie(w, cfg, middleware.RefreshCookieName, "/api/auth/refresh")
+}
+
 // clearCookie overwrites a cookie with an expired one. The attributes (Path,
 // Secure, SameSite) must match the original for the browser to replace it.
-func (h *AuthHandler) clearCookie(w http.ResponseWriter, name, path string) {
+func clearCookie(w http.ResponseWriter, cfg config.Config, name, path string) {
 	sameSite := http.SameSiteLaxMode
-	if h.cfg.SameSiteStrict {
+	if cfg.SameSiteStrict {
 		sameSite = http.SameSiteStrictMode
 	}
 
@@ -225,7 +231,7 @@ func (h *AuthHandler) clearCookie(w http.ResponseWriter, name, path string) {
 		Path:     path,
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   h.cfg.CookieSecure,
+		Secure:   cfg.CookieSecure,
 		SameSite: sameSite,
 	})
 }

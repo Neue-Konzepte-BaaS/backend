@@ -251,6 +251,69 @@ func (r *accountRepository) createAccountWithSubtype(
 	return account, nil
 }
 
+func (r *accountRepository) GetPasswordHash(ctx context.Context, id uuid.UUID) (string, error) {
+	hash, err := r.queries.GetPasswordHashByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", fmt.Errorf("db error: %w %w", err, services.ErrNotFound)
+		}
+		return "", err
+	}
+	return hash, nil
+}
+
+func (r *accountRepository) GetDeletionBlockers(ctx context.Context, id uuid.UUID) (models.AccountDeletionBlockers, error) {
+	row, err := r.queries.GetAccountDeletionBlockers(ctx, id)
+	if err != nil {
+		return models.AccountDeletionBlockers{}, err
+	}
+	return models.AccountDeletionBlockers{
+		OpenRentals:    row.HasOpenRentals,
+		PendingPayment: row.HasPendingRentalPayment || row.HasPendingSubscriptionPayment,
+	}, nil
+}
+
+func (r *accountRepository) DeleteAccount(ctx context.Context, id uuid.UUID, role models.Role) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	qtx := r.queries.WithTx(tx)
+
+	affected, err := qtx.AnonymizeAccount(ctx, id)
+	if err != nil {
+		return fmt.Errorf("anonymising account: %w", err)
+	}
+	if affected == 0 {
+		return services.ErrNotFound
+	}
+
+	if role == models.RoleFarmer {
+		farmID, err := qtx.GetFarmIDByFarmerID(ctx, id)
+		if err != nil {
+			return fmt.Errorf("looking up farm: %w", err)
+		}
+		if err := qtx.AnonymizeFarmByFarmer(ctx, id); err != nil {
+			return fmt.Errorf("anonymising farm: %w", err)
+		}
+		// Without a crop rate no plot of the farm has a price, which is what
+		// stops a checkout from being opened on a link someone kept.
+		if err := qtx.DeleteFarmCropRates(ctx, farmID); err != nil {
+			return fmt.Errorf("deleting farm crop rates: %w", err)
+		}
+		if err := qtx.DeleteAnnouncementsByFarmer(ctx, id); err != nil {
+			return fmt.Errorf("deleting announcements: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	return nil
+}
+
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolation

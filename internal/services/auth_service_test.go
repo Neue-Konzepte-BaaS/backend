@@ -97,6 +97,18 @@ func (f *fakeAccountRepo) CreateCustomer(_ context.Context, account models.Accou
 	return account, nil
 }
 
+func (f *fakeAccountRepo) GetPasswordHash(context.Context, uuid.UUID) (string, error) {
+	panic("auth service does not re-check passwords of signed-in accounts")
+}
+
+func (f *fakeAccountRepo) GetDeletionBlockers(context.Context, uuid.UUID) (models.AccountDeletionBlockers, error) {
+	panic("auth service does not delete accounts")
+}
+
+func (f *fakeAccountRepo) DeleteAccount(context.Context, uuid.UUID, models.Role) error {
+	panic("auth service does not delete accounts")
+}
+
 // fakePendingRegistrationRepo is an in-memory PendingRegistrationRepository.
 type fakePendingRegistrationRepo struct {
 	byID       map[uuid.UUID]models.PendingRegistration

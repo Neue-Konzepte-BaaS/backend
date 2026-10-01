@@ -37,7 +37,7 @@ FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id
 LEFT JOIN customer c ON c.account_id = a.id
-WHERE a.email = $1
+WHERE a.email = $1 AND a.deleted_at IS NULL
 LIMIT 1;
 
 -- name: GetAccountByID :one
@@ -57,7 +57,7 @@ FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id
 LEFT JOIN customer c ON c.account_id = a.id
-WHERE a.id = $1
+WHERE a.id = $1 AND a.deleted_at IS NULL
 LIMIT 1;
 
 -- name: GetAllRecipients :many
@@ -70,8 +70,11 @@ SELECT
     a.first_name,
     a.last_name
 FROM account a
-WHERE EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
-   OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
+WHERE a.deleted_at IS NULL
+  AND (
+      EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
+      OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
+  )
 ORDER BY a.email;
 
 -- name: ListAccounts :many
@@ -104,6 +107,7 @@ WITH listed AS (
     LEFT JOIN admin ad ON ad.account_id = a.id
     LEFT JOIN farmer f ON f.account_id = a.id
     LEFT JOIN customer c ON c.account_id = a.id
+    WHERE a.deleted_at IS NULL
 )
 SELECT
     listed.id,
@@ -129,3 +133,57 @@ WHERE (sqlc.arg(role_filter)::text = '' OR listed.role = sqlc.arg(role_filter)::
 -- and one of them is never shown.
 ORDER BY listed.created_at DESC, listed.id
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);
+
+-- name: GetPasswordHashByID :one
+-- Only for re-confirming the password of an already signed-in account, e.g.
+-- before deleting it. GetAccountByID deliberately does not carry the hash.
+SELECT password_hash
+FROM account
+WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: GetAccountDeletionBlockers :one
+-- What still ties an account to someone else's money or plot. One query serves
+-- both roles: a customer's id never matches farm.farmer_id and a farmer's never
+-- matches rental.customer, so each side of the OR only ever fires for its own
+-- role. "Open" mirrors rental_no_overlap -- only a declined request no longer
+-- holds a plot -- restricted to rentals that have not run out yet.
+SELECT
+    EXISTS (
+        SELECT 1
+        FROM rental r
+        JOIN plot p ON p.id = r.plot
+        JOIN field f ON f.id = p.field
+        JOIN farm fa ON fa.id = f.farm
+        WHERE (r.customer = sqlc.arg(account) OR fa.farmer_id = sqlc.arg(account))
+          AND r.status <> 'declined'
+          AND upper(r.period) > CURRENT_TIMESTAMP
+    ) AS has_open_rentals,
+    EXISTS (
+        SELECT 1
+        FROM rental_checkout rc
+        JOIN plot p ON p.id = rc.plot
+        JOIN field f ON f.id = p.field
+        JOIN farm fa ON fa.id = f.farm
+        WHERE (rc.customer = sqlc.arg(account) OR fa.farmer_id = sqlc.arg(account))
+          AND rc.status = 'pending'
+    ) AS has_pending_rental_payment,
+    EXISTS (
+        SELECT 1
+        FROM farmer_subscription fs
+        WHERE fs.farmer = sqlc.arg(account) AND fs.status = 'pending'
+    ) AS has_pending_subscription_payment;
+
+-- name: AnonymizeAccount :execrows
+-- The email is replaced by one derived from the id rather than blanked: it
+-- stays UNIQUE, and freeing the real address lets its owner register again.
+-- .invalid is reserved (RFC 2606), so nothing can ever be mailed to it. An
+-- empty password_hash is not a PHC string, so no password can verify against
+-- it -- belt and braces, since the deleted_at filter on GetAccountByEmail
+-- already keeps the row out of login.
+UPDATE account
+SET first_name = 'Gelöschtes',
+    last_name = 'Konto',
+    email = 'deleted-' || id::text || '@deleted.invalid',
+    password_hash = '',
+    deleted_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL;

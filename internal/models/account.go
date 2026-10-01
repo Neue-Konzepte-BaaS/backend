@@ -70,3 +70,15 @@ type PendingRegistration struct {
 	Description  string
 	PostalCode   int32
 }
+
+// AccountDeletionBlockers is what still ties an account to somebody else's
+// money or plot. Any of them set means the account cannot be deleted yet.
+type AccountDeletionBlockers struct {
+	// OpenRentals: a rental that is requested or approved and has not run
+	// out yet -- the customer's own, or one on the farmer's plots.
+	OpenRentals bool
+	// PendingPayment: a Stripe checkout that was opened but has not settled
+	// yet, for a rental or for a farmer's subscription. If it completed after
+	// the account was gone, the money would land on nobody.
+	PendingPayment bool
+}

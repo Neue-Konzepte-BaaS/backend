@@ -199,6 +199,85 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: not authenticated
+    delete:
+      tags: [auth]
+      summary: Delete the authenticated account
+      description: |
+        Deletes the caller's own farmer or customer account (GDPR Art. 17) after
+        re-checking their password, and expires both auth cookies.
+
+        The account is anonymised rather than removed: name and email are
+        scrubbed, it can no longer sign in and no longer appears anywhere, and
+        its email address can be registered again. Rentals and payments that
+        reference it are kept as payment records. Deleting a farmer also
+        scrubs the farm's name, address and description, takes the farm and
+        its plots out of every public view, withdraws its crop prices, deletes
+        its announcements, and cancels a running subscription in Stripe.
+
+        An access token issued before the delete stays valid until it expires
+        (at most 15 minutes); only the cookies of the deleting browser are
+        cleared.
+      operationId: deleteCurrentAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  description: The account's current password.
+      responses:
+        '204':
+          description: Account deleted; both auth cookies are re-sent with `Max-Age=0`.
+          headers:
+            Set-Cookie:
+              description: Both auth cookies are re-sent with `Max-Age=0`.
+              schema:
+                type: string
+        '400':
+          description: No password given.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: password is required
+        '401':
+          description: Missing, expired, or invalid access token, or the account is already deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: |
+            Wrong password (`incorrect password`), or the caller is an admin
+            (admins are managed in the database). Deliberately not 401: the
+            caller is signed in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: incorrect password
+        '409':
+          description: |
+            The account is still bound to someone else's money or plot.
+            `account has open rentals`: a requested or approved rental that has
+            not run out yet -- the customer's own, or one on the farmer's plots.
+            A farmer can decline open requests; an approved rental has to run
+            out. `account has a pending payment`: a Stripe checkout (for a
+            rental or a subscription) that has not settled yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: account has open rentals
 
   /api/auth/logout:
     post:

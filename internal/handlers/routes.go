@@ -42,6 +42,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireAuth(authService))
 			r.Get("/me", authHandler.Me)
+			r.Delete("/me", accountHandler.DeleteMe)
 		})
 	})
 

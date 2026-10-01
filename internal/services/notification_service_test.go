@@ -107,6 +107,18 @@ func (f *fakeRecipientRepo) GetCustomersOfFarmerForFieldAndCrop(_ context.Contex
 	return f.customersOfFarmerForFieldAndCrop[fieldAndCrop{field: field, crop: crop}], nil
 }
 
+func (f *fakeRecipientRepo) GetPasswordHash(context.Context, uuid.UUID) (string, error) {
+	panic("notifications do not check passwords")
+}
+
+func (f *fakeRecipientRepo) GetDeletionBlockers(context.Context, uuid.UUID) (models.AccountDeletionBlockers, error) {
+	panic("notifications do not delete accounts")
+}
+
+func (f *fakeRecipientRepo) DeleteAccount(context.Context, uuid.UUID, models.Role) error {
+	panic("notifications do not delete accounts")
+}
+
 func (f *fakeRecipientRepo) GetAccountByEmail(context.Context, string) (models.Account, error) {
 	panic("notification service does not look accounts up by email")
 }

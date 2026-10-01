@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/Neue-Konzepte-BaaS/backend/internal/config"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/middleware"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
@@ -15,10 +17,11 @@ import (
 
 type AccountHandler struct {
 	accountService services.AccountService
+	cfg            config.Config
 }
 
-func NewAccountHandler(accountService services.AccountService) *AccountHandler {
-	return &AccountHandler{accountService: accountService}
+func NewAccountHandler(accountService services.AccountService, cfg config.Config) *AccountHandler {
+	return &AccountHandler{accountService: accountService, cfg: cfg}
 }
 
 type accountListingResponse struct {
@@ -74,7 +77,6 @@ func (h *AccountHandler) ListAccounts(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("listing accounts failed", "error", err)
 		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
-		return
 	}
 
 	webutils.WriteJSON(w, http.StatusOK, toAccountPageResponse(page))
@@ -106,4 +108,45 @@ func optionalRole(role models.Role) *string {
 	}
 	name := string(role)
 	return &name
+}
+
+type deleteAccountRequest struct {
+	Password string `json:"password"`
+}
+
+// DeleteMe deletes the caller's own account and ends their session. It must be
+// mounted behind RequireAuth.
+//
+// A wrong password is a 403 rather than the 401 login answers with: the caller
+// is signed in, and a 401 would make the frontend try to refresh the session.
+func (h *AccountHandler) DeleteMe(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	var req deleteAccountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Password == "" {
+		webutils.WriteError(w, http.StatusBadRequest, "password is required")
+		return
+	}
+
+	err := h.accountService.DeleteAccount(r.Context(), claims.UserID, claims.Role, req.Password)
+	switch {
+	case err == nil:
+		clearAuthCookies(w, h.cfg)
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, services.ErrInvalidCredentials):
+		webutils.WriteError(w, http.StatusForbidden, "incorrect password")
+	case errors.Is(err, services.ErrForbidden):
+		webutils.WriteError(w, http.StatusForbidden, "admin accounts cannot be deleted through the API")
+	case errors.Is(err, services.ErrNotFound):
+		// The token outlived its account, e.g. a second delete from another tab.
+		clearAuthCookies(w, h.cfg)
+		webutils.WriteError(w, http.StatusUnauthorized, "not authenticated")
+	case errors.Is(err, services.ErrAccountHasOpenRentals):
+		webutils.WriteError(w, http.StatusConflict, "account has open rentals")
+	case errors.Is(err, services.ErrAccountHasPendingPayment):
+		webutils.WriteError(w, http.StatusConflict, "account has a pending payment")
+	default:
+		slog.Error("deleting account failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+	}
 }

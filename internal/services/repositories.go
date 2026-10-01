@@ -85,6 +85,9 @@ type PaymentGateway interface {
 	// Returns the session id, client secret, and the Stripe Customer id (new
 	// or reused) to persist against the local farmer_subscription row.
 	CreateSubscriptionCheckoutSession(ctx context.Context, stripePriceID, customerEmail string, existingStripeCustomerID *string, returnURL string) (sessionID, clientSecret, stripeCustomerID string, err error)
+	// CancelSubscription ends a Stripe subscription immediately, with no
+	// further invoices.
+	CancelSubscription(ctx context.Context, stripeSubscriptionID string) error
 }
 
 type AccountRepository interface {
@@ -119,6 +122,20 @@ type AccountRepository interface {
 	// notice: customers with an active rental on a plot of the given field,
 	// growing the given crop.
 	GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, field, crop uuid.UUID) ([]models.Recipient, error)
+	// GetPasswordHash returns the stored hash of a live account, for
+	// re-confirming the password of a caller who is already signed in.
+	// Returns ErrNotFound for an unknown or deleted account.
+	GetPasswordHash(ctx context.Context, id uuid.UUID) (string, error)
+	// GetDeletionBlockers reports what still stands in the way of deleting
+	// the account. It decides nothing itself; the service does.
+	GetDeletionBlockers(ctx context.Context, id uuid.UUID) (models.AccountDeletionBlockers, error)
+	// DeleteAccount anonymises the account in one transaction: its personal
+	// data is scrubbed and it can no longer sign in or be found, while the
+	// rentals and payments that reference it are kept. For a farmer it also
+	// scrubs the farm, withdraws its prices so nothing more can be bought,
+	// and deletes the farmer's announcements. Returns ErrNotFound if the
+	// account does not exist or is already deleted.
+	DeleteAccount(ctx context.Context, id uuid.UUID, role models.Role) error
 }
 
 // PendingRegistrationRepository stores registrations awaiting email

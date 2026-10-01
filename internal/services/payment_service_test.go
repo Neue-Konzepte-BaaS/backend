@@ -170,6 +170,8 @@ type fakePaymentGateway struct {
 	event                   WebhookEvent
 	eventOK                 bool
 	parseErr                error
+	cancelErr               error
+	canceledSubscriptions   []string
 }
 
 func (f *fakePaymentGateway) CreateCheckoutSession(context.Context, int64, string, string) (string, string, error) {
@@ -193,6 +195,10 @@ func (f *fakePaymentGateway) CreateSubscriptionPrice(context.Context, string, in
 }
 func (f *fakePaymentGateway) CreateSubscriptionCheckoutSession(context.Context, string, string, *string, string) (string, string, string, error) {
 	return "", "", "", nil
+}
+func (f *fakePaymentGateway) CancelSubscription(_ context.Context, stripeSubscriptionID string) error {
+	f.canceledSubscriptions = append(f.canceledSubscriptions, stripeSubscriptionID)
+	return f.cancelErr
 }
 
 // fakePaymentPlotRepo, fakePaymentCropRepo, fakePaymentFieldRepo and

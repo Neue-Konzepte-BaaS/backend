@@ -289,6 +289,7 @@ graph TD
 | `POST /api/auth/login` | – | – | [auth_handler.go:48](internal/handlers/auth_handler.go#L48) |
 | `POST /api/auth/logout` | – | – | [auth_handler.go:137](internal/handlers/auth_handler.go#L137) |
 | `GET /api/auth/me` | cookie | any | [auth_handler.go:125](internal/handlers/auth_handler.go#L125) |
+| `DELETE /api/auth/me` | cookie | farmer or customer | [account_handler.go](internal/handlers/account_handler.go) — see [§6a](#6a-deleting-an-account) |
 | `GET /api/farms/me` | cookie | farmer | [farm_handler.go](internal/handlers/farm_handler.go) |
 | `PUT /api/farms/me` | cookie | farmer | [farm_handler.go](internal/handlers/farm_handler.go) |
 | `GET /api/farms/{farmID}` | – | – | [farm_handler.go](internal/handlers/farm_handler.go) |
@@ -393,6 +394,40 @@ graph LR
 `MustClaimsFromContext` **panics** when claims are missing. That is intentional: a
 handler reached without `RequireAuth` in front of it is a routing bug, and it should
 surface as a 500 (caught by chi's `Recoverer`) rather than as a misleading 401.
+
+### 6a. Deleting an account
+
+`DELETE /api/auth/me` (GDPR Art. 17) **anonymises** the account rather than
+deleting the row. Rentals and `rental_checkout` reference the customer, and a
+farmer's fields, plots and every past rental on them reference the farm; those
+are payment records, and other customers' history, that must outlive the person.
+So `AccountRepository.DeleteAccount` runs one transaction that:
+
+- overwrites name, email (`deleted-<id>@deleted.invalid`, so the real address
+  can register again) and password hash, and sets `account.deleted_at`;
+- for a farmer, also scrubs the farm's name, address and description, deletes
+  its `farm_crop_rate` rows (no price, so no checkout can be opened on a kept
+  link), and deletes the farmer's announcements.
+
+`deleted_at IS NULL` is then the filter on everything that finds a person or
+offers a farm: login (`GetAccountByEmail`), `GetAccountByID`, broadcast
+recipients, both admin listings, the public farm page, its field list, and the
+plot search.
+
+`accountService.DeleteAccount` decides whether it may happen. It requires the
+password again (wrong → 403, not 401, so the frontend does not try a refresh),
+refuses admins, and refuses with 409 while the account has an **open rental**
+(requested or approved and not yet run out, on either side) or a **pending
+Stripe checkout** (rental or subscription), since money is in flight. A farmer's
+active subscription is canceled in Stripe *before* the transaction: Stripe cannot
+take part in it, and a failed anonymisation after a cancel leaves a live account
+without a subscription, which is recoverable, where the other order could leave
+a deleted account that keeps being billed.
+
+Not covered: the check-then-delete is not locked against a Stripe webhook landing
+in between, an access token issued before the delete stays valid for up to its
+15-minute TTL, and the Stripe Customer object (which holds the farmer's email)
+is not deleted.
 
 ---
 

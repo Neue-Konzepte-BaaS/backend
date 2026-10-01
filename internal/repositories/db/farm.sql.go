@@ -12,6 +12,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const anonymizeFarmByFarmer = `-- name: AnonymizeFarmByFarmer :exec
+UPDATE farm
+SET name = 'Gelöschter Hof', address = '', description = '', founded_at = NULL
+WHERE farmer_id = $1
+`
+
+// Part of deleting a farmer's account. The row itself must stay -- fields, and
+// through them every past rental, reference it -- but a family farm's name and
+// address are personal data of the person who ran it.
+func (q *Queries) AnonymizeFarmByFarmer(ctx context.Context, farmerID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, anonymizeFarmByFarmer, farmerID)
+	return err
+}
+
 const getFarmByID = `-- name: GetFarmByID :one
 SELECT
     farm.id,
@@ -22,9 +36,10 @@ SELECT
     farm.founded_at,
     COALESCE(SUM(ST_Area(p.coordinates::geography)), 0)::float8 AS total_square_meters
 FROM farm
+JOIN account a ON a.id = farm.farmer_id
 LEFT JOIN field fi ON fi.farm = farm.id
 LEFT JOIN plot p ON p.field = fi.id
-WHERE farm.id = $1
+WHERE farm.id = $1 AND a.deleted_at IS NULL
 GROUP BY farm.id
 `
 
@@ -40,6 +55,8 @@ type GetFarmByIDRow struct {
 
 // TotalSquareMeters sums every plot across every field of this farm; a farm
 // with no fields or plots gets 0, not an error.
+// A deleted farmer's farm stays in the table for the rentals hanging off it,
+// but is gone as far as anyone browsing is concerned.
 func (q *Queries) GetFarmByID(ctx context.Context, id uuid.UUID) (GetFarmByIDRow, error) {
 	row := q.db.QueryRow(ctx, getFarmByID, id)
 	var i GetFarmByIDRow
@@ -111,7 +128,7 @@ WITH listed AS (
         COALESCE(farm_rentals.active, 0)::bigint AS active_rental_count
     FROM farm
     JOIN farmer fr ON fr.account_id = farm.farmer_id
-    JOIN account a ON a.id = farm.farmer_id
+    JOIN account a ON a.id = farm.farmer_id AND a.deleted_at IS NULL
     LEFT JOIN LATERAL (
         SELECT
             COUNT(*)::bigint AS total,

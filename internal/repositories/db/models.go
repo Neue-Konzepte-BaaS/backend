@@ -17,6 +17,7 @@ type Account struct {
 	Email        string
 	PasswordHash string
 	CreatedAt    pgtype.Timestamptz
+	DeletedAt    pgtype.Timestamptz
 }
 
 type Admin struct {
