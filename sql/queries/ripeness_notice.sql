@@ -8,7 +8,7 @@ WITH inserted AS (
     RETURNING id, farmer, field, crop, created_at
 )
 SELECT i.id, i.farmer, i.field, i.crop, i.created_at,
-       farm.name AS farm_name, fi.name AS field_name, c.name AS crop_name
+       farm.name AS farm_name, fi.name AS field_name, c.name_de AS crop_name
 FROM inserted i
 JOIN farm ON farm.farmer_id = i.farmer
 JOIN field fi ON fi.id = i.field
@@ -21,7 +21,7 @@ JOIN crop c ON c.id = i.crop;
 -- request keeps a row whose period covers now. DISTINCT because renting
 -- several matching plots on the same field must not repeat the notice.
 SELECT DISTINCT rn.id, rn.farmer, rn.field, rn.crop, rn.created_at,
-       farm.name AS farm_name, fi.name AS field_name, cr.name AS crop_name
+       farm.name AS farm_name, fi.name AS field_name, cr.name_de AS crop_name
 FROM ripeness_notice rn
 JOIN farm ON farm.farmer_id = rn.farmer
 JOIN field fi ON fi.id = rn.field

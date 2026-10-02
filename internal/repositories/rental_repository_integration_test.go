@@ -144,7 +144,8 @@ func seedPlot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID,
 		t.Fatalf("creating plot: %v", err)
 	}
 
-	crop, err := cropRepo.CreateCrop(ctx, "Tomatoes-"+uuid.NewString(), 6)
+	cropName := "Tomatoes-" + uuid.NewString()
+	crop, err := cropRepo.CreateCrop(ctx, cropName, cropName, 6)
 	if err != nil {
 		t.Fatalf("creating crop: %v", err)
 	}

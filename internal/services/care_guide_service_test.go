@@ -273,8 +273,8 @@ func equalStrings(a, b []string) bool {
 }
 
 func TestGetCareGuideForCustomer(t *testing.T) {
-	tomatoes := models.Crop{ID: uuid.New(), Name: "Tomatoes", DurationMonths: 3}
-	beans := models.Crop{ID: uuid.New(), Name: "Beans", DurationMonths: 3}
+	tomatoes := models.Crop{ID: uuid.New(), NameDe: "Tomaten", NameEn: "Tomatoes", DurationMonths: 3}
+	beans := models.Crop{ID: uuid.New(), NameDe: "Bohnen", NameEn: "Beans", DurationMonths: 3}
 	farm := uuid.New()
 
 	t.Run("pairs each rented plot with its crop's guide", func(t *testing.T) {
@@ -298,8 +298,8 @@ func TestGetCareGuideForCustomer(t *testing.T) {
 		if guides[0].PlotName != "Plot 1" || len(guides[0].Instructions) != 2 {
 			t.Errorf("first guide = %q with %d instructions, want Plot 1 with 2", guides[0].PlotName, len(guides[0].Instructions))
 		}
-		if guides[1].Crop.Name != "Beans" || len(guides[1].Instructions) != 1 {
-			t.Errorf("second guide = %q with %d instructions, want Beans with 1", guides[1].Crop.Name, len(guides[1].Instructions))
+		if guides[1].Crop.NameEn != "Beans" || len(guides[1].Instructions) != 1 {
+			t.Errorf("second guide = %q with %d instructions, want Beans with 1", guides[1].Crop.NameEn, len(guides[1].Instructions))
 		}
 		if guides[0].CurrentWeek != 2 || guides[0].TotalWeeks != 13 {
 			t.Errorf("week numbers = %d/%d, want 2/13", guides[0].CurrentWeek, guides[0].TotalWeeks)

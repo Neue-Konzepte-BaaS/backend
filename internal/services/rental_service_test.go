@@ -90,10 +90,10 @@ type fakeCropRepo struct {
 	offeredCropIDs []uuid.UUID
 }
 
-func (f *fakeCropRepo) CreateCrop(context.Context, string, int32) (models.Crop, error) {
+func (f *fakeCropRepo) CreateCrop(context.Context, string, string, int32) (models.Crop, error) {
 	return models.Crop{}, nil
 }
-func (f *fakeCropRepo) UpdateCrop(context.Context, uuid.UUID, string, int32) (models.Crop, error) {
+func (f *fakeCropRepo) UpdateCrop(context.Context, uuid.UUID, string, string, int32) (models.Crop, error) {
 	return models.Crop{}, nil
 }
 func (f *fakeCropRepo) DeleteCrop(context.Context, uuid.UUID) error { return nil }

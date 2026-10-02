@@ -31,15 +31,16 @@ func (q *Queries) DeletePlotCrops(ctx context.Context, plot uuid.UUID) error {
 }
 
 const getAllCrops = `-- name: GetAllCrops :many
-SELECT id, name, duration_months
+SELECT id, name_de, name_en, duration_months
 FROM crop
 WHERE NOT is_placeholder
-ORDER BY name
+ORDER BY name_de
 `
 
 type GetAllCropsRow struct {
 	ID             uuid.UUID
-	Name           string
+	NameDe         string
+	NameEn         string
 	DurationMonths int32
 }
 
@@ -52,7 +53,12 @@ func (q *Queries) GetAllCrops(ctx context.Context) ([]GetAllCropsRow, error) {
 	var items []GetAllCropsRow
 	for rows.Next() {
 		var i GetAllCropsRow
-		if err := rows.Scan(&i.ID, &i.Name, &i.DurationMonths); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.NameDe,
+			&i.NameEn,
+			&i.DurationMonths,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -64,7 +70,7 @@ func (q *Queries) GetAllCrops(ctx context.Context) ([]GetAllCropsRow, error) {
 }
 
 const getCropByID = `-- name: GetCropByID :one
-SELECT id, name, duration_months
+SELECT id, name_de, name_en, duration_months
 FROM crop
 WHERE id = $1
 LIMIT 1
@@ -72,28 +78,35 @@ LIMIT 1
 
 type GetCropByIDRow struct {
 	ID             uuid.UUID
-	Name           string
+	NameDe         string
+	NameEn         string
 	DurationMonths int32
 }
 
 func (q *Queries) GetCropByID(ctx context.Context, id uuid.UUID) (GetCropByIDRow, error) {
 	row := q.db.QueryRow(ctx, getCropByID, id)
 	var i GetCropByIDRow
-	err := row.Scan(&i.ID, &i.Name, &i.DurationMonths)
+	err := row.Scan(
+		&i.ID,
+		&i.NameDe,
+		&i.NameEn,
+		&i.DurationMonths,
+	)
 	return i, err
 }
 
 const getCropsByPlot = `-- name: GetCropsByPlot :many
-SELECT c.id, c.name, c.duration_months
+SELECT c.id, c.name_de, c.name_en, c.duration_months
 FROM plot_crop pc
 JOIN crop c ON c.id = pc.crop
 WHERE pc.plot = $1
-ORDER BY c.name
+ORDER BY c.name_de
 `
 
 type GetCropsByPlotRow struct {
 	ID             uuid.UUID
-	Name           string
+	NameDe         string
+	NameEn         string
 	DurationMonths int32
 }
 
@@ -106,7 +119,12 @@ func (q *Queries) GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]GetCrop
 	var items []GetCropsByPlotRow
 	for rows.Next() {
 		var i GetCropsByPlotRow
-		if err := rows.Scan(&i.ID, &i.Name, &i.DurationMonths); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.NameDe,
+			&i.NameEn,
+			&i.DurationMonths,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -118,17 +136,18 @@ func (q *Queries) GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]GetCrop
 }
 
 const getCropsByPlots = `-- name: GetCropsByPlots :many
-SELECT pc.plot, c.id, c.name, c.duration_months
+SELECT pc.plot, c.id, c.name_de, c.name_en, c.duration_months
 FROM plot_crop pc
 JOIN crop c ON c.id = pc.crop
 WHERE pc.plot = ANY($1::uuid[])
-ORDER BY c.name
+ORDER BY c.name_de
 `
 
 type GetCropsByPlotsRow struct {
 	Plot           uuid.UUID
 	ID             uuid.UUID
-	Name           string
+	NameDe         string
+	NameEn         string
 	DurationMonths int32
 }
 
@@ -144,7 +163,8 @@ func (q *Queries) GetCropsByPlots(ctx context.Context, plots []uuid.UUID) ([]Get
 		if err := rows.Scan(
 			&i.Plot,
 			&i.ID,
-			&i.Name,
+			&i.NameDe,
+			&i.NameEn,
 			&i.DurationMonths,
 		); err != nil {
 			return nil, err
@@ -160,7 +180,7 @@ func (q *Queries) GetCropsByPlots(ctx context.Context, plots []uuid.UUID) ([]Get
 const getPricedCropOfferingsByPlots = `-- name: GetPricedCropOfferingsByPlots :many
 SELECT
     pc.plot,
-    c.id, c.name, c.duration_months,
+    c.id, c.name_de, c.name_en, c.duration_months,
     p.base_price_cents_per_sqm_per_week,
     fcr.price_cents_per_sqm_per_week AS farm_crop_rate_cents_per_sqm_per_week,
     ST_Area(p.coordinates::geography)::float8 AS area_square_meters
@@ -171,13 +191,14 @@ JOIN field f ON f.id = p.field
 JOIN farm_crop_rate fcr ON fcr.farm = f.farm AND fcr.crop = pc.crop
 WHERE pc.plot = ANY($1::uuid[])
   AND p.base_price_cents_per_sqm_per_week IS NOT NULL
-ORDER BY c.name
+ORDER BY c.name_de
 `
 
 type GetPricedCropOfferingsByPlotsRow struct {
 	Plot                           uuid.UUID
 	ID                             uuid.UUID
-	Name                           string
+	NameDe                         string
+	NameEn                         string
 	DurationMonths                 int32
 	BasePriceCentsPerSqmPerWeek    pgtype.Int4
 	FarmCropRateCentsPerSqmPerWeek int32
@@ -200,7 +221,8 @@ func (q *Queries) GetPricedCropOfferingsByPlots(ctx context.Context, plots []uui
 		if err := rows.Scan(
 			&i.Plot,
 			&i.ID,
-			&i.Name,
+			&i.NameDe,
+			&i.NameEn,
 			&i.DurationMonths,
 			&i.BasePriceCentsPerSqmPerWeek,
 			&i.FarmCropRateCentsPerSqmPerWeek,
@@ -217,16 +239,17 @@ func (q *Queries) GetPricedCropOfferingsByPlots(ctx context.Context, plots []uui
 }
 
 const insertCrop = `-- name: InsertCrop :one
-INSERT INTO crop (name, duration_months) VALUES ($1, $2) RETURNING id
+INSERT INTO crop (name_de, name_en, duration_months) VALUES ($1, $2, $3) RETURNING id
 `
 
 type InsertCropParams struct {
-	Name           string
+	NameDe         string
+	NameEn         string
 	DurationMonths int32
 }
 
 func (q *Queries) InsertCrop(ctx context.Context, arg InsertCropParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, insertCrop, arg.Name, arg.DurationMonths)
+	row := q.db.QueryRow(ctx, insertCrop, arg.NameDe, arg.NameEn, arg.DurationMonths)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
@@ -247,26 +270,38 @@ func (q *Queries) InsertPlotCrop(ctx context.Context, arg InsertPlotCropParams) 
 }
 
 const updateCrop = `-- name: UpdateCrop :one
-UPDATE crop SET name = $2, duration_months = $3
+UPDATE crop SET name_de = $2, name_en = $3, duration_months = $4
 WHERE id = $1
-RETURNING id, name, duration_months
+RETURNING id, name_de, name_en, duration_months
 `
 
 type UpdateCropParams struct {
 	ID             uuid.UUID
-	Name           string
+	NameDe         string
+	NameEn         string
 	DurationMonths int32
 }
 
 type UpdateCropRow struct {
 	ID             uuid.UUID
-	Name           string
+	NameDe         string
+	NameEn         string
 	DurationMonths int32
 }
 
 func (q *Queries) UpdateCrop(ctx context.Context, arg UpdateCropParams) (UpdateCropRow, error) {
-	row := q.db.QueryRow(ctx, updateCrop, arg.ID, arg.Name, arg.DurationMonths)
+	row := q.db.QueryRow(ctx, updateCrop,
+		arg.ID,
+		arg.NameDe,
+		arg.NameEn,
+		arg.DurationMonths,
+	)
 	var i UpdateCropRow
-	err := row.Scan(&i.ID, &i.Name, &i.DurationMonths)
+	err := row.Scan(
+		&i.ID,
+		&i.NameDe,
+		&i.NameEn,
+		&i.DurationMonths,
+	)
 	return i, err
 }

@@ -174,7 +174,7 @@ func TestGetInboxForCustomer_CareItemsForBegunWeeksOnly(t *testing.T) {
 	guide := models.PlotCareGuide{
 		RentalID:     uuid.New(),
 		FieldName:    "Feld Nord",
-		Crop:         models.Crop{Name: "Zucchini"},
+		Crop:         models.Crop{NameDe: "Zucchini"},
 		StartAt:      startAt,
 		CurrentWeek:  3,
 		TotalWeeks:   13,

@@ -4,6 +4,7 @@ import "github.com/google/uuid"
 
 type Crop struct {
 	ID             uuid.UUID
-	Name           string
+	NameDe         string
+	NameEn         string
 	DurationMonths int32
 }

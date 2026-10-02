@@ -276,7 +276,8 @@ func TestCareInstructionsFollowTheirCrop(t *testing.T) {
 	careRepo := repositories.NewCareInstructionRepository(pool, queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
 
-	crop, err := cropRepo.CreateCrop(ctx, "Radishes-"+uuid.NewString(), 2)
+	cropName := "Radishes-" + uuid.NewString()
+	crop, err := cropRepo.CreateCrop(ctx, cropName, cropName, 2)
 	if err != nil {
 		t.Fatalf("creating crop: %v", err)
 	}
@@ -328,7 +329,7 @@ func TestGetActiveRentalsByCustomer(t *testing.T) {
 	byPlot := map[uuid.UUID]int32{}
 	for _, rental := range rentals {
 		byPlot[rental.PlotID] = rental.CurrentWeek
-		if rental.Crop.ID != cropID || rental.Crop.Name == "" {
+		if rental.Crop.ID != cropID || rental.Crop.NameDe == "" {
 			t.Errorf("rental carries crop %+v, want the rented crop with its name", rental.Crop)
 		}
 		if rental.FarmID != farmID {
