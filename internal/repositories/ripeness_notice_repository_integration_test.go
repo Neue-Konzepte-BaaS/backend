@@ -59,7 +59,8 @@ func TestGetCustomersOfFarmerForFieldAndCrop_DedupsMatchesFieldAndCropOnly(t *te
 	_, farmID, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 3)
 	_, otherFieldPlot := addField(t, ctx, pool, farmID)
 
-	otherCrop, err := cropRepo.CreateCrop(ctx, "Kohl-"+uuid.NewString(), 4)
+	otherCropName := "Kohl-" + uuid.NewString()
+	otherCrop, err := cropRepo.CreateCrop(ctx, otherCropName, otherCropName, 4)
 	if err != nil {
 		t.Fatalf("creating other crop: %v", err)
 	}

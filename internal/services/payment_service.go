@@ -152,7 +152,7 @@ func (s *paymentService) CreateCheckoutSession(ctx context.Context, customer, pl
 	}
 
 	priceCents := ComputeRentalPriceCents(*plotDetails.BasePriceCentsPerSqmPerWeek, farmCropRate, plotDetails.AreaSquareMeters, cropDetails.DurationMonths)
-	description := fmt.Sprintf("%s — %s", plotDetails.Name, cropDetails.Name)
+	description := fmt.Sprintf("%s — %s", plotDetails.Name, cropDetails.NameDe)
 	returnURL := s.frontendURL + checkoutReturnPath
 
 	sessionID, clientSecret, err := s.paymentGateway.CreateCheckoutSession(ctx, int64(priceCents), description, returnURL)
@@ -175,7 +175,7 @@ func (s *paymentService) CreateCheckoutSession(ctx context.Context, customer, pl
 	return models.CheckoutSessionResult{
 		ClientSecret: clientSecret,
 		PlotName:     plotDetails.Name,
-		CropName:     cropDetails.Name,
+		CropName:     cropDetails.NameDe,
 		PriceCents:   priceCents,
 	}, nil
 }

@@ -167,7 +167,7 @@ func (r *rentalRepository) GetRentalsByCustomer(ctx context.Context, customer uu
 			},
 			Crop: models.Crop{
 				ID:             row.Crop,
-				Name:           row.CropName,
+				NameDe:         row.CropName,
 				DurationMonths: row.CropDurationMonths,
 			},
 		}
@@ -197,7 +197,7 @@ func (r *rentalRepository) GetActiveRentalsByCustomer(ctx context.Context, custo
 			FarmID:    row.Farm,
 			Crop: models.Crop{
 				ID:             row.Crop,
-				Name:           row.CropName,
+				NameDe:         row.CropName,
 				DurationMonths: row.CropDurationMonths,
 			},
 			CurrentWeek: row.CurrentWeek,

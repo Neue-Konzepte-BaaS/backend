@@ -3238,12 +3238,15 @@ components:
         A crop in the catalog, with the fixed duration renting it books for.
         Whether it is season-dependent, and which season, is a separate rule -
         see `CropSeasonRule` and `PUT /api/crops/{cropID}/season`.
-      required: [id, name, durationMonths]
+      required: [id, nameDe, nameEn, durationMonths]
       properties:
         id:
           type: string
           format: uuid
-        name:
+        nameDe:
+          type: string
+          example: Tomaten
+        nameEn:
           type: string
           example: Tomatoes
         durationMonths:
@@ -3511,9 +3514,13 @@ components:
 
     CreateCropRequest:
       type: object
-      required: [name, durationMonths]
+      required: [nameDe, nameEn, durationMonths]
       properties:
-        name:
+        nameDe:
+          type: string
+          description: Surrounding whitespace is trimmed; must be unique in the catalog.
+          example: Tomaten
+        nameEn:
           type: string
           description: Surrounding whitespace is trimmed; must be unique in the catalog.
           example: Tomatoes
@@ -3525,9 +3532,13 @@ components:
 
     UpdateCropRequest:
       type: object
-      required: [name, durationMonths]
+      required: [nameDe, nameEn, durationMonths]
       properties:
-        name:
+        nameDe:
+          type: string
+          description: Surrounding whitespace is trimmed; must be unique in the catalog.
+          example: Tomaten
+        nameEn:
           type: string
           description: Surrounding whitespace is trimmed; must be unique in the catalog.
           example: Tomatoes

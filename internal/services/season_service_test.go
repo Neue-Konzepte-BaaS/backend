@@ -224,10 +224,10 @@ type fakeSeasonServiceCropRepo struct {
 	crops []models.Crop
 }
 
-func (f *fakeSeasonServiceCropRepo) CreateCrop(context.Context, string, int32) (models.Crop, error) {
+func (f *fakeSeasonServiceCropRepo) CreateCrop(context.Context, string, string, int32) (models.Crop, error) {
 	return models.Crop{}, nil
 }
-func (f *fakeSeasonServiceCropRepo) UpdateCrop(context.Context, uuid.UUID, string, int32) (models.Crop, error) {
+func (f *fakeSeasonServiceCropRepo) UpdateCrop(context.Context, uuid.UUID, string, string, int32) (models.Crop, error) {
 	return models.Crop{}, nil
 }
 func (f *fakeSeasonServiceCropRepo) DeleteCrop(context.Context, uuid.UUID) error { return nil }
@@ -581,7 +581,7 @@ func TestGetCropSeasons(t *testing.T) {
 		spring := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		restricted, unrestricted := uuid.New(), uuid.New()
 		repo := newFakeSeasonRepo(spring)
-		c.cropRepo.crops = []models.Crop{{ID: restricted, Name: "Karotte"}, {ID: unrestricted, Name: "Tomate"}}
+		c.cropRepo.crops = []models.Crop{{ID: restricted, NameDe: "Karotte"}, {ID: unrestricted, NameDe: "Tomate"}}
 		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if _, err := service.AssignCropSeason(ctx, seasonAdminEditor, restricted, spring.ID); err != nil {
@@ -613,7 +613,7 @@ func TestGetCropSeasons(t *testing.T) {
 		defaultSeason := models.Season{ID: uuid.New(), Name: "Spring", StartMonth: 3, StartDay: 1, EndMonth: 5, EndDay: 31}
 		own := models.Season{ID: uuid.New(), Farm: &c.farm, Name: "Monsoon", StartMonth: 7, StartDay: 1, EndMonth: 9, EndDay: 30}
 		repo := newFakeSeasonRepo(defaultSeason, own)
-		c.cropRepo.crops = []models.Crop{{ID: crop, Name: "Karotte"}}
+		c.cropRepo.crops = []models.Crop{{ID: crop, NameDe: "Karotte"}}
 		service := NewSeasonService(repo, c.farmRepo, c.cropRepo)
 
 		if _, err := service.AssignCropSeason(ctx, seasonAdminEditor, crop, defaultSeason.ID); err != nil {

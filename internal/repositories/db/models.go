@@ -55,9 +55,10 @@ type CareInstruction struct {
 
 type Crop struct {
 	ID             uuid.UUID
-	Name           string
 	DurationMonths int32
 	IsPlaceholder  bool
+	NameDe         string
+	NameEn         string
 }
 
 type Customer struct {

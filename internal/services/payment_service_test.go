@@ -234,11 +234,11 @@ type fakePaymentCropRepo struct {
 	offeredCropIDs []uuid.UUID
 }
 
-func (f *fakePaymentCropRepo) CreateCrop(context.Context, string, int32) (models.Crop, error) {
+func (f *fakePaymentCropRepo) CreateCrop(context.Context, string, string, int32) (models.Crop, error) {
 	return models.Crop{}, nil
 }
 func (f *fakePaymentCropRepo) DeleteCrop(context.Context, uuid.UUID) error { return nil }
-func (f *fakePaymentCropRepo) UpdateCrop(context.Context, uuid.UUID, string, int32) (models.Crop, error) {
+func (f *fakePaymentCropRepo) UpdateCrop(context.Context, uuid.UUID, string, string, int32) (models.Crop, error) {
 	return models.Crop{}, nil
 }
 func (f *fakePaymentCropRepo) GetAllCrops(context.Context) ([]models.Crop, error) {
@@ -325,7 +325,7 @@ func validCheckoutInputs() (plotID, cropID uuid.UUID, startAt time.Time, message
 func TestCreateCheckoutSession_ComputesPriceAndRecordsAPendingCheckout(t *testing.T) {
 	plotID, cropID, startAt, message := validCheckoutInputs()
 	plot := models.Plot{ID: plotID, Name: "North Field Plot 3", AreaSquareMeters: 10, BasePriceCentsPerSqmPerWeek: int32Ptr(10)}
-	crop := models.Crop{ID: cropID, Name: "Tomatoes", DurationMonths: 12} // exactly 52 weeks
+	crop := models.Crop{ID: cropID, NameDe: "Tomaten", NameEn: "Tomatoes", DurationMonths: 12} // exactly 52 weeks
 
 	checkoutRepo := &fakeCheckoutRepo{bySession: map[string]models.RentalCheckout{}}
 	gateway := &fakePaymentGateway{sessionID: "cs_test_123", clientSecret: "secret_123"}
@@ -349,7 +349,7 @@ func TestCreateCheckoutSession_ComputesPriceAndRecordsAPendingCheckout(t *testin
 	if result.PriceCents != wantPrice {
 		t.Errorf("priceCents = %d, want %d", result.PriceCents, wantPrice)
 	}
-	if result.ClientSecret != "secret_123" || result.PlotName != plot.Name || result.CropName != crop.Name {
+	if result.ClientSecret != "secret_123" || result.PlotName != plot.Name || result.CropName != crop.NameDe {
 		t.Errorf("unexpected result: %+v", result)
 	}
 	if checkoutRepo.created.StripeCheckoutSessionID != "cs_test_123" {

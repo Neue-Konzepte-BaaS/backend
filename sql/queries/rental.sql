@@ -72,7 +72,7 @@ SELECT
     p.field,
     p.coordinates,
     ST_Area(p.coordinates::geography)::float8 AS plot_area_square_meters,
-    c.name AS crop_name,
+    c.name_de AS crop_name,
     c.duration_months AS crop_duration_months
 FROM rental r
 JOIN plot p ON p.id = r.plot
@@ -137,7 +137,7 @@ SELECT
     p.field,
     f.name AS field_name,
     f.farm,
-    c.name AS crop_name,
+    c.name_de AS crop_name,
     c.duration_months AS crop_duration_months,
     (FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - lower(r.period))) / 604800) + 1)::int AS current_week,
     CEIL(EXTRACT(EPOCH FROM (upper(r.period) - lower(r.period))) / 604800)::int AS total_weeks

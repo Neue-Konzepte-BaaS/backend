@@ -25,7 +25,8 @@ func NewCropHandler(cropService services.CropService) *CropHandler {
 
 type cropResponse struct {
 	ID             string `json:"id"`
-	Name           string `json:"name"`
+	NameDe         string `json:"nameDe"`
+	NameEn         string `json:"nameEn"`
 	DurationMonths int32  `json:"durationMonths"`
 }
 
@@ -35,19 +36,22 @@ type setPlotCropsRequest struct {
 }
 
 type createCropRequest struct {
-	Name           string `json:"name"`
+	NameDe         string `json:"nameDe"`
+	NameEn         string `json:"nameEn"`
 	DurationMonths int32  `json:"durationMonths"`
 }
 
 type updateCropRequest struct {
-	Name           string `json:"name"`
+	NameDe         string `json:"nameDe"`
+	NameEn         string `json:"nameEn"`
 	DurationMonths int32  `json:"durationMonths"`
 }
 
 func toCropResponse(crop models.Crop) cropResponse {
 	return cropResponse{
 		ID:             crop.ID.String(),
-		Name:           crop.Name,
+		NameDe:         crop.NameDe,
+		NameEn:         crop.NameEn,
 		DurationMonths: crop.DurationMonths,
 	}
 }
@@ -69,9 +73,14 @@ func (h *CropHandler) CreateCrop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" {
-		webutils.WriteError(w, http.StatusBadRequest, "name is required")
+	req.NameDe = strings.TrimSpace(req.NameDe)
+	if req.NameDe == "" {
+		webutils.WriteError(w, http.StatusBadRequest, "nameDe is required")
+		return
+	}
+	req.NameEn = strings.TrimSpace(req.NameEn)
+	if req.NameEn == "" {
+		webutils.WriteError(w, http.StatusBadRequest, "nameEn is required")
 		return
 	}
 	if req.DurationMonths <= 0 {
@@ -79,7 +88,7 @@ func (h *CropHandler) CreateCrop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	crop, err := h.cropService.CreateCrop(r.Context(), req.Name, req.DurationMonths)
+	crop, err := h.cropService.CreateCrop(r.Context(), req.NameDe, req.NameEn, req.DurationMonths)
 	if errors.Is(err, services.ErrCropNameTaken) {
 		webutils.WriteError(w, http.StatusConflict, "crop name already exists")
 		return
@@ -108,9 +117,14 @@ func (h *CropHandler) UpdateCrop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" {
-		webutils.WriteError(w, http.StatusBadRequest, "name is required")
+	req.NameDe = strings.TrimSpace(req.NameDe)
+	if req.NameDe == "" {
+		webutils.WriteError(w, http.StatusBadRequest, "nameDe is required")
+		return
+	}
+	req.NameEn = strings.TrimSpace(req.NameEn)
+	if req.NameEn == "" {
+		webutils.WriteError(w, http.StatusBadRequest, "nameEn is required")
 		return
 	}
 	if req.DurationMonths <= 0 {
@@ -118,7 +132,7 @@ func (h *CropHandler) UpdateCrop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	crop, err := h.cropService.UpdateCrop(r.Context(), cropID, req.Name, req.DurationMonths)
+	crop, err := h.cropService.UpdateCrop(r.Context(), cropID, req.NameDe, req.NameEn, req.DurationMonths)
 	if errors.Is(err, services.ErrNotFound) {
 		webutils.WriteError(w, http.StatusNotFound, "crop not found")
 		return

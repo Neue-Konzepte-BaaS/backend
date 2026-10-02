@@ -24,9 +24,10 @@ func NewCropRepository(pool *pgxpool.Pool, queries *database.Queries) services.C
 	return &cropRepository{pool: pool, queries: queries}
 }
 
-func (r *cropRepository) CreateCrop(ctx context.Context, name string, durationMonths int32) (models.Crop, error) {
+func (r *cropRepository) CreateCrop(ctx context.Context, nameDe, nameEn string, durationMonths int32) (models.Crop, error) {
 	id, err := r.queries.InsertCrop(ctx, database.InsertCropParams{
-		Name:           name,
+		NameDe:         nameDe,
+		NameEn:         nameEn,
 		DurationMonths: durationMonths,
 	})
 	if err != nil {
@@ -35,13 +36,14 @@ func (r *cropRepository) CreateCrop(ctx context.Context, name string, durationMo
 		}
 		return models.Crop{}, err
 	}
-	return models.Crop{ID: id, Name: name, DurationMonths: durationMonths}, nil
+	return models.Crop{ID: id, NameDe: nameDe, NameEn: nameEn, DurationMonths: durationMonths}, nil
 }
 
-func (r *cropRepository) UpdateCrop(ctx context.Context, id uuid.UUID, name string, durationMonths int32) (models.Crop, error) {
+func (r *cropRepository) UpdateCrop(ctx context.Context, id uuid.UUID, nameDe, nameEn string, durationMonths int32) (models.Crop, error) {
 	row, err := r.queries.UpdateCrop(ctx, database.UpdateCropParams{
 		ID:             id,
-		Name:           name,
+		NameDe:         nameDe,
+		NameEn:         nameEn,
 		DurationMonths: durationMonths,
 	})
 	if err != nil {
@@ -53,7 +55,7 @@ func (r *cropRepository) UpdateCrop(ctx context.Context, id uuid.UUID, name stri
 		}
 		return models.Crop{}, err
 	}
-	return models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}, nil
+	return models.Crop{ID: row.ID, NameDe: row.NameDe, NameEn: row.NameEn, DurationMonths: row.DurationMonths}, nil
 }
 
 func (r *cropRepository) DeleteCrop(ctx context.Context, id uuid.UUID) error {
@@ -75,7 +77,7 @@ func (r *cropRepository) GetAllCrops(ctx context.Context) ([]models.Crop, error)
 	}
 	crops := make([]models.Crop, len(rows))
 	for i, row := range rows {
-		crops[i] = models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}
+		crops[i] = models.Crop{ID: row.ID, NameDe: row.NameDe, NameEn: row.NameEn, DurationMonths: row.DurationMonths}
 	}
 	return crops, nil
 }
@@ -88,7 +90,7 @@ func (r *cropRepository) GetCropByID(ctx context.Context, id uuid.UUID) (models.
 		}
 		return models.Crop{}, err
 	}
-	return models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}, nil
+	return models.Crop{ID: row.ID, NameDe: row.NameDe, NameEn: row.NameEn, DurationMonths: row.DurationMonths}, nil
 }
 
 // SetPlotCrops replaces the plot's base price and its offered crops in a
@@ -132,7 +134,7 @@ func (r *cropRepository) GetCropsByPlot(ctx context.Context, plot uuid.UUID) ([]
 	}
 	crops := make([]models.Crop, len(rows))
 	for i, row := range rows {
-		crops[i] = models.Crop{ID: row.ID, Name: row.Name, DurationMonths: row.DurationMonths}
+		crops[i] = models.Crop{ID: row.ID, NameDe: row.NameDe, NameEn: row.NameEn, DurationMonths: row.DurationMonths}
 	}
 	return crops, nil
 }
@@ -147,7 +149,8 @@ func (r *cropRepository) GetCropsByPlots(ctx context.Context, plots []uuid.UUID)
 	for _, row := range rows {
 		cropsByPlot[row.Plot] = append(cropsByPlot[row.Plot], models.Crop{
 			ID:             row.ID,
-			Name:           row.Name,
+			NameDe:         row.NameDe,
+			NameEn:         row.NameEn,
 			DurationMonths: row.DurationMonths,
 		})
 	}
@@ -171,7 +174,8 @@ func (r *cropRepository) GetPricedCropOfferingsByPlots(ctx context.Context, plot
 		offeringsByPlot[row.Plot] = append(offeringsByPlot[row.Plot], models.PlotCropOffering{
 			Crop: models.Crop{
 				ID:             row.ID,
-				Name:           row.Name,
+				NameDe:         row.NameDe,
+				NameEn:         row.NameEn,
 				DurationMonths: row.DurationMonths,
 			},
 			PriceCents: priceCents,

@@ -130,7 +130,7 @@ func careInboxItems(guide models.PlotCareGuide) []models.InboxItem {
 			Subject:   fmt.Sprintf("Woche %d: %s", instruction.Week, instruction.Title),
 			Body:      instruction.Body,
 			FieldName: guide.FieldName,
-			CropName:  guide.Crop.Name,
+			CropName:  guide.Crop.NameDe,
 			CreatedAt: guide.StartAt.Add(time.Duration(instruction.Week-1) * 7 * 24 * time.Hour),
 		})
 	}
