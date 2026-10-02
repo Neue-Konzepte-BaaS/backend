@@ -307,3 +307,38 @@ func (q *Queries) ReactivateFarmerSubscription(ctx context.Context, arg Reactiva
 	)
 	return i, err
 }
+
+const updateFarmerSubscriptionPlan = `-- name: UpdateFarmerSubscriptionPlan :one
+UPDATE farmer_subscription
+SET plan = $1, current_period_end = $2, updated_at = CURRENT_TIMESTAMP
+WHERE id = $3 AND status IN ('active', 'past_due')
+RETURNING id, farmer, plan, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, status, current_period_end, created_at, updated_at
+`
+
+type UpdateFarmerSubscriptionPlanParams struct {
+	Plan             uuid.UUID
+	CurrentPeriodEnd pgtype.Timestamptz
+	ID               uuid.UUID
+}
+
+// Fired by a farmer-initiated upgrade: repoints plan and refreshes
+// current_period_end from Stripe's proration response. Guarded to only
+// affect a subscription that is actually live (active or past_due) -- a
+// pending/canceled one has no live Stripe subscription to modify.
+func (q *Queries) UpdateFarmerSubscriptionPlan(ctx context.Context, arg UpdateFarmerSubscriptionPlanParams) (FarmerSubscription, error) {
+	row := q.db.QueryRow(ctx, updateFarmerSubscriptionPlan, arg.Plan, arg.CurrentPeriodEnd, arg.ID)
+	var i FarmerSubscription
+	err := row.Scan(
+		&i.ID,
+		&i.Farmer,
+		&i.Plan,
+		&i.StripeCustomerID,
+		&i.StripeSubscriptionID,
+		&i.StripeCheckoutSessionID,
+		&i.Status,
+		&i.CurrentPeriodEnd,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

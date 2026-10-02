@@ -85,6 +85,11 @@ type PaymentGateway interface {
 	// Returns the session id, client secret, and the Stripe Customer id (new
 	// or reused) to persist against the local farmer_subscription row.
 	CreateSubscriptionCheckoutSession(ctx context.Context, stripePriceID, customerEmail string, existingStripeCustomerID *string, returnURL string) (sessionID, clientSecret, stripeCustomerID string, err error)
+	// UpdateSubscriptionPrice swaps a live Stripe Subscription onto a new
+	// Price, prorating the difference for the remainder of the current
+	// billing period. Returns the subscription's current_period_end after
+	// the change.
+	UpdateSubscriptionPrice(ctx context.Context, stripeSubscriptionID, newStripePriceID string) (currentPeriodEnd time.Time, err error)
 }
 
 type AccountRepository interface {
@@ -455,6 +460,11 @@ type FarmerSubscriptionRepository interface {
 	ReactivateSubscription(ctx context.Context, stripeSubscriptionID string, currentPeriodEnd time.Time) (models.FarmerSubscription, error)
 	// CancelSubscription marks a non-terminal subscription Canceled.
 	CancelSubscription(ctx context.Context, stripeSubscriptionID string) (models.FarmerSubscription, error)
+	// UpdateSubscriptionPlan repoints an Active-or-PastDue subscription at a
+	// new plan and refreshes its current period end from Stripe's proration
+	// response. Returns ErrNotFound if the subscription is not Active or
+	// PastDue.
+	UpdateSubscriptionPlan(ctx context.Context, id, plan uuid.UUID, currentPeriodEnd time.Time) (models.FarmerSubscription, error)
 }
 
 type PostalCodeRepository interface {

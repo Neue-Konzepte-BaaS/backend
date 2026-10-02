@@ -122,6 +122,40 @@ func (g *stripeGateway) CreateSubscriptionCheckoutSession(ctx context.Context, s
 	return session.ID, session.ClientSecret, stripeCustomerID, nil
 }
 
+// prorationBehaviorCreateProrations is a Go constant rather than something
+// callers pick: every upgrade in this product bills the prorated difference
+// immediately, so there is nothing to switch between.
+const prorationBehaviorCreateProrations = "create_prorations"
+
+func (g *stripeGateway) UpdateSubscriptionPrice(ctx context.Context, stripeSubscriptionID, newStripePriceID string) (time.Time, error) {
+	sub, err := g.client.V1Subscriptions.Retrieve(ctx, stripeSubscriptionID, nil)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("retrieving stripe subscription: %w", err)
+	}
+	if sub.Items == nil || len(sub.Items.Data) == 0 {
+		return time.Time{}, fmt.Errorf("stripe subscription %s has no items", stripeSubscriptionID)
+	}
+	itemID := sub.Items.Data[0].ID
+
+	updated, err := g.client.V1Subscriptions.Update(ctx, stripeSubscriptionID, &stripe.SubscriptionUpdateParams{
+		Items: []*stripe.SubscriptionUpdateItemParams{
+			{
+				ID:    stripe.String(itemID),
+				Price: stripe.String(newStripePriceID),
+			},
+		},
+		ProrationBehavior: stripe.String(prorationBehaviorCreateProrations),
+	})
+	if err != nil {
+		return time.Time{}, fmt.Errorf("updating stripe subscription price: %w", err)
+	}
+	if updated.Items == nil || len(updated.Items.Data) == 0 {
+		return time.Time{}, fmt.Errorf("updated stripe subscription %s has no items", stripeSubscriptionID)
+	}
+
+	return time.Unix(updated.Items.Data[0].CurrentPeriodEnd, 0), nil
+}
+
 func (g *stripeGateway) RefundCheckoutSession(ctx context.Context, sessionID string) error {
 	session, err := g.client.V1CheckoutSessions.Retrieve(ctx, sessionID, nil)
 	if err != nil {

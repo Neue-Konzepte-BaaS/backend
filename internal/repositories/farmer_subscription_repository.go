@@ -144,6 +144,21 @@ func (r *farmerSubscriptionRepository) CancelSubscription(ctx context.Context, s
 	return toModelFarmerSubscription(row), nil
 }
 
+func (r *farmerSubscriptionRepository) UpdateSubscriptionPlan(ctx context.Context, id, plan uuid.UUID, currentPeriodEnd time.Time) (models.FarmerSubscription, error) {
+	row, err := r.queries.UpdateFarmerSubscriptionPlan(ctx, database.UpdateFarmerSubscriptionPlanParams{
+		ID:               id,
+		Plan:             plan,
+		CurrentPeriodEnd: pgtype.Timestamptz{Time: currentPeriodEnd, Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.FarmerSubscription{}, services.ErrNotFound
+		}
+		return models.FarmerSubscription{}, err
+	}
+	return toModelFarmerSubscription(row), nil
+}
+
 func textOrNull(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: s != ""}
 }

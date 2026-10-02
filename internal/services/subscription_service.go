@@ -55,6 +55,15 @@ type SubscriptionService interface {
 	UpdatePlanPrice(ctx context.Context, planID uuid.UUID, priceCents int32) (models.SubscriptionPlan, error)
 	// SetPlanActive retires or reactivates a tier without deleting it.
 	SetPlanActive(ctx context.Context, planID uuid.UUID, active bool) error
+	// UpgradeSubscription moves the farmer's current subscription to a
+	// higher-priced plan, prorating the difference immediately via Stripe.
+	// Returns ErrNotFound if the farmer has no active/past_due subscription
+	// or newPlanID does not name an active plan, and ErrNotAnUpgrade if
+	// newPlanID is not priced higher than the farmer's current plan.
+	UpgradeSubscription(ctx context.Context, farmer, newPlanID uuid.UUID) (models.FarmerSubscription, error)
+	// GetPlanByID resolves a plan by id, for handlers folding plan details
+	// into a subscription response.
+	GetPlanByID(ctx context.Context, planID uuid.UUID) (models.SubscriptionPlan, error)
 }
 
 type subscriptionService struct {
@@ -255,4 +264,40 @@ func (s *subscriptionService) UpdatePlanPrice(ctx context.Context, planID uuid.U
 
 func (s *subscriptionService) SetPlanActive(ctx context.Context, planID uuid.UUID, active bool) error {
 	return s.subscriptionRepo.SetSubscriptionPlanActive(ctx, planID, active)
+}
+
+func (s *subscriptionService) UpgradeSubscription(ctx context.Context, farmer, newPlanID uuid.UUID) (models.FarmerSubscription, error) {
+	sub, err := s.farmerSubRepo.GetActiveSubscriptionByFarmer(ctx, farmer)
+	if err != nil {
+		return models.FarmerSubscription{}, err
+	}
+
+	currentPlan, err := s.subscriptionRepo.GetSubscriptionPlanByID(ctx, sub.Plan)
+	if err != nil {
+		return models.FarmerSubscription{}, fmt.Errorf("looking up current plan: %w", err)
+	}
+	newPlan, err := s.subscriptionRepo.GetSubscriptionPlanByID(ctx, newPlanID)
+	if err != nil {
+		return models.FarmerSubscription{}, err
+	}
+	if !newPlan.IsActive {
+		return models.FarmerSubscription{}, ErrNotFound
+	}
+	if newPlan.PriceCents <= currentPlan.PriceCents {
+		return models.FarmerSubscription{}, ErrNotAnUpgrade
+	}
+	if sub.StripeSubscriptionID == nil {
+		return models.FarmerSubscription{}, fmt.Errorf("active subscription %s has no stripe subscription id", sub.ID)
+	}
+
+	currentPeriodEnd, err := s.paymentGateway.UpdateSubscriptionPrice(ctx, *sub.StripeSubscriptionID, newPlan.StripePriceID)
+	if err != nil {
+		return models.FarmerSubscription{}, fmt.Errorf("updating stripe subscription price: %w", err)
+	}
+
+	return s.farmerSubRepo.UpdateSubscriptionPlan(ctx, sub.ID, newPlan.ID, currentPeriodEnd)
+}
+
+func (s *subscriptionService) GetPlanByID(ctx context.Context, planID uuid.UUID) (models.SubscriptionPlan, error) {
+	return s.subscriptionRepo.GetSubscriptionPlanByID(ctx, planID)
 }

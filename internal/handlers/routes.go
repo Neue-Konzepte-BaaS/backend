@@ -266,6 +266,13 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
 			r.Post("/checkout-sessions", subscriptionHandler.CreateCheckoutSession)
 			r.Get("/me", subscriptionHandler.GetSubscriptionStatus)
+
+			// Upgrading is only meaningful once a subscription already exists,
+			// unlike the two routes above.
+			r.Group(func(r chi.Router) {
+				r.Use(appmiddleware.RequireActiveSubscription(subscriptionService))
+				r.Put("/upgrade", subscriptionHandler.UpgradeSubscription)
+			})
 		})
 	})
 

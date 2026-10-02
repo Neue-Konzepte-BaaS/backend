@@ -115,6 +115,29 @@ func (h *SubscriptionHandler) CreateCheckoutSession(w http.ResponseWriter, r *ht
 type subscriptionStatusResponse struct {
 	Status           string  `json:"status"`
 	CurrentPeriodEnd *string `json:"currentPeriodEnd,omitempty"`
+	PlanID           string  `json:"planId"`
+	PlanCode         string  `json:"planCode"`
+	PlanDisplayName  string  `json:"planDisplayName"`
+	PriceCents       int32   `json:"priceCents"`
+}
+
+// toSubscriptionStatusResponse folds a subscription and its plan into the
+// response shape shared by GetSubscriptionStatus and UpgradeSubscription --
+// the frontend needs the plan alongside the status to know which tiers
+// still count as an upgrade.
+func toSubscriptionStatusResponse(sub models.FarmerSubscription, plan models.SubscriptionPlan) subscriptionStatusResponse {
+	res := subscriptionStatusResponse{
+		Status:          string(sub.Status),
+		PlanID:          plan.ID.String(),
+		PlanCode:        string(plan.Code),
+		PlanDisplayName: plan.DisplayName,
+		PriceCents:      plan.PriceCents,
+	}
+	if sub.CurrentPeriodEnd != nil {
+		formatted := sub.CurrentPeriodEnd.Format("2006-01-02T15:04:05Z07:00")
+		res.CurrentPeriodEnd = &formatted
+	}
+	return res
 }
 
 // GetSubscriptionStatus returns the authenticated farmer's own subscription
@@ -135,12 +158,14 @@ func (h *SubscriptionHandler) GetSubscriptionStatus(w http.ResponseWriter, r *ht
 		return
 	}
 
-	res := subscriptionStatusResponse{Status: string(sub.Status)}
-	if sub.CurrentPeriodEnd != nil {
-		formatted := sub.CurrentPeriodEnd.Format("2006-01-02T15:04:05Z07:00")
-		res.CurrentPeriodEnd = &formatted
+	plan, err := h.subscriptionService.GetPlanByID(r.Context(), sub.Plan)
+	if err != nil {
+		slog.Error("getting subscription plan failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
 	}
-	webutils.WriteJSON(w, http.StatusOK, res)
+
+	webutils.WriteJSON(w, http.StatusOK, toSubscriptionStatusResponse(sub, plan))
 }
 
 // ListPlansAdmin returns every subscription plan, active or retired. It
@@ -196,6 +221,55 @@ func (h *SubscriptionHandler) UpdatePlanPrice(w http.ResponseWriter, r *http.Req
 	}
 
 	webutils.WriteJSON(w, http.StatusOK, toSubscriptionPlanResponse(plan))
+}
+
+type upgradeSubscriptionRequest struct {
+	PlanID string `json:"planId"`
+}
+
+// UpgradeSubscription moves the authenticated farmer's subscription to a
+// higher-priced plan, prorating the difference immediately. It must be
+// mounted behind RequireAuth, RequireRole(models.RoleFarmer), and
+// RequireActiveSubscription -- an upgrade is only meaningful for a farmer
+// who already has one.
+func (h *SubscriptionHandler) UpgradeSubscription(w http.ResponseWriter, r *http.Request) {
+	var req upgradeSubscriptionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	planID, err := uuid.Parse(req.PlanID)
+	if err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid plan id")
+		return
+	}
+
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	sub, err := h.subscriptionService.UpgradeSubscription(r.Context(), claims.UserID, planID)
+	if errors.Is(err, services.ErrNotFound) {
+		webutils.WriteError(w, http.StatusNotFound, "subscription or plan not found")
+		return
+	}
+	if errors.Is(err, services.ErrNotAnUpgrade) {
+		webutils.WriteError(w, http.StatusConflict, "chosen plan is not an upgrade")
+		return
+	}
+	if err != nil {
+		slog.Error("upgrading subscription failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	plan, err := h.subscriptionService.GetPlanByID(r.Context(), sub.Plan)
+	if err != nil {
+		slog.Error("getting subscription plan failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, toSubscriptionStatusResponse(sub, plan))
 }
 
 type setPlanActiveRequest struct {
