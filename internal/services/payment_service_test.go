@@ -194,6 +194,9 @@ func (f *fakePaymentGateway) CreateSubscriptionPrice(context.Context, string, in
 func (f *fakePaymentGateway) CreateSubscriptionCheckoutSession(context.Context, string, string, *string, string) (string, string, string, error) {
 	return "", "", "", nil
 }
+func (f *fakePaymentGateway) UpdateSubscriptionPrice(context.Context, string, string) (time.Time, error) {
+	return time.Time{}, nil
+}
 
 // fakePaymentPlotRepo, fakePaymentCropRepo, fakePaymentFieldRepo and
 // fakePaymentFarmRepo each implement only what CreateCheckoutSession needs;

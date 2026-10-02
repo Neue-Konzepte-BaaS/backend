@@ -87,6 +87,9 @@ var (
 	// ErrPlotCapExceeded is returned when creating a plot would put a farm
 	// over its subscription plan's plot limit.
 	ErrPlotCapExceeded = errors.New("subscription plan plot limit reached")
+	// ErrNotAnUpgrade is returned when a farmer tries to "upgrade" to a plan
+	// priced the same as or lower than their current one.
+	ErrNotAnUpgrade = errors.New("chosen plan is not an upgrade")
 )
 
 // dummyHash is verified against when no account matches, so a request for an
