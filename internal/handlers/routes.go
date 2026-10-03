@@ -55,6 +55,15 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Use(appmiddleware.RequireAnyRole(models.RoleFarmer, models.RoleCustomer))
 
 		r.Delete("/me", accountHandler.DeleteMyAccount)
+
+		// Notification preferences only exist on the customer subtype, so
+		// this subgroup narrows the role further rather than widening it.
+		r.Group(func(r chi.Router) {
+			r.Use(appmiddleware.RequireRole(models.RoleCustomer))
+
+			r.Get("/me/notification-preferences", accountHandler.GetMyNotificationPreferences)
+			r.Patch("/me/notification-preferences", accountHandler.UpdateMyNotificationPreferences)
+		})
 	})
 
 	// Everything an admin reaches that is not an admin-only variant of an

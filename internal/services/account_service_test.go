@@ -80,6 +80,14 @@ func (f *fakeAccountListRepo) HasActiveRentalAsFarmer(context.Context, uuid.UUID
 	panic("the account listing does not check rentals")
 }
 
+func (f *fakeAccountListRepo) GetCustomerNotificationPreferences(context.Context, uuid.UUID) (models.CustomerNotificationPreferences, error) {
+	panic("the account listing does not read notification preferences")
+}
+
+func (f *fakeAccountListRepo) UpdateCustomerNotificationPreferences(context.Context, uuid.UUID, models.CustomerNotificationPreferences) error {
+	panic("the account listing does not update notification preferences")
+}
+
 // fakeDeletionFarmerSubRepo is a FarmerSubscriptionRepository stub for
 // DeleteMyAccount tests that never reach the farmer-subscription branch.
 type fakeDeletionFarmerSubRepo struct{ FarmerSubscriptionRepository }
@@ -226,6 +234,169 @@ func TestListAccounts_WrapsRepositoryErrors(t *testing.T) {
 	svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
 
 	_, err := svc.ListAccounts(context.Background(), models.RoleAdmin, models.AccountListFilter{})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("error = %v, want it to wrap %v", err, sentinel)
+	}
+}
+
+// fakeNotificationPrefsRepo is an AccountRepository that only answers
+// notification-preference reads/writes.
+type fakeNotificationPrefsRepo struct {
+	prefs     models.CustomerNotificationPreferences
+	getErr    error
+	updateErr error
+	updated   bool
+	gotPrefs  models.CustomerNotificationPreferences
+}
+
+func (f *fakeNotificationPrefsRepo) GetCustomerNotificationPreferences(context.Context, uuid.UUID) (models.CustomerNotificationPreferences, error) {
+	if f.getErr != nil {
+		return models.CustomerNotificationPreferences{}, f.getErr
+	}
+	return f.prefs, nil
+}
+
+func (f *fakeNotificationPrefsRepo) UpdateCustomerNotificationPreferences(_ context.Context, _ uuid.UUID, prefs models.CustomerNotificationPreferences) error {
+	f.updated = true
+	f.gotPrefs = prefs
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	return nil
+}
+
+func (f *fakeNotificationPrefsRepo) GetAccountByEmail(context.Context, string) (models.Account, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) GetAccountByID(context.Context, uuid.UUID) (models.Account, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) CreateAdmin(context.Context, models.Account) (models.Account, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) CreateFarmer(context.Context, models.Account, string, int32, string, string) (models.Account, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) CreateCustomer(context.Context, models.Account, int32) (models.Account, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) GetAllRecipients(context.Context) ([]models.Recipient, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) ListAccounts(context.Context, models.AccountListFilter) (models.Page[models.AccountListing], error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) GetCustomersOfFarmer(context.Context, uuid.UUID) ([]models.Recipient, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) GetCustomersOfFarmerForField(context.Context, uuid.UUID) ([]models.Recipient, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) GetCustomersOfFarmerForPlot(context.Context, uuid.UUID) ([]models.Recipient, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) GetCustomersOfFarmerForFieldAndCrop(context.Context, uuid.UUID, uuid.UUID) ([]models.Recipient, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) SoftDeleteAccount(context.Context, uuid.UUID, string, string, string, string) error {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) HasActiveRentalAsCustomer(context.Context, uuid.UUID) (bool, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func (f *fakeNotificationPrefsRepo) HasActiveRentalAsFarmer(context.Context, uuid.UUID) (bool, error) {
+	panic("not exercised by notification preference tests")
+}
+
+func TestGetMyNotificationPreferences_OnlyCustomerReachesTheRepository(t *testing.T) {
+	tests := []struct {
+		name    string
+		role    models.Role
+		wantErr error
+	}{
+		{name: "customer", role: models.RoleCustomer},
+		{name: "farmer", role: models.RoleFarmer, wantErr: ErrForbidden},
+		{name: "admin", role: models.RoleAdmin, wantErr: ErrForbidden},
+		{name: "no role at all", role: "", wantErr: ErrForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeNotificationPrefsRepo{prefs: models.CustomerNotificationPreferences{NotifyMessagesByEmail: true}}
+			svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
+
+			_, err := svc.GetMyNotificationPreferences(context.Background(), uuid.New(), tt.role)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestUpdateMyNotificationPreferences_OnlyCustomerReachesTheRepository(t *testing.T) {
+	tests := []struct {
+		name    string
+		role    models.Role
+		wantErr error
+	}{
+		{name: "customer", role: models.RoleCustomer},
+		{name: "farmer", role: models.RoleFarmer, wantErr: ErrForbidden},
+		{name: "admin", role: models.RoleAdmin, wantErr: ErrForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &fakeNotificationPrefsRepo{}
+			svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
+
+			_, err := svc.UpdateMyNotificationPreferences(context.Background(), uuid.New(), tt.role, models.CustomerNotificationPreferences{NotifyMessagesByEmail: false})
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("error = %v, want %v", err, tt.wantErr)
+			}
+			if repo.updated != (tt.wantErr == nil) {
+				t.Errorf("repository updated = %v, want %v", repo.updated, tt.wantErr == nil)
+			}
+		})
+	}
+}
+
+func TestUpdateMyNotificationPreferences_PassesPreferencesThrough(t *testing.T) {
+	repo := &fakeNotificationPrefsRepo{}
+	svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
+
+	got, err := svc.UpdateMyNotificationPreferences(context.Background(), uuid.New(), models.RoleCustomer, models.CustomerNotificationPreferences{NotifyMessagesByEmail: false})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.NotifyMessagesByEmail {
+		t.Errorf("NotifyMessagesByEmail = true, want false")
+	}
+	if repo.gotPrefs.NotifyMessagesByEmail {
+		t.Errorf("repository received NotifyMessagesByEmail = true, want false")
+	}
+}
+
+func TestGetMyNotificationPreferences_WrapsRepositoryErrors(t *testing.T) {
+	sentinel := errors.New("connection refused")
+	repo := &fakeNotificationPrefsRepo{getErr: sentinel}
+	svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
+
+	_, err := svc.GetMyNotificationPreferences(context.Background(), uuid.New(), models.RoleCustomer)
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v, want it to wrap %v", err, sentinel)
 	}

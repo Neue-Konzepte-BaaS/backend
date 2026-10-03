@@ -138,6 +138,14 @@ type AccountRepository interface {
 	// HasActiveRentalAsFarmer reports whether any plot on the farmer's farm
 	// currently has a rental covering right now.
 	HasActiveRentalAsFarmer(ctx context.Context, farmerID uuid.UUID) (bool, error)
+	// GetCustomerNotificationPreferences returns the customer's current email
+	// notification preference. Returns ErrNotFound if the account id has no
+	// customer row.
+	GetCustomerNotificationPreferences(ctx context.Context, accountID uuid.UUID) (models.CustomerNotificationPreferences, error)
+	// UpdateCustomerNotificationPreferences overwrites the customer's email
+	// notification preference. Returns ErrNotFound if the account id has no
+	// customer row.
+	UpdateCustomerNotificationPreferences(ctx context.Context, accountID uuid.UUID, prefs models.CustomerNotificationPreferences) error
 }
 
 // PendingRegistrationRepository stores registrations awaiting email

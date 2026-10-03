@@ -20,6 +20,7 @@ JOIN rental r ON r.customer = c.account_id
 JOIN plot p ON p.id = r.plot
 WHERE p.field = $1 AND r.crop = $2 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
   AND a.deleted_at IS NULL
+  AND c.notify_messages_by_email = true
 ORDER BY a.email
 `
 
@@ -36,8 +37,9 @@ type GetCustomersOfFarmerForFieldAndCropRow struct {
 }
 
 // Everyone to notify about ripeness: customers with an active, approved
-// rental on a plot of this field, growing exactly this crop. DISTINCT — a
-// customer renting several matching plots is mailed once.
+// rental on a plot of this field, growing exactly this crop, who have not
+// opted out of email notifications. DISTINCT — a customer renting several
+// matching plots is mailed once.
 func (q *Queries) GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, arg GetCustomersOfFarmerForFieldAndCropParams) ([]GetCustomersOfFarmerForFieldAndCropRow, error) {
 	rows, err := q.db.Query(ctx, getCustomersOfFarmerForFieldAndCrop, arg.Field, arg.Crop)
 	if err != nil {

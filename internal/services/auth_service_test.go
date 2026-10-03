@@ -80,6 +80,14 @@ func (f *fakeAccountRepo) HasActiveRentalAsFarmer(context.Context, uuid.UUID) (b
 	panic("auth service does not check rentals")
 }
 
+func (f *fakeAccountRepo) GetCustomerNotificationPreferences(context.Context, uuid.UUID) (models.CustomerNotificationPreferences, error) {
+	panic("auth service does not read notification preferences")
+}
+
+func (f *fakeAccountRepo) UpdateCustomerNotificationPreferences(context.Context, uuid.UUID, models.CustomerNotificationPreferences) error {
+	panic("auth service does not update notification preferences")
+}
+
 func (f *fakeAccountRepo) CreateFarmer(_ context.Context, account models.Account, farmName string, postalCode int32, address string, description string) (models.Account, error) {
 	if f.createFarmerErr != nil {
 		return models.Account{}, f.createFarmerErr

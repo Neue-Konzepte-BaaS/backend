@@ -63,8 +63,9 @@ type Crop struct {
 }
 
 type Customer struct {
-	AccountID  uuid.UUID
-	PostalCode int32
+	AccountID             uuid.UUID
+	PostalCode            int32
+	NotifyMessagesByEmail bool
 }
 
 type Farm struct {

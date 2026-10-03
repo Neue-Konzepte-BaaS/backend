@@ -135,6 +135,7 @@ JOIN field f ON f.id = p.field
 JOIN farm ON farm.id = f.farm
 WHERE farm.farmer_id = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
   AND a.deleted_at IS NULL
+  AND c.notify_messages_by_email = true
 ORDER BY a.email
 `
 
@@ -146,8 +147,9 @@ type GetCustomersOfFarmerRow struct {
 }
 
 // Everyone a farmer may address: the customers currently renting one of his
-// plots. DISTINCT is load-bearing — a customer renting three plots from the
-// same farmer is one person and must be mailed once.
+// plots, who have not opted out of email notifications. DISTINCT is
+// load-bearing — a customer renting three plots from the same farmer is one
+// person and must be mailed once.
 func (q *Queries) GetCustomersOfFarmer(ctx context.Context, farmerID uuid.UUID) ([]GetCustomersOfFarmerRow, error) {
 	rows, err := q.db.Query(ctx, getCustomersOfFarmer, farmerID)
 	if err != nil {
@@ -181,6 +183,7 @@ JOIN rental r ON r.customer = c.account_id
 JOIN plot p ON p.id = r.plot
 WHERE p.field = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
   AND a.deleted_at IS NULL
+  AND c.notify_messages_by_email = true
 ORDER BY a.email
 `
 
@@ -192,9 +195,10 @@ type GetCustomersOfFarmerForFieldRow struct {
 }
 
 // The audience for an announcement scoped to one field: customers with an
-// active, approved rental on a plot of that field. 'approved' for the same
-// reason as GetCustomersOfFarmer: a pending or declined request keeps a row
-// whose period covers now, and its customer is not a tenant.
+// active, approved rental on a plot of that field, who have not opted out
+// of email notifications. 'approved' for the same reason as
+// GetCustomersOfFarmer: a pending or declined request keeps a row whose
+// period covers now, and its customer is not a tenant.
 func (q *Queries) GetCustomersOfFarmerForField(ctx context.Context, field uuid.UUID) ([]GetCustomersOfFarmerForFieldRow, error) {
 	rows, err := q.db.Query(ctx, getCustomersOfFarmerForField, field)
 	if err != nil {
@@ -227,6 +231,7 @@ JOIN customer c ON c.account_id = a.id
 JOIN rental r ON r.customer = c.account_id
 WHERE r.plot = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
   AND a.deleted_at IS NULL
+  AND c.notify_messages_by_email = true
 ORDER BY a.email
 `
 
@@ -239,7 +244,8 @@ type GetCustomersOfFarmerForPlotRow struct {
 
 // The audience for an announcement scoped to one plot: customers with an
 // active, approved rental on that plot (at most one at a time, but a farmer
-// can still re-post after a rental ends).
+// can still re-post after a rental ends), who have not opted out of email
+// notifications.
 func (q *Queries) GetCustomersOfFarmerForPlot(ctx context.Context, plot uuid.UUID) ([]GetCustomersOfFarmerForPlotRow, error) {
 	rows, err := q.db.Query(ctx, getCustomersOfFarmerForPlot, plot)
 	if err != nil {
