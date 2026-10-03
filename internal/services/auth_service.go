@@ -121,6 +121,16 @@ type AuthService interface {
 	// id and role, not name/postal code, so /auth/me needs this extra lookup
 	// to answer with more than that.
 	Me(ctx context.Context, id uuid.UUID) (models.Account, error)
+	// Refresh validates a refresh token -- signature, expiry, type, and that
+	// its DB row has not been revoked -- then rotates it: the old row is
+	// revoked and a brand-new access/refresh pair is issued. Returns
+	// ErrInvalidCredentials if the token is malformed, expired, or revoked.
+	Refresh(ctx context.Context, refreshToken string) (TokenPair, error)
+	// Logout revokes a refresh token's DB row so it can no longer be used,
+	// even though the JWT itself has not yet expired. A malformed, expired,
+	// or already-revoked token is not an error: logout must always succeed
+	// client-side regardless of the token's state.
+	Logout(ctx context.Context, refreshToken string) error
 }
 
 // ErrInvalidRegistration reports a registration that fails a business rule
@@ -146,6 +156,7 @@ type RegisterInput struct {
 type authService struct {
 	accountRepo             AccountRepository
 	pendingRegistrationRepo PendingRegistrationRepository
+	refreshTokenRepo        RefreshTokenRepository
 	issuer                  *credentials.Issuer
 	notificationService     NotificationService
 	dispatcher              *Dispatcher
@@ -155,6 +166,7 @@ type authService struct {
 func NewAuthService(
 	accountRepo AccountRepository,
 	pendingRegistrationRepo PendingRegistrationRepository,
+	refreshTokenRepo RefreshTokenRepository,
 	issuer *credentials.Issuer,
 	notificationService NotificationService,
 	dispatcher *Dispatcher,
@@ -163,6 +175,7 @@ func NewAuthService(
 	return &authService{
 		accountRepo:             accountRepo,
 		pendingRegistrationRepo: pendingRegistrationRepo,
+		refreshTokenRepo:        refreshTokenRepo,
 		issuer:                  issuer,
 		notificationService:     notificationService,
 		dispatcher:              dispatcher,
@@ -187,7 +200,7 @@ func (s *authService) Login(ctx context.Context, email, plainPassword string) (m
 		return models.Account{}, TokenPair{}, fmt.Errorf("verifying password: %w", err)
 	}
 
-	pair, err := s.issueTokens(account)
+	pair, err := s.issueTokens(ctx, account)
 	if err != nil {
 		return models.Account{}, TokenPair{}, err
 	}
@@ -350,7 +363,7 @@ func (s *authService) VerifyEmail(ctx context.Context, token string) (models.Acc
 		slog.Error("deleting consumed pending registration", "error", err, "id", pending.ID)
 	}
 
-	pair, err := s.issueTokens(account)
+	pair, err := s.issueTokens(ctx, account)
 	if err != nil {
 		return models.Account{}, TokenPair{}, err
 	}
@@ -380,7 +393,51 @@ func (s *authService) Authenticate(ctx context.Context, accessToken string) (cre
 	return claims, nil
 }
 
-func (s *authService) issueTokens(account models.Account) (TokenPair, error) {
+// Refresh validates the refresh token and, if its DB row is still active,
+// rotates it: the old row is revoked and a brand-new access/refresh pair is
+// issued. Rotation limits how long a stolen refresh token stays useful --
+// the next legitimate refresh (or an attacker's) invalidates it.
+func (s *authService) Refresh(ctx context.Context, refreshToken string) (TokenPair, error) {
+	claims, err := s.issuer.Parse(refreshToken, credentials.TypeRefresh)
+	if err != nil {
+		return TokenPair{}, ErrInvalidCredentials
+	}
+
+	hash := credentials.HashJTI(claims.ID)
+	if _, err := s.refreshTokenRepo.GetActiveRefreshTokenByHash(ctx, hash); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return TokenPair{}, ErrInvalidCredentials
+		}
+		return TokenPair{}, fmt.Errorf("looking up refresh token: %w", err)
+	}
+
+	account, err := s.accountRepo.GetAccountByID(ctx, claims.UserID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return TokenPair{}, ErrInvalidCredentials
+		}
+		return TokenPair{}, fmt.Errorf("resolving account: %w", err)
+	}
+
+	if err := s.refreshTokenRepo.RevokeRefreshTokenByHash(ctx, hash); err != nil {
+		return TokenPair{}, fmt.Errorf("revoking old refresh token: %w", err)
+	}
+
+	return s.issueTokens(ctx, account)
+}
+
+// Logout revokes a refresh token's DB row. A malformed, expired, or already
+// unknown token is treated as a no-op rather than an error, since logout
+// must always succeed client-side regardless of the token's state.
+func (s *authService) Logout(ctx context.Context, refreshToken string) error {
+	claims, err := s.issuer.Parse(refreshToken, credentials.TypeRefresh)
+	if err != nil {
+		return nil
+	}
+	return s.refreshTokenRepo.RevokeRefreshTokenByHash(ctx, credentials.HashJTI(claims.ID))
+}
+
+func (s *authService) issueTokens(ctx context.Context, account models.Account) (TokenPair, error) {
 	access, err := s.issuer.Issue(account.ID, account.Role, credentials.TypeAccess, credentials.AccessTTL)
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("issuing access token: %w", err)
@@ -389,6 +446,20 @@ func (s *authService) issueTokens(account models.Account) (TokenPair, error) {
 	refresh, err := s.issuer.Issue(account.ID, account.Role, credentials.TypeRefresh, credentials.RefreshTTL)
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("issuing refresh token: %w", err)
+	}
+
+	refreshClaims, err := s.issuer.Parse(refresh, credentials.TypeRefresh)
+	if err != nil {
+		return TokenPair{}, fmt.Errorf("parsing freshly issued refresh token: %w", err)
+	}
+
+	if err := s.refreshTokenRepo.InsertRefreshToken(
+		ctx,
+		account.ID,
+		credentials.HashJTI(refreshClaims.ID),
+		refreshClaims.ExpiresAt.Time,
+	); err != nil {
+		return TokenPair{}, fmt.Errorf("storing refresh token: %w", err)
 	}
 
 	return TokenPair{Access: access, Refresh: refresh}, nil

@@ -16,11 +16,12 @@ import (
 
 type AccountHandler struct {
 	accountService services.AccountService
+	authService    services.AuthService
 	cfg            config.Config
 }
 
-func NewAccountHandler(accountService services.AccountService, cfg config.Config) *AccountHandler {
-	return &AccountHandler{accountService: accountService, cfg: cfg}
+func NewAccountHandler(accountService services.AccountService, authService services.AuthService, cfg config.Config) *AccountHandler {
+	return &AccountHandler{accountService: accountService, authService: authService, cfg: cfg}
 }
 
 type accountListingResponse struct {
@@ -100,6 +101,12 @@ func (h *AccountHandler) DeleteMyAccount(w http.ResponseWriter, r *http.Request)
 		slog.Error("deleting account failed", "error", err)
 		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
 		return
+	}
+
+	if cookie, err := r.Cookie(middleware.RefreshCookieName); err == nil {
+		if err := h.authService.Logout(r.Context(), cookie.Value); err != nil {
+			slog.Error("revoking refresh token on account deletion", "error", err)
+		}
 	}
 
 	clearAuthCookies(w, h.cfg)

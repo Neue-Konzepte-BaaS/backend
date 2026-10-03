@@ -148,6 +148,15 @@ type PostalCode struct {
 	Coordinates *geom.Point
 }
 
+type RefreshToken struct {
+	ID        uuid.UUID
+	AccountID uuid.UUID
+	TokenHash string
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
+	CreatedAt pgtype.Timestamptz
+}
+
 type Rental struct {
 	ID        uuid.UUID
 	Plot      uuid.UUID

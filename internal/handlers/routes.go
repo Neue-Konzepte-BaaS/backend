@@ -38,6 +38,9 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Post("/register", authHandler.Register)
 		r.Post("/verify-email", authHandler.VerifyEmail)
 		r.Post("/logout", authHandler.Logout)
+		// Deliberately not behind RequireAuth: the point of refreshing is to
+		// get a new access token once the old one has already expired.
+		r.Post("/refresh", authHandler.Refresh)
 
 		r.Group(func(r chi.Router) {
 			r.Use(appmiddleware.RequireAuth(authService))

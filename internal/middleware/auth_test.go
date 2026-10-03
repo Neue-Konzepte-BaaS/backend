@@ -46,6 +46,14 @@ func (s *stubAuthService) Authenticate(_ context.Context, accessToken string) (c
 	return s.claims, s.err
 }
 
+func (s *stubAuthService) Refresh(context.Context, string) (services.TokenPair, error) {
+	panic("middleware does not call Refresh")
+}
+
+func (s *stubAuthService) Logout(context.Context, string) error {
+	panic("middleware does not call Logout")
+}
+
 // spyHandler stands in for the wrapped handler, recording whether it ran and
 // what context it saw.
 type spyHandler struct {
