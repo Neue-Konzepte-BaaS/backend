@@ -25,6 +25,14 @@ type AccountService interface {
 	// plots (farmer) has a rental covering right now, and ErrForbidden for
 	// any role other than farmer or customer.
 	DeleteMyAccount(ctx context.Context, accountID uuid.UUID, role models.Role) error
+	// GetMyNotificationPreferences returns the calling customer's email
+	// notification preference. Returns ErrForbidden for any role other than
+	// customer.
+	GetMyNotificationPreferences(ctx context.Context, accountID uuid.UUID, role models.Role) (models.CustomerNotificationPreferences, error)
+	// UpdateMyNotificationPreferences overwrites the calling customer's email
+	// notification preference. Returns ErrForbidden for any role other than
+	// customer.
+	UpdateMyNotificationPreferences(ctx context.Context, accountID uuid.UUID, role models.Role, prefs models.CustomerNotificationPreferences) (models.CustomerNotificationPreferences, error)
 }
 
 type accountService struct {
@@ -105,6 +113,29 @@ func (s *accountService) DeleteMyAccount(ctx context.Context, accountID uuid.UUI
 		return fmt.Errorf("deleting account: %w", err)
 	}
 	return nil
+}
+
+func (s *accountService) GetMyNotificationPreferences(ctx context.Context, accountID uuid.UUID, role models.Role) (models.CustomerNotificationPreferences, error) {
+	if role != models.RoleCustomer {
+		return models.CustomerNotificationPreferences{}, ErrForbidden
+	}
+
+	prefs, err := s.accountRepo.GetCustomerNotificationPreferences(ctx, accountID)
+	if err != nil {
+		return models.CustomerNotificationPreferences{}, fmt.Errorf("getting notification preferences: %w", err)
+	}
+	return prefs, nil
+}
+
+func (s *accountService) UpdateMyNotificationPreferences(ctx context.Context, accountID uuid.UUID, role models.Role, prefs models.CustomerNotificationPreferences) (models.CustomerNotificationPreferences, error) {
+	if role != models.RoleCustomer {
+		return models.CustomerNotificationPreferences{}, ErrForbidden
+	}
+
+	if err := s.accountRepo.UpdateCustomerNotificationPreferences(ctx, accountID, prefs); err != nil {
+		return models.CustomerNotificationPreferences{}, fmt.Errorf("updating notification preferences: %w", err)
+	}
+	return prefs, nil
 }
 
 // cancelFarmerSubscription cancels the farmer's active subscription, if any,

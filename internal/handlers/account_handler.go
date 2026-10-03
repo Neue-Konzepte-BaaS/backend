@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -111,6 +112,70 @@ func (h *AccountHandler) DeleteMyAccount(w http.ResponseWriter, r *http.Request)
 
 	clearAuthCookies(w, h.cfg)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type notificationPreferencesResponse struct {
+	NotifyMessagesByEmail bool `json:"notifyMessagesByEmail"`
+}
+
+type updateNotificationPreferencesRequest struct {
+	NotifyMessagesByEmail bool `json:"notifyMessagesByEmail"`
+}
+
+// GetMyNotificationPreferences returns the calling customer's email
+// notification preference. It must be mounted behind RequireAuth and
+// RequireRole(models.RoleCustomer).
+func (h *AccountHandler) GetMyNotificationPreferences(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	prefs, err := h.accountService.GetMyNotificationPreferences(r.Context(), claims.UserID, claims.Role)
+	if errors.Is(err, services.ErrForbidden) {
+		webutils.WriteError(w, http.StatusForbidden, "insufficient permissions")
+		return
+	}
+	if errors.Is(err, services.ErrNotFound) {
+		webutils.WriteError(w, http.StatusNotFound, "account not found")
+		return
+	}
+	if err != nil {
+		slog.Error("getting notification preferences failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, notificationPreferencesResponse{NotifyMessagesByEmail: prefs.NotifyMessagesByEmail})
+}
+
+// UpdateMyNotificationPreferences updates the calling customer's email
+// notification preference. It must be mounted behind RequireAuth and
+// RequireRole(models.RoleCustomer).
+func (h *AccountHandler) UpdateMyNotificationPreferences(w http.ResponseWriter, r *http.Request) {
+	var req updateNotificationPreferencesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		webutils.WriteError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	prefs, err := h.accountService.UpdateMyNotificationPreferences(r.Context(), claims.UserID, claims.Role, models.CustomerNotificationPreferences{
+		NotifyMessagesByEmail: req.NotifyMessagesByEmail,
+	})
+	if errors.Is(err, services.ErrForbidden) {
+		webutils.WriteError(w, http.StatusForbidden, "insufficient permissions")
+		return
+	}
+	if errors.Is(err, services.ErrNotFound) {
+		webutils.WriteError(w, http.StatusNotFound, "account not found")
+		return
+	}
+	if err != nil {
+		slog.Error("updating notification preferences failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	webutils.WriteJSON(w, http.StatusOK, notificationPreferencesResponse{NotifyMessagesByEmail: prefs.NotifyMessagesByEmail})
 }
 
 func toAccountPageResponse(page models.Page[models.AccountListing]) accountPageResponse {

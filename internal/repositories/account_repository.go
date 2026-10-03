@@ -178,6 +178,31 @@ func (r *accountRepository) SoftDeleteAccount(ctx context.Context, id uuid.UUID,
 	return nil
 }
 
+func (r *accountRepository) GetCustomerNotificationPreferences(ctx context.Context, accountID uuid.UUID) (models.CustomerNotificationPreferences, error) {
+	notifyMessagesByEmail, err := r.queries.GetCustomerNotificationPreferences(ctx, accountID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.CustomerNotificationPreferences{}, fmt.Errorf("db error: %w %w", err, services.ErrNotFound)
+		}
+		return models.CustomerNotificationPreferences{}, err
+	}
+	return models.CustomerNotificationPreferences{NotifyMessagesByEmail: notifyMessagesByEmail}, nil
+}
+
+func (r *accountRepository) UpdateCustomerNotificationPreferences(ctx context.Context, accountID uuid.UUID, prefs models.CustomerNotificationPreferences) error {
+	affected, err := r.queries.UpdateCustomerNotificationPreferences(ctx, database.UpdateCustomerNotificationPreferencesParams{
+		AccountID:             accountID,
+		NotifyMessagesByEmail: prefs.NotifyMessagesByEmail,
+	})
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return services.ErrNotFound
+	}
+	return nil
+}
+
 func (r *accountRepository) HasActiveRentalAsCustomer(ctx context.Context, accountID uuid.UUID) (bool, error) {
 	return r.queries.HasActiveRentalAsCustomer(ctx, accountID)
 }

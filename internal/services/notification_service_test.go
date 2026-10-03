@@ -139,6 +139,14 @@ func (f *fakeRecipientRepo) HasActiveRentalAsFarmer(context.Context, uuid.UUID) 
 	panic("notification service does not check rentals")
 }
 
+func (f *fakeRecipientRepo) GetCustomerNotificationPreferences(context.Context, uuid.UUID) (models.CustomerNotificationPreferences, error) {
+	panic("notification service does not read notification preferences")
+}
+
+func (f *fakeRecipientRepo) UpdateCustomerNotificationPreferences(context.Context, uuid.UUID, models.CustomerNotificationPreferences) error {
+	panic("notification service does not update notification preferences")
+}
+
 // fakeBroadcastRepo records what was stored and can fail on demand.
 type fakeBroadcastRepo struct {
 	stored    []models.BroadcastNotification

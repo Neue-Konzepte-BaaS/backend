@@ -32,3 +32,10 @@ type BroadcastNotification struct {
 	Body      string
 	CreatedAt time.Time
 }
+
+// CustomerNotificationPreferences controls whether a customer also receives
+// broadcasts, announcements, and ripeness notices by email, beyond the
+// always-on in-app inbox.
+type CustomerNotificationPreferences struct {
+	NotifyMessagesByEmail bool
+}

@@ -115,9 +115,10 @@ SELECT
     a.first_name,
     a.last_name
 FROM account a
+LEFT JOIN customer c ON c.account_id = a.id
 WHERE (
     EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
-    OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
+    OR (c.account_id IS NOT NULL AND c.notify_messages_by_email = true)
 ) AND a.deleted_at IS NULL
 ORDER BY a.email
 `
@@ -132,6 +133,8 @@ type GetAllRecipientsRow struct {
 // Every farmer and customer, for a platform-wide notification. Membership is
 // tested positively rather than by excluding admins, so an account with no
 // subtype row at all, and therefore an empty derived role, is never mailed.
+// A customer who opted out of email notifications is excluded; farmers have
+// no such preference and are never excluded by it.
 func (q *Queries) GetAllRecipients(ctx context.Context) ([]GetAllRecipientsRow, error) {
 	rows, err := q.db.Query(ctx, getAllRecipients)
 	if err != nil {

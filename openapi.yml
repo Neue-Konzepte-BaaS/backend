@@ -13,6 +13,10 @@ servers:
 tags:
   - name: auth
     description: Authentication and the current account
+  - name: accounts
+    description: A farmer or customer's own account
+  - name: subscriptions
+    description: A farmer's subscription plan and billing
   - name: farms
     description: Public farm details, shown to customers browsing plots
   - name: fields
@@ -176,6 +180,102 @@ paths:
               example:
                 error: internal error
 
+  /api/auth/verify-email:
+    post:
+      tags: [auth]
+      summary: Verify an email and create the account
+      description: |
+        Consumes the token from the verification link sent by
+        `POST /api/auth/register`, creates the account it was issued for, and
+        signs the caller in with the same `access_token` and `refresh_token`
+        cookies `POST /api/auth/login` sets. No account exists until this
+        succeeds — registering alone only queues the verification email.
+      operationId: verifyEmail
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: The token embedded in the verification link.
+      responses:
+        '201':
+          description: Account created; auth cookies set.
+          headers:
+            Set-Cookie:
+              description: |
+                Two cookies are set:
+                `access_token=<jwt>; Path=/; Max-Age=900; HttpOnly` and
+                `refresh_token=<jwt>; Path=/api/auth/refresh; Max-Age=604800; HttpOnly`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionAccount'
+        '400':
+          description: Missing token, or the token is invalid or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingToken:
+                  value:
+                    error: token is required
+                invalidToken:
+                  value:
+                    error: invalid or expired verification link
+        '409':
+          description: An account with this email already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: email already registered
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Refresh the access token
+      description: |
+        Exchanges a still-valid, not-yet-revoked `refresh_token` cookie for a
+        brand new `access_token`/`refresh_token` pair, rotating the refresh
+        token. Deliberately not behind authentication by access token — the
+        point is to work once the access token has already expired. Not
+        idempotent: each call revokes the refresh token it was given.
+      operationId: refresh
+      security: []
+      responses:
+        '204':
+          description: New auth cookies set.
+          headers:
+            Set-Cookie:
+              description: |
+                Two cookies are set:
+                `access_token=<jwt>; Path=/; Max-Age=900; HttpOnly` and
+                `refresh_token=<jwt>; Path=/api/auth/refresh; Max-Age=604800; HttpOnly`.
+              schema:
+                type: string
+        '401':
+          description: Missing, invalid, expired, or already-revoked refresh token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/auth/me:
     get:
       tags: [auth]
@@ -219,6 +319,134 @@ paths:
               description: Both auth cookies are re-sent with `Max-Age=0`.
               schema:
                 type: string
+
+  /api/accounts/me:
+    delete:
+      tags: [accounts]
+      summary: Delete the calling account
+      description: |
+        Soft-deletes the authenticated farmer or customer's own account, then
+        revokes the refresh token and clears both auth cookies, the same as
+        `POST /api/auth/logout`. Admin accounts are out of scope for
+        self-service deletion.
+      operationId: deleteMyAccount
+      responses:
+        '204':
+          description: Account deleted; auth cookies expired.
+          headers:
+            Set-Cookie:
+              description: Both auth cookies are re-sent with `Max-Age=0`.
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is neither a farmer nor a customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '409':
+          description: The account has an active rental and cannot be deleted yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: cannot delete account while a rental is active
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/accounts/me/notification-preferences:
+    get:
+      tags: [accounts]
+      summary: Get the calling customer's email notification preference
+      description: |
+        Returns whether the authenticated customer currently receives
+        platform messages (broadcasts, announcements, ripeness notices) by
+        email, in addition to their always-on `GET /api/inbox` feed.
+        Customers only.
+      operationId: getMyNotificationPreferences
+      responses:
+        '200':
+          description: The customer's notification preferences.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: The account was deleted after the access token was issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: account not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    patch:
+      tags: [accounts]
+      summary: Update the calling customer's email notification preference
+      description: |
+        Overwrites whether the authenticated customer receives platform
+        messages by email. This is a toggle, not a partial patch of a larger
+        object — the whole preference is replaced by the given value.
+        Customers only.
+      operationId: updateMyNotificationPreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferences'
+      responses:
+        '200':
+          description: The customer's notification preferences, after the update.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+        '400':
+          description: Malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid request body
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a customer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: The account was deleted after the access token was issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: account not found
+        '500':
+          $ref: '#/components/responses/InternalError'
 
   /api/farms/me:
     get:
@@ -1191,6 +1419,48 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+    delete:
+      tags: [crops]
+      summary: Remove a crop from the catalog
+      description: |
+        Deletes a crop. Requires the `admin` role. Rejected if any rental
+        still references the crop — a crop that has ever been rented is kept
+        for that history's sake rather than deleted out from under it.
+      operationId: deleteCrop
+      parameters:
+        - $ref: '#/components/parameters/CropID'
+      responses:
+        '204':
+          description: Crop deleted.
+        '400':
+          description: Invalid crop id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid crop id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not an admin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '409':
+          description: The crop is referenced by a rental and cannot be deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: crop is referenced by a rental
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/crops/{cropID}/season:
     put:
       tags: [crops, seasons]
@@ -1295,6 +1565,44 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: crop has no season rule in the caller's set
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/crops/seasons:
+    get:
+      tags: [crops, seasons]
+      summary: Get every crop's effective season
+      description: |
+        Returns every crop in the catalog, each paired with the season rule
+        actually checked against it for the caller: the default rule for an
+        **admin**, or the effective rule for a **farmer** — their own farm's
+        rule if they have one, the default rule otherwise. A `null` season
+        means the crop is unrestricted / year-round for the caller. Requires
+        the `admin` or `farmer` role.
+
+        This is a static path alongside `/{cropID}/season`: chi prioritizes
+        the static segment, same precedent as `/crop-rates` alongside
+        `/{farmID}` on `/api/farms`.
+      operationId: getCropSeasons
+      responses:
+        '200':
+          description: Every crop paired with its effective season rule.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CropSeason'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not an admin or farmer, or a farmer has no farm.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: no farm to read crop seasons for
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -1956,6 +2264,127 @@ paths:
               example:
                 error: internal error
 
+  /api/rentals/{rentalID}/approve:
+    post:
+      tags: [rentals]
+      summary: Approve a requested rental
+      description: |
+        Approves a still-requested rental on one of the authenticated
+        farmer's own plots. Requires the `farmer` role.
+      operationId: approveRental
+      parameters:
+        - name: rentalID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The approved rental.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rental'
+        '400':
+          description: Invalid rental id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid rental id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a farmer, or the rental's plot is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: plot is not owned by this farmer
+        '404':
+          description: No rental with this id exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: rental not found
+        '409':
+          description: The rental request was already approved or declined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: rental request was already decided
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/rentals/{rentalID}/decline:
+    post:
+      tags: [rentals]
+      summary: Decline a requested rental
+      description: |
+        Declines a still-requested rental on one of the authenticated
+        farmer's own plots, freeing the plot for that period. If the rental
+        had already been paid for, the payment is refunded; a refund failure
+        is logged but does not undo the decline, which has already freed the
+        plot. Requires the `farmer` role.
+      operationId: declineRental
+      parameters:
+        - name: rentalID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The declined rental.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rental'
+        '400':
+          description: Invalid rental id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid rental id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a farmer, or the rental's plot is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: plot is not owned by this farmer
+        '404':
+          description: No rental with this id exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: rental not found
+        '409':
+          description: The rental request was already approved or declined.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: rental request was already decided
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/payments/checkout-sessions:
     post:
       tags: [payments]
@@ -2190,6 +2619,218 @@ paths:
               example:
                 error: internal error
 
+  /api/subscriptions/plans:
+    get:
+      tags: [subscriptions]
+      summary: List the subscription tiers open to new subscriptions
+      description: |
+        Returns the active subscription plans. Public, same precedent as
+        `GET /api/crops`: a prospective farmer may want to see pricing before
+        registering. A retired plan is omitted — see
+        `GET /api/admin/subscription-plans` for the admin view that includes
+        those too.
+      operationId: getSubscriptionPlans
+      security: []
+      responses:
+        '200':
+          description: The subscription plans currently open to new subscriptions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubscriptionPlan'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/subscriptions/checkout-sessions:
+    post:
+      tags: [subscriptions]
+      summary: Start paying for a subscription plan
+      description: |
+        Opens a Stripe Checkout session for the authenticated farmer to
+        subscribe to the chosen plan. Requires the `farmer` role. Not behind
+        `RequireActiveSubscription` — a farmer with no subscription yet is
+        exactly who needs to reach this.
+      operationId: createSubscriptionCheckoutSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [planId]
+              properties:
+                planId:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: The checkout session was created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [clientSecret, planCode, priceCents]
+                properties:
+                  clientSecret:
+                    type: string
+                    description: Stripe Checkout client secret for the embedded checkout iframe.
+                  planCode:
+                    type: string
+                    example: pro
+                  priceCents:
+                    type: integer
+                    format: int32
+                    example: 2900
+        '400':
+          description: Malformed body or invalid plan id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid plan id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: No subscription plan with the given id exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: subscription plan not found
+        '409':
+          description: The farmer already has an active subscription.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: you already have a subscription
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/subscriptions/me:
+    get:
+      tags: [subscriptions]
+      summary: Get the calling farmer's own subscription status
+      description: |
+        Returns the authenticated farmer's own subscription, with its plan.
+        Requires the `farmer` role. Not behind `RequireActiveSubscription`,
+        for the same reason as `POST /api/subscriptions/checkout-sessions`.
+      operationId: getSubscriptionStatus
+      responses:
+        '200':
+          description: The farmer's subscription status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionStatus'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: The farmer has no subscription yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: no subscription found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/subscriptions/upgrade:
+    put:
+      tags: [subscriptions]
+      summary: Upgrade the calling farmer's subscription
+      description: |
+        Moves the authenticated farmer's subscription to a higher-priced
+        plan, prorating the difference immediately. Requires the `farmer`
+        role and an active subscription already — unlike the other
+        subscription routes, an upgrade is only meaningful once one exists.
+      operationId: upgradeSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [planId]
+              properties:
+                planId:
+                  type: string
+                  format: uuid
+                  description: Must be a higher-priced plan than the current one.
+      responses:
+        '200':
+          description: The subscription's new status and plan.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionStatus'
+        '400':
+          description: Malformed body or invalid plan id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid plan id
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '402':
+          description: The authenticated farmer has no active subscription.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: an active subscription is required
+        '403':
+          description: The authenticated account is not a farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: insufficient permissions
+        '404':
+          description: No subscription or plan with the given id exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: subscription or plan not found
+        '409':
+          description: The chosen plan is not an upgrade over the current one.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: chosen plan is not an upgrade
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/notifications:
     post:
       tags: [notifications]
@@ -2421,6 +3062,138 @@ paths:
                 $ref: '#/components/schemas/Error'
               example:
                 error: role must be one of admin, farmer, customer
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/NotAnAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/admin/subscription-plans:
+    get:
+      tags: [admin, subscriptions]
+      summary: List every subscription plan
+      description: |
+        Returns every subscription plan, active or retired — the back-office
+        counterpart to `GET /api/subscriptions/plans`, which only lists the
+        active ones a farmer can newly subscribe to. Admin only.
+      operationId: listSubscriptionPlansAdmin
+      responses:
+        '200':
+          description: Every subscription plan.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubscriptionPlan'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/NotAnAdmin'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/admin/subscription-plans/{planID}/price:
+    put:
+      tags: [admin, subscriptions]
+      summary: Change a subscription plan's price
+      description: |
+        Creates a new Stripe Price for the plan and repoints the plan at it.
+        Existing subscribers keep billing at the price they subscribed
+        under; only new and renewing subscriptions see the new price. Admin
+        only.
+      operationId: updateSubscriptionPlanPrice
+      parameters:
+        - name: planID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priceCents]
+              properties:
+                priceCents:
+                  type: integer
+                  format: int32
+                  example: 2900
+      responses:
+        '200':
+          description: The plan, with its new price.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionPlan'
+        '400':
+          description: Malformed body, invalid plan id, or a non-positive price.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidPlanId:
+                  value:
+                    error: invalid plan id
+                invalidPrice:
+                  value:
+                    error: priceCents must be positive
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/NotAnAdmin'
+        '404':
+          description: No subscription plan with the given id exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: subscription plan not found
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/admin/subscription-plans/{planID}/active:
+    put:
+      tags: [admin, subscriptions]
+      summary: Retire or reactivate a subscription plan
+      description: |
+        Sets whether the plan is offered to new subscribers. Retiring a plan
+        does not affect its existing subscribers. Admin only.
+      operationId: setSubscriptionPlanActive
+      parameters:
+        - name: planID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [active]
+              properties:
+                active:
+                  type: boolean
+      responses:
+        '200':
+          description: The plan's active state was updated.
+        '400':
+          description: Malformed body or invalid plan id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: invalid plan id
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -2917,6 +3690,15 @@ components:
       description: Implied by which subtype table the account joins to.
       enum: [admin, farmer, customer]
 
+    NotificationPreferences:
+      type: object
+      description: Whether a customer receives platform messages by email, in addition to their always-on `GET /api/inbox` feed.
+      required: [notifyMessagesByEmail]
+      properties:
+        notifyMessagesByEmail:
+          type: boolean
+          example: true
+
     Error:
       type: object
       required: [error]
@@ -3408,6 +4190,20 @@ components:
             Must be one of the defaults (admin) or belong to the caller's own
             farm (farmer).
 
+    CropSeason:
+      type: object
+      description: One crop paired with the season rule effectively checked against it for the caller. See `GET /api/crops/seasons`.
+      allOf:
+        - $ref: '#/components/schemas/Crop'
+        - type: object
+          required: [season]
+          properties:
+            season:
+              allOf:
+                - $ref: '#/components/schemas/Season'
+              nullable: true
+              description: Null if the crop is unrestricted / year-round for the caller.
+
     CareInstruction:
       type: object
       description: |
@@ -3875,6 +4671,63 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/AccountListing'
+
+    SubscriptionPlan:
+      type: object
+      description: One of the fixed subscription tiers a farmer can subscribe to.
+      required: [id, code, displayName, maxPlots, priceCents, isActive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: pro
+        displayName:
+          type: string
+          example: Pro
+        maxPlots:
+          type: integer
+          format: int32
+          nullable: true
+          description: Maximum plots this plan allows the farmer to create, or null for unlimited.
+          example: 50
+        priceCents:
+          type: integer
+          format: int32
+          description: Current price in EUR cents, billed per period.
+          example: 2900
+        isActive:
+          type: boolean
+          description: Whether the plan is offered to new subscribers.
+          example: true
+
+    SubscriptionStatus:
+      type: object
+      description: The authenticated farmer's own subscription, with its plan.
+      required: [status, planId, planCode, planDisplayName, priceCents]
+      properties:
+        status:
+          type: string
+          enum: [active, past_due, canceled, incomplete]
+          example: active
+        currentPeriodEnd:
+          type: string
+          format: date-time
+          description: When the current billing period ends; absent if not applicable.
+        planId:
+          type: string
+          format: uuid
+        planCode:
+          type: string
+          example: pro
+        planDisplayName:
+          type: string
+          example: Pro
+        priceCents:
+          type: integer
+          format: int32
+          example: 2900
 
     StatisticsScope:
       type: string

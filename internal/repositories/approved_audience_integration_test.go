@@ -141,3 +141,99 @@ func TestScopedAudiencesReachOnlyApprovedRentals(t *testing.T) {
 		}
 	})
 }
+
+// TestRecipientQueriesExcludeOptedOutCustomers pins the opt-out rule shared
+// by every mailed audience: a customer who turned off
+// notify_messages_by_email is dropped from the email recipient list even
+// though their rental still makes them an approved tenant (and therefore
+// still shows the notice in their inbox — that path is untouched by this
+// column).
+func TestRecipientQueriesExcludeOptedOutCustomers(t *testing.T) {
+	pool := setupTestDB(t)
+	ctx := context.Background()
+
+	queries := database.New(pool)
+	accountRepo := repositories.NewAccountRepository(pool, queries)
+	a := seedApprovedAudience(t, ctx, pool)
+
+	if err := accountRepo.UpdateCustomerNotificationPreferences(ctx, a.approved, models.CustomerNotificationPreferences{NotifyMessagesByEmail: false}); err != nil {
+		t.Fatalf("opting out: %v", err)
+	}
+
+	t.Run("ripeness notice mail", func(t *testing.T) {
+		recipients, err := accountRepo.GetCustomersOfFarmerForFieldAndCrop(ctx, a.field, a.crop)
+		if err != nil {
+			t.Fatalf("getting recipients: %v", err)
+		}
+		if len(recipients) != 0 {
+			t.Errorf("recipients = %+v, want none: the only approved tenant opted out", recipients)
+		}
+	})
+
+	t.Run("announcement to the whole farm", func(t *testing.T) {
+		recipients, err := accountRepo.GetCustomersOfFarmer(ctx, a.farmer)
+		if err != nil {
+			t.Fatalf("getting recipients: %v", err)
+		}
+		if len(recipients) != 0 {
+			t.Errorf("recipients = %+v, want none: the only approved tenant opted out", recipients)
+		}
+	})
+
+	t.Run("announcement scoped to the field", func(t *testing.T) {
+		recipients, err := accountRepo.GetCustomersOfFarmerForField(ctx, a.field)
+		if err != nil {
+			t.Fatalf("getting recipients: %v", err)
+		}
+		if len(recipients) != 0 {
+			t.Errorf("recipients = %+v, want none: the only approved tenant opted out", recipients)
+		}
+	})
+
+	t.Run("announcement scoped to the plot", func(t *testing.T) {
+		recipients, err := accountRepo.GetCustomersOfFarmerForPlot(ctx, a.plots[0])
+		if err != nil {
+			t.Fatalf("getting recipients: %v", err)
+		}
+		if len(recipients) != 0 {
+			t.Errorf("recipients = %+v, want none: the only approved tenant opted out", recipients)
+		}
+	})
+
+	t.Run("platform broadcast still reaches the farmer", func(t *testing.T) {
+		recipients, err := accountRepo.GetAllRecipients(ctx)
+		if err != nil {
+			t.Fatalf("getting recipients: %v", err)
+		}
+		var sawFarmer, sawOptedOutCustomer bool
+		for _, r := range recipients {
+			if r.AccountID == a.farmer {
+				sawFarmer = true
+			}
+			if r.AccountID == a.approved {
+				sawOptedOutCustomer = true
+			}
+		}
+		if !sawFarmer {
+			t.Error("farmer missing from recipients: the customer-only preference must not exclude farmers")
+		}
+		if sawOptedOutCustomer {
+			t.Error("opted-out customer present in recipients, want excluded")
+		}
+	})
+
+	t.Run("inbox still shows the notice", func(t *testing.T) {
+		ripenessRepo := repositories.NewRipenessNoticeRepository(queries)
+		if _, err := ripenessRepo.CreateRipenessNotice(ctx, a.farmer, a.field, a.crop); err != nil {
+			t.Fatalf("creating ripeness notice: %v", err)
+		}
+
+		notices, err := ripenessRepo.GetRipenessNoticesForCustomer(ctx, a.approved)
+		if err != nil {
+			t.Fatalf("getting notices: %v", err)
+		}
+		if len(notices) != 1 {
+			t.Errorf("opted-out customer reads %d ripeness notices, want 1: opting out of email must not hide the in-app notice", len(notices))
+		}
+	})
+}
