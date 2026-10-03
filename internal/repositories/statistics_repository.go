@@ -38,6 +38,10 @@ func (r *statisticsRepository) GetFarmStatistics(ctx context.Context, farmer uui
 			Active:     row.ActiveRentalCount,
 			Last30Days: row.RentalsLast30Days,
 		},
+		Revenue: models.RevenueStatistics{
+			TotalCents:      row.RevenueTotalCents,
+			Last30DaysCents: row.RevenueLast30DaysCents,
+		},
 	}, nil
 }
 
@@ -61,6 +65,10 @@ func (r *statisticsRepository) GetPlatformStatistics(ctx context.Context) (model
 			Total:      row.RentalCount,
 			Active:     row.ActiveRentalCount,
 			Last30Days: row.RentalsLast30Days,
+		},
+		Revenue: models.RevenueStatistics{
+			TotalCents:      row.RevenueTotalCents,
+			Last30DaysCents: row.RevenueLast30DaysCents,
 		},
 		Accounts: &models.AccountStatistics{
 			Total:                row.AccountCount,

@@ -2684,8 +2684,14 @@ paths:
           farmer, plus an `accounts` group that a farmer never sees.
 
         `occupancyRate` is a ratio in `[0, 1]`, not a percentage. Areas are
-        reported in square meters. `last30Days` / `registeredLast30Days`
-        count rows created in the 30 days up to `generatedAt`.
+        reported in square meters. `last30Days` / `registeredLast30Days` /
+        `last30DaysCents` count rows (or sum amounts) created in the 30 days
+        up to `generatedAt`.
+
+        `revenue` is money actually received: it sums `completed` payments
+        only, never `pending`, `failed`, `expired`, or `refunded` ones.
+        `averageCentsPerUnit` divides total revenue by plot count for a
+        farmer, or by farmer count for an admin.
 
         Customers and any other role receive 403.
       operationId: getStatistics
@@ -2705,6 +2711,7 @@ paths:
                     fields: { total: 3, areaSquareMeters: 128394.5 }
                     plots: { total: 42, rented: 17, available: 25, areaSquareMeters: 91002.1, occupancyRate: 0.4047619 }
                     rentals: { total: 58, active: 17, last30Days: 6 }
+                    revenue: { totalCents: 184250, last30DaysCents: 23400, averageCentsPerRental: 3176.72, averageCentsPerUnit: 4386.9 }
                 platform:
                   summary: Platform-wide totals for an admin
                   value:
@@ -2713,6 +2720,7 @@ paths:
                     fields: { total: 120, areaSquareMeters: 4128394.5 }
                     plots: { total: 640, rented: 301, available: 339, areaSquareMeters: 2091002.1, occupancyRate: 0.4703125 }
                     rentals: { total: 812, active: 301, last30Days: 44 }
+                    revenue: { totalCents: 2890400, last30DaysCents: 198500, averageCentsPerRental: 3558.62, averageCentsPerUnit: 72260 }
                     accounts: { total: 205, farmers: 40, customers: 164, registeredLast30Days: 12 }
         '401':
           description: Not authenticated.
@@ -3936,6 +3944,37 @@ components:
           description: Rentals created in the 30 days up to `generatedAt`.
           example: 6
 
+    RevenueStatistics:
+      type: object
+      description: >-
+        Money actually received: only completed payments count, never
+        pending, failed, expired, or refunded ones.
+      required: [totalCents, last30DaysCents, averageCentsPerRental, averageCentsPerUnit]
+      properties:
+        totalCents:
+          type: integer
+          format: int64
+          description: All-time completed revenue, in cents.
+          example: 184250
+        last30DaysCents:
+          type: integer
+          format: int64
+          description: Completed revenue from payments made in the 30 days up to `generatedAt`.
+          example: 23400
+        averageCentsPerRental:
+          type: number
+          format: double
+          description: '`totalCents / rentals.total`; `0` when `rentals.total` is `0`.'
+          example: 3176.72
+        averageCentsPerUnit:
+          type: number
+          format: double
+          description: >-
+            `totalCents` divided by `plots.total` when `scope` is `farm`, or
+            by `accounts.farmers` when `scope` is `platform`; `0` when that
+            denominator is `0`.
+          example: 1097.92
+
     AccountStatistics:
       type: object
       description: Platform scope only.
@@ -3961,7 +4000,7 @@ components:
 
     Statistics:
       type: object
-      required: [scope, generatedAt, fields, plots, rentals]
+      required: [scope, generatedAt, fields, plots, rentals, revenue]
       properties:
         scope:
           $ref: '#/components/schemas/StatisticsScope'
@@ -3975,6 +4014,8 @@ components:
           $ref: '#/components/schemas/PlotStatistics'
         rentals:
           $ref: '#/components/schemas/RentalStatistics'
+        revenue:
+          $ref: '#/components/schemas/RevenueStatistics'
         accounts:
           allOf:
             - $ref: '#/components/schemas/AccountStatistics'

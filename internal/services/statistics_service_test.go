@@ -167,3 +167,59 @@ func TestWithDerivedStatistics_OccupancyRate(t *testing.T) {
 		})
 	}
 }
+
+func TestWithDerivedStatistics_Revenue(t *testing.T) {
+	tests := []struct {
+		name           string
+		scope          models.StatisticsScope
+		totalCents     int64
+		rentalsTotal   int64
+		plotsTotal     int64
+		accountFarmers int64
+		wantPerRental  float64
+		wantPerUnit    float64
+	}{
+		{
+			name: "farm scope divides by plots and rentals", scope: models.ScopeFarm,
+			totalCents: 10000, rentalsTotal: 4, plotsTotal: 10,
+			wantPerRental: 2500, wantPerUnit: 1000,
+		},
+		{
+			name: "farm scope with nothing yet guards both divisions", scope: models.ScopeFarm,
+			totalCents: 0, rentalsTotal: 0, plotsTotal: 0,
+			wantPerRental: 0, wantPerUnit: 0,
+		},
+		{
+			name: "platform scope divides by farmers and rentals", scope: models.ScopePlatform,
+			totalCents: 90000, rentalsTotal: 9, accountFarmers: 3,
+			wantPerRental: 10000, wantPerUnit: 30000,
+		},
+		{
+			name: "platform scope with no farmers yet guards the unit division", scope: models.ScopePlatform,
+			totalCents: 5000, rentalsTotal: 2, accountFarmers: 0,
+			wantPerRental: 2500, wantPerUnit: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stats := models.Statistics{
+				Scope:   tt.scope,
+				Rentals: models.RentalStatistics{Total: tt.rentalsTotal},
+				Plots:   models.PlotStatistics{Total: tt.plotsTotal},
+				Revenue: models.RevenueStatistics{TotalCents: tt.totalCents},
+			}
+			if tt.scope == models.ScopePlatform {
+				stats.Accounts = &models.AccountStatistics{Farmers: tt.accountFarmers}
+			}
+			got := withDerivedStatistics(stats)
+
+			if got.Revenue.AverageCentsPerRental != tt.wantPerRental {
+				t.Errorf("averageCentsPerRental = %v, want %v", got.Revenue.AverageCentsPerRental, tt.wantPerRental)
+			}
+			if got.Revenue.AverageCentsPerUnit != tt.wantPerUnit {
+				t.Errorf("averageCentsPerUnit = %v, want %v", got.Revenue.AverageCentsPerUnit, tt.wantPerUnit)
+			}
+		})
+	}
+}

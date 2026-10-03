@@ -39,6 +39,13 @@ type rentalStatisticsResponse struct {
 	Last30Days int64 `json:"last30Days"`
 }
 
+type revenueStatisticsResponse struct {
+	TotalCents            int64   `json:"totalCents"`
+	Last30DaysCents       int64   `json:"last30DaysCents"`
+	AverageCentsPerRental float64 `json:"averageCentsPerRental"`
+	AverageCentsPerUnit   float64 `json:"averageCentsPerUnit"`
+}
+
 type accountStatisticsResponse struct {
 	Total                int64 `json:"total"`
 	Farmers              int64 `json:"farmers"`
@@ -52,6 +59,7 @@ type statisticsResponse struct {
 	Fields      fieldStatisticsResponse    `json:"fields"`
 	Plots       plotStatisticsResponse     `json:"plots"`
 	Rentals     rentalStatisticsResponse   `json:"rentals"`
+	Revenue     revenueStatisticsResponse  `json:"revenue"`
 	Accounts    *accountStatisticsResponse `json:"accounts,omitempty"`
 }
 
@@ -95,6 +103,12 @@ func toStatisticsResponse(stats models.Statistics) statisticsResponse {
 			Total:      stats.Rentals.Total,
 			Active:     stats.Rentals.Active,
 			Last30Days: stats.Rentals.Last30Days,
+		},
+		Revenue: revenueStatisticsResponse{
+			TotalCents:            stats.Revenue.TotalCents,
+			Last30DaysCents:       stats.Revenue.Last30DaysCents,
+			AverageCentsPerRental: stats.Revenue.AverageCentsPerRental,
+			AverageCentsPerUnit:   stats.Revenue.AverageCentsPerUnit,
 		},
 	}
 	if stats.Accounts != nil {

@@ -20,6 +20,7 @@ type Statistics struct {
 	Fields      FieldStatistics
 	Plots       PlotStatistics
 	Rentals     RentalStatistics
+	Revenue     RevenueStatistics
 	// Accounts is platform scope only: a farmer has no business seeing how
 	// many customers exist. Nil for ScopeFarm.
 	Accounts *AccountStatistics
@@ -44,6 +45,23 @@ type RentalStatistics struct {
 	Total      int64
 	Active     int64
 	Last30Days int64
+}
+
+// RevenueStatistics is money actually received: only 'completed'
+// rental_checkout rows count, never 'pending', 'failed', 'expired' or
+// 'refunded' ones. Amounts are in cents, same convention as
+// plot.base_price_cents_per_sqm_per_week and rental_checkout.amount_cents.
+//
+// AverageCentsPerRental and AverageCentsPerUnit are derived by the service
+// rather than queried; see deriveRevenueFigures. Both are 0 when their
+// denominator is 0.
+type RevenueStatistics struct {
+	TotalCents            int64
+	Last30DaysCents       int64
+	AverageCentsPerRental float64
+	// AverageCentsPerUnit is TotalCents per plot for ScopeFarm, or TotalCents
+	// per farmer for ScopePlatform.
+	AverageCentsPerUnit float64
 }
 
 type AccountStatistics struct {
