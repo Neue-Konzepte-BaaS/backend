@@ -51,30 +51,43 @@ farm_rentals AS (
     JOIN plot p ON p.id = r.plot
     JOIN field f ON f.id = p.field
     WHERE f.farm = $1
+),
+farm_revenue AS (
+    SELECT
+        COALESCE(SUM(rc.amount_cents), 0)::bigint AS total_cents,
+        COALESCE(SUM(rc.amount_cents) FILTER (WHERE rc.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'), 0)::bigint AS last_30_days_cents
+    FROM rental_checkout rc
+    JOIN plot p ON p.id = rc.plot
+    JOIN field f ON f.id = p.field
+    WHERE f.farm = $1 AND rc.status = 'completed'
 )
 SELECT
     CURRENT_TIMESTAMP::timestamptz AS generated_at,
-    farm_fields.total         AS field_count,
-    farm_fields.area          AS field_area_square_meters,
-    farm_plots.total          AS plot_count,
-    farm_plots.rented         AS rented_plot_count,
-    farm_plots.area           AS plot_area_square_meters,
-    farm_rentals.total        AS rental_count,
-    farm_rentals.active       AS active_rental_count,
-    farm_rentals.last_30_days AS rentals_last_30_days
-FROM farm_fields, farm_plots, farm_rentals
+    farm_fields.total          AS field_count,
+    farm_fields.area           AS field_area_square_meters,
+    farm_plots.total           AS plot_count,
+    farm_plots.rented          AS rented_plot_count,
+    farm_plots.area            AS plot_area_square_meters,
+    farm_rentals.total         AS rental_count,
+    farm_rentals.active        AS active_rental_count,
+    farm_rentals.last_30_days  AS rentals_last_30_days,
+    farm_revenue.total_cents       AS revenue_total_cents,
+    farm_revenue.last_30_days_cents AS revenue_last_30_days_cents
+FROM farm_fields, farm_plots, farm_rentals, farm_revenue
 `
 
 type GetFarmStatisticsRow struct {
-	GeneratedAt           pgtype.Timestamptz
-	FieldCount            int64
-	FieldAreaSquareMeters float64
-	PlotCount             int64
-	RentedPlotCount       int64
-	PlotAreaSquareMeters  float64
-	RentalCount           int64
-	ActiveRentalCount     int64
-	RentalsLast30Days     int64
+	GeneratedAt            pgtype.Timestamptz
+	FieldCount             int64
+	FieldAreaSquareMeters  float64
+	PlotCount              int64
+	RentedPlotCount        int64
+	PlotAreaSquareMeters   float64
+	RentalCount            int64
+	ActiveRentalCount      int64
+	RentalsLast30Days      int64
+	RevenueTotalCents      int64
+	RevenueLast30DaysCents int64
 }
 
 // Every figure is cast to the type Go should see (::bigint, ::float8). sqlc has
@@ -93,6 +106,10 @@ type GetFarmStatisticsRow struct {
 // the whole result.
 // Aggregates one farm's own fields, plots and rentals. Every CTE is scoped by
 // farm; a farm that owns nothing gets zeros rather than no row.
+// Revenue is what was actually paid, not what is priced: only a 'completed'
+// checkout represents money received. A 'refunded' one was paid too but the
+// money went back, so it is deliberately excluded here same as 'pending',
+// 'failed' and 'expired'.
 func (q *Queries) GetFarmStatistics(ctx context.Context, farm uuid.UUID) (GetFarmStatisticsRow, error) {
 	row := q.db.QueryRow(ctx, getFarmStatistics, farm)
 	var i GetFarmStatisticsRow
@@ -106,6 +123,8 @@ func (q *Queries) GetFarmStatistics(ctx context.Context, farm uuid.UUID) (GetFar
 		&i.RentalCount,
 		&i.ActiveRentalCount,
 		&i.RentalsLast30Days,
+		&i.RevenueTotalCents,
+		&i.RevenueLast30DaysCents,
 	)
 	return i, err
 }
@@ -151,6 +170,13 @@ platform_farmers AS (
 ),
 platform_customers AS (
     SELECT COUNT(*)::bigint AS total FROM customer
+),
+platform_revenue AS (
+    SELECT
+        COALESCE(SUM(amount_cents), 0)::bigint AS total_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'), 0)::bigint AS last_30_days_cents
+    FROM rental_checkout
+    WHERE status = 'completed'
 )
 SELECT
     CURRENT_TIMESTAMP::timestamptz AS generated_at,
@@ -165,31 +191,36 @@ SELECT
     platform_accounts.total        AS account_count,
     platform_farmers.total         AS farmer_count,
     platform_customers.total       AS customer_count,
-    platform_accounts.last_30_days AS accounts_last_30_days
+    platform_accounts.last_30_days AS accounts_last_30_days,
+    platform_revenue.total_cents        AS revenue_total_cents,
+    platform_revenue.last_30_days_cents AS revenue_last_30_days_cents
 FROM platform_fields, platform_plots, platform_rentals,
-    platform_accounts, platform_farmers, platform_customers
+    platform_accounts, platform_farmers, platform_customers, platform_revenue
 `
 
 type GetPlatformStatisticsRow struct {
-	GeneratedAt           pgtype.Timestamptz
-	FieldCount            int64
-	FieldAreaSquareMeters float64
-	PlotCount             int64
-	RentedPlotCount       int64
-	PlotAreaSquareMeters  float64
-	RentalCount           int64
-	ActiveRentalCount     int64
-	RentalsLast30Days     int64
-	AccountCount          int64
-	FarmerCount           int64
-	CustomerCount         int64
-	AccountsLast30Days    int64
+	GeneratedAt            pgtype.Timestamptz
+	FieldCount             int64
+	FieldAreaSquareMeters  float64
+	PlotCount              int64
+	RentedPlotCount        int64
+	PlotAreaSquareMeters   float64
+	RentalCount            int64
+	ActiveRentalCount      int64
+	RentalsLast30Days      int64
+	AccountCount           int64
+	FarmerCount            int64
+	CustomerCount          int64
+	AccountsLast30Days     int64
+	RevenueTotalCents      int64
+	RevenueLast30DaysCents int64
 }
 
 // The same figures across every farmer, plus the account counts only an admin
 // sees.
 // Role is subtype membership (see account.sql), so the per-role counts are
 // simply the sizes of the subtype tables.
+// Same completed-only rule as farm_revenue, across every farmer.
 func (q *Queries) GetPlatformStatistics(ctx context.Context) (GetPlatformStatisticsRow, error) {
 	row := q.db.QueryRow(ctx, getPlatformStatistics)
 	var i GetPlatformStatisticsRow
@@ -207,6 +238,8 @@ func (q *Queries) GetPlatformStatistics(ctx context.Context) (GetPlatformStatist
 		&i.FarmerCount,
 		&i.CustomerCount,
 		&i.AccountsLast30Days,
+		&i.RevenueTotalCents,
+		&i.RevenueLast30DaysCents,
 	)
 	return i, err
 }

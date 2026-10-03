@@ -55,6 +55,7 @@ func (s *statisticsService) GetStatistics(ctx context.Context, account uuid.UUID
 // withDerivedStatistics fills the figures computed from the measured ones.
 func withDerivedStatistics(stats models.Statistics) models.Statistics {
 	stats.Plots = derivePlotFigures(stats.Plots)
+	stats.Revenue = deriveRevenueFigures(stats)
 	return stats
 }
 
@@ -71,4 +72,28 @@ func derivePlotFigures(plots models.PlotStatistics) models.PlotStatistics {
 		plots.OccupancyRate = float64(plots.Rented) / float64(plots.Total)
 	}
 	return plots
+}
+
+// deriveRevenueFigures fills AverageCentsPerRental and AverageCentsPerUnit.
+// Every completed checkout produces exactly one rental, so Rentals.Total is
+// reused as the completed-checkout count rather than querying it separately.
+// AverageCentsPerUnit divides by plots for ScopeFarm and by farmers for
+// ScopePlatform -- the two things a revenue total is naturally compared
+// against in each scope.
+func deriveRevenueFigures(stats models.Statistics) models.RevenueStatistics {
+	revenue := stats.Revenue
+	if stats.Rentals.Total > 0 {
+		revenue.AverageCentsPerRental = float64(revenue.TotalCents) / float64(stats.Rentals.Total)
+	}
+	switch stats.Scope {
+	case models.ScopeFarm:
+		if stats.Plots.Total > 0 {
+			revenue.AverageCentsPerUnit = float64(revenue.TotalCents) / float64(stats.Plots.Total)
+		}
+	case models.ScopePlatform:
+		if stats.Accounts != nil && stats.Accounts.Farmers > 0 {
+			revenue.AverageCentsPerUnit = float64(revenue.TotalCents) / float64(stats.Accounts.Farmers)
+		}
+	}
+	return revenue
 }

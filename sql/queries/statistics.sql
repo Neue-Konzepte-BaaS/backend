@@ -53,18 +53,33 @@ farm_rentals AS (
     JOIN plot p ON p.id = r.plot
     JOIN field f ON f.id = p.field
     WHERE f.farm = sqlc.arg(farm)
+),
+-- Revenue is what was actually paid, not what is priced: only a 'completed'
+-- checkout represents money received. A 'refunded' one was paid too but the
+-- money went back, so it is deliberately excluded here same as 'pending',
+-- 'failed' and 'expired'.
+farm_revenue AS (
+    SELECT
+        COALESCE(SUM(rc.amount_cents), 0)::bigint AS total_cents,
+        COALESCE(SUM(rc.amount_cents) FILTER (WHERE rc.created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'), 0)::bigint AS last_30_days_cents
+    FROM rental_checkout rc
+    JOIN plot p ON p.id = rc.plot
+    JOIN field f ON f.id = p.field
+    WHERE f.farm = sqlc.arg(farm) AND rc.status = 'completed'
 )
 SELECT
     CURRENT_TIMESTAMP::timestamptz AS generated_at,
-    farm_fields.total         AS field_count,
-    farm_fields.area          AS field_area_square_meters,
-    farm_plots.total          AS plot_count,
-    farm_plots.rented         AS rented_plot_count,
-    farm_plots.area           AS plot_area_square_meters,
-    farm_rentals.total        AS rental_count,
-    farm_rentals.active       AS active_rental_count,
-    farm_rentals.last_30_days AS rentals_last_30_days
-FROM farm_fields, farm_plots, farm_rentals;
+    farm_fields.total          AS field_count,
+    farm_fields.area           AS field_area_square_meters,
+    farm_plots.total           AS plot_count,
+    farm_plots.rented          AS rented_plot_count,
+    farm_plots.area            AS plot_area_square_meters,
+    farm_rentals.total         AS rental_count,
+    farm_rentals.active        AS active_rental_count,
+    farm_rentals.last_30_days  AS rentals_last_30_days,
+    farm_revenue.total_cents       AS revenue_total_cents,
+    farm_revenue.last_30_days_cents AS revenue_last_30_days_cents
+FROM farm_fields, farm_plots, farm_rentals, farm_revenue;
 
 -- name: GetPlatformStatistics :one
 -- The same figures across every farmer, plus the account counts only an admin
@@ -111,6 +126,14 @@ platform_farmers AS (
 ),
 platform_customers AS (
     SELECT COUNT(*)::bigint AS total FROM customer
+),
+-- Same completed-only rule as farm_revenue, across every farmer.
+platform_revenue AS (
+    SELECT
+        COALESCE(SUM(amount_cents), 0)::bigint AS total_cents,
+        COALESCE(SUM(amount_cents) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days'), 0)::bigint AS last_30_days_cents
+    FROM rental_checkout
+    WHERE status = 'completed'
 )
 SELECT
     CURRENT_TIMESTAMP::timestamptz AS generated_at,
@@ -125,6 +148,8 @@ SELECT
     platform_accounts.total        AS account_count,
     platform_farmers.total         AS farmer_count,
     platform_customers.total       AS customer_count,
-    platform_accounts.last_30_days AS accounts_last_30_days
+    platform_accounts.last_30_days AS accounts_last_30_days,
+    platform_revenue.total_cents        AS revenue_total_cents,
+    platform_revenue.last_30_days_cents AS revenue_last_30_days_cents
 FROM platform_fields, platform_plots, platform_rentals,
-    platform_accounts, platform_farmers, platform_customers;
+    platform_accounts, platform_farmers, platform_customers, platform_revenue;

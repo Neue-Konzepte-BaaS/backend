@@ -76,6 +76,27 @@ func seedFarmWithPlots(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pl
 	return farmer.ID, farmID, plotIDs, crop.ID
 }
 
+// seedCheckout records a rental_checkout in the given status, written
+// directly like rentNow since the full Stripe webhook flow is not what these
+// tests are exercising -- only the resulting revenue figures are. rental may
+// be uuid.Nil for a status that never produced one (e.g. "pending").
+func seedCheckout(t *testing.T, ctx context.Context, pool *pgxpool.Pool, plot, customer, crop uuid.UUID, amountCents int32, status string, rental uuid.UUID) {
+	t.Helper()
+
+	var rentalArg any
+	if rental != uuid.Nil {
+		rentalArg = rental
+	}
+	_, err := pool.Exec(ctx, `
+		INSERT INTO rental_checkout (customer, plot, crop, start_at, message, stripe_checkout_session_id, status, amount_cents, rental)
+		VALUES ($1, $2, $3, CURRENT_TIMESTAMP, 'please', $4, $5, $6, $7)`,
+		customer, plot, crop, uuid.NewString(), status, amountCents, rentalArg,
+	)
+	if err != nil {
+		t.Fatalf("inserting %s rental checkout: %v", status, err)
+	}
+}
+
 // TestStatisticsRepository_FarmAndPlatformScope walks through the scenarios
 // that most exercise the statistics queries against a real database, sharing
 // one container across sub-cases since each container start is expensive.
@@ -104,6 +125,9 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 		if stats.Rentals.Total != 0 || stats.Rentals.Active != 0 || stats.Rentals.Last30Days != 0 {
 			t.Errorf("rentals = %+v, want all zero", stats.Rentals)
 		}
+		if stats.Revenue.TotalCents != 0 || stats.Revenue.Last30DaysCents != 0 {
+			t.Errorf("revenue = %+v, want all zero", stats.Revenue)
+		}
 		if stats.GeneratedAt.IsZero() {
 			t.Error("expected GeneratedAt to be set from the database clock")
 		}
@@ -113,7 +137,10 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 		_, farmID, plots, crop := seedFarmWithPlots(t, ctx, pool, 2)
 		customer := seedCustomer(t, ctx, pool)
 
-		rentNow(t, ctx, pool, plots[0], customer, crop, 6)
+		rental := rentNow(t, ctx, pool, plots[0], customer, crop, 6)
+		seedCheckout(t, ctx, pool, plots[0], customer, crop, 5000, "completed", rental.ID)
+		// A still-pending checkout on the other plot must not count as revenue.
+		seedCheckout(t, ctx, pool, plots[1], customer, crop, 7500, "pending", uuid.Nil)
 
 		stats, err := statsRepo.GetFarmStatistics(ctx, farmID)
 		if err != nil {
@@ -136,6 +163,12 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 		}
 		if stats.Rentals.Total != 1 || stats.Rentals.Active != 1 || stats.Rentals.Last30Days != 1 {
 			t.Errorf("rentals = %+v, want {total:1 active:1 last30Days:1}", stats.Rentals)
+		}
+		if stats.Revenue.TotalCents != 5000 {
+			t.Errorf("revenue total = %d, want 5000 (the pending checkout must not count)", stats.Revenue.TotalCents)
+		}
+		if stats.Revenue.Last30DaysCents != 5000 {
+			t.Errorf("revenue last 30 days = %d, want 5000", stats.Revenue.Last30DaysCents)
 		}
 	})
 
@@ -186,7 +219,8 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 
 		_, farmID, plots, crop := seedFarmWithPlots(t, ctx, pool, 1)
 		customer := seedCustomer(t, ctx, pool)
-		rentNow(t, ctx, pool, plots[0], customer, crop, 6)
+		rental := rentNow(t, ctx, pool, plots[0], customer, crop, 6)
+		seedCheckout(t, ctx, pool, plots[0], customer, crop, 12345, "completed", rental.ID)
 
 		platformAfter, err := statsRepo.GetPlatformStatistics(ctx)
 		if err != nil {
@@ -201,6 +235,12 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 		}
 		if platformAfter.Rentals.Active != platformBefore.Rentals.Active+1 {
 			t.Errorf("platform active rentals = %d, want %d", platformAfter.Rentals.Active, platformBefore.Rentals.Active+1)
+		}
+		if platformAfter.Revenue.TotalCents != platformBefore.Revenue.TotalCents+12345 {
+			t.Errorf("platform revenue total = %d, want %d", platformAfter.Revenue.TotalCents, platformBefore.Revenue.TotalCents+12345)
+		}
+		if platformAfter.Revenue.Last30DaysCents != platformBefore.Revenue.Last30DaysCents+12345 {
+			t.Errorf("platform revenue last 30 days = %d, want %d", platformAfter.Revenue.Last30DaysCents, platformBefore.Revenue.Last30DaysCents+12345)
 		}
 
 		if platformAfter.Accounts == nil {
@@ -219,8 +259,8 @@ func TestStatisticsRepository_FarmAndPlatformScope(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if farmStats.Plots.Total != 1 || farmStats.Rentals.Active != 1 {
-			t.Errorf("farm stats = %+v, want plots.total=1 rentals.active=1", farmStats)
+		if farmStats.Plots.Total != 1 || farmStats.Rentals.Active != 1 || farmStats.Revenue.TotalCents != 12345 {
+			t.Errorf("farm stats = %+v, want plots.total=1 rentals.active=1 revenue.totalCents=12345", farmStats)
 		}
 	})
 }
