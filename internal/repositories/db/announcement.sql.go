@@ -134,6 +134,7 @@ JOIN plot p ON p.id = r.plot
 JOIN field f ON f.id = p.field
 JOIN farm ON farm.id = f.farm
 WHERE farm.farmer_id = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
+  AND a.deleted_at IS NULL
 ORDER BY a.email
 `
 
@@ -179,6 +180,7 @@ JOIN customer c ON c.account_id = a.id
 JOIN rental r ON r.customer = c.account_id
 JOIN plot p ON p.id = r.plot
 WHERE p.field = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
+  AND a.deleted_at IS NULL
 ORDER BY a.email
 `
 
@@ -224,6 +226,7 @@ FROM account a
 JOIN customer c ON c.account_id = a.id
 JOIN rental r ON r.customer = c.account_id
 WHERE r.plot = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
+  AND a.deleted_at IS NULL
 ORDER BY a.email
 `
 

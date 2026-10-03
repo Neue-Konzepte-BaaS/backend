@@ -68,6 +68,25 @@ func (f *fakeAccountListRepo) GetCustomersOfFarmerForFieldAndCrop(context.Contex
 	panic("the account listing does not send notifications")
 }
 
+func (f *fakeAccountListRepo) SoftDeleteAccount(context.Context, uuid.UUID, string, string, string, string) error {
+	panic("the account listing does not delete accounts")
+}
+
+func (f *fakeAccountListRepo) HasActiveRentalAsCustomer(context.Context, uuid.UUID) (bool, error) {
+	panic("the account listing does not check rentals")
+}
+
+func (f *fakeAccountListRepo) HasActiveRentalAsFarmer(context.Context, uuid.UUID) (bool, error) {
+	panic("the account listing does not check rentals")
+}
+
+// fakeDeletionFarmerSubRepo is a FarmerSubscriptionRepository stub for
+// DeleteMyAccount tests that never reach the farmer-subscription branch.
+type fakeDeletionFarmerSubRepo struct{ FarmerSubscriptionRepository }
+
+// fakeDeletionPaymentGateway is a PaymentGateway stub for the same reason.
+type fakeDeletionPaymentGateway struct{ PaymentGateway }
+
 func TestListAccounts_OnlyAdminReachesTheRepository(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -84,7 +103,7 @@ func TestListAccounts_OnlyAdminReachesTheRepository(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &fakeAccountListRepo{}
-			svc := NewAccountService(repo)
+			svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
 
 			_, err := svc.ListAccounts(context.Background(), tt.role, models.AccountListFilter{})
 
@@ -115,7 +134,7 @@ func TestListAccounts_RejectsUnknownRoleFilter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &fakeAccountListRepo{}
-			svc := NewAccountService(repo)
+			svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
 
 			_, err := svc.ListAccounts(context.Background(), models.RoleAdmin, models.AccountListFilter{Role: tt.filter})
 
@@ -150,7 +169,7 @@ func TestListAccounts_ClampsPagination(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &fakeAccountListRepo{}
-			svc := NewAccountService(repo)
+			svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
 
 			_, err := svc.ListAccounts(context.Background(), models.RoleAdmin, models.AccountListFilter{
 				Limit:  tt.limit,
@@ -171,7 +190,7 @@ func TestListAccounts_ClampsPagination(t *testing.T) {
 
 func TestListAccounts_TrimsTheSearchTerm(t *testing.T) {
 	repo := &fakeAccountListRepo{}
-	svc := NewAccountService(repo)
+	svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
 
 	if _, err := svc.ListAccounts(context.Background(), models.RoleAdmin, models.AccountListFilter{Query: "  ada  "}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -187,7 +206,7 @@ func TestListAccounts_PassesThePageThrough(t *testing.T) {
 		Total: 137,
 	}
 	repo := &fakeAccountListRepo{page: want}
-	svc := NewAccountService(repo)
+	svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
 
 	got, err := svc.ListAccounts(context.Background(), models.RoleAdmin, models.AccountListFilter{})
 	if err != nil {
@@ -204,7 +223,7 @@ func TestListAccounts_PassesThePageThrough(t *testing.T) {
 func TestListAccounts_WrapsRepositoryErrors(t *testing.T) {
 	sentinel := errors.New("connection refused")
 	repo := &fakeAccountListRepo{err: sentinel}
-	svc := NewAccountService(repo)
+	svc := NewAccountService(repo, &fakeDeletionFarmerSubRepo{}, &fakeDeletionPaymentGateway{})
 
 	_, err := svc.ListAccounts(context.Background(), models.RoleAdmin, models.AccountListFilter{})
 	if !errors.Is(err, sentinel) {

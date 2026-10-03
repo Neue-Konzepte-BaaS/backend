@@ -90,6 +90,9 @@ type PaymentGateway interface {
 	// billing period. Returns the subscription's current_period_end after
 	// the change.
 	UpdateSubscriptionPrice(ctx context.Context, stripeSubscriptionID, newStripePriceID string) (currentPeriodEnd time.Time, err error)
+	// CancelSubscription cancels a live Stripe Subscription immediately, e.g.
+	// when the farmer behind it deletes their account.
+	CancelSubscription(ctx context.Context, stripeSubscriptionID string) error
 }
 
 type AccountRepository interface {
@@ -124,6 +127,17 @@ type AccountRepository interface {
 	// notice: customers with an active rental on a plot of the given field,
 	// growing the given crop.
 	GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, field, crop uuid.UUID) ([]models.Recipient, error)
+	// SoftDeleteAccount scrubs the account's personal data and marks it
+	// deleted, so it can no longer log in, be messaged, or appear in any
+	// audience. Returns ErrNotFound if the id does not exist or is already
+	// deleted.
+	SoftDeleteAccount(ctx context.Context, id uuid.UUID, firstName, lastName, scrubbedEmail, scrubbedPasswordHash string) error
+	// HasActiveRentalAsCustomer reports whether the customer currently has a
+	// rental covering right now.
+	HasActiveRentalAsCustomer(ctx context.Context, accountID uuid.UUID) (bool, error)
+	// HasActiveRentalAsFarmer reports whether any plot on the farmer's farm
+	// currently has a rental covering right now.
+	HasActiveRentalAsFarmer(ctx context.Context, farmerID uuid.UUID) (bool, error)
 }
 
 // PendingRegistrationRepository stores registrations awaiting email

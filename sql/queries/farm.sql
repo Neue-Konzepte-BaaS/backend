@@ -13,9 +13,13 @@ SELECT
     farm.founded_at,
     COALESCE(SUM(ST_Area(p.coordinates::geography)), 0)::float8 AS total_square_meters
 FROM farm
+-- A deleted farmer's farm resolves to no rows here, which the repository
+-- already maps to ErrNotFound -- the public farm lookup 404s, same as any
+-- other unknown farm id.
+JOIN account a ON a.id = farm.farmer_id
 LEFT JOIN field fi ON fi.farm = farm.id
 LEFT JOIN plot p ON p.field = fi.id
-WHERE farm.id = $1
+WHERE farm.id = $1 AND a.deleted_at IS NULL
 GROUP BY farm.id;
 
 -- name: UpdateFarmByFarmer :one

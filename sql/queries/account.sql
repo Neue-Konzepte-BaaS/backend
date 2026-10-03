@@ -37,7 +37,7 @@ FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id
 LEFT JOIN customer c ON c.account_id = a.id
-WHERE a.email = $1
+WHERE a.email = $1 AND a.deleted_at IS NULL
 LIMIT 1;
 
 -- name: GetAccountByID :one
@@ -57,7 +57,7 @@ FROM account a
 LEFT JOIN admin ad ON ad.account_id = a.id
 LEFT JOIN farmer f ON f.account_id = a.id
 LEFT JOIN customer c ON c.account_id = a.id
-WHERE a.id = $1
+WHERE a.id = $1 AND a.deleted_at IS NULL
 LIMIT 1;
 
 -- name: GetAllRecipients :many
@@ -70,8 +70,10 @@ SELECT
     a.first_name,
     a.last_name
 FROM account a
-WHERE EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
-   OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
+WHERE (
+    EXISTS (SELECT 1 FROM farmer f WHERE f.account_id = a.id)
+    OR EXISTS (SELECT 1 FROM customer c WHERE c.account_id = a.id)
+) AND a.deleted_at IS NULL
 ORDER BY a.email;
 
 -- name: ListAccounts :many
@@ -129,3 +131,32 @@ WHERE (sqlc.arg(role_filter)::text = '' OR listed.role = sqlc.arg(role_filter)::
 -- and one of them is never shown.
 ORDER BY listed.created_at DESC, listed.id
 LIMIT sqlc.arg(result_limit) OFFSET sqlc.arg(result_offset);
+
+-- name: SoftDeleteAccount :execrows
+-- Scrubs personal data and marks the account deleted. The WHERE guard makes
+-- this idempotent -- a second call against an already-deleted id affects no
+-- rows, which the repository reports as ErrNotFound, the same "nothing to
+-- do" shape UpdateRentalStatus already uses for its own state guard.
+UPDATE account
+SET first_name = $2, last_name = $3, email = $4, password_hash = $5, deleted_at = CURRENT_TIMESTAMP
+WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: HasActiveRentalAsCustomer :one
+-- Blocks a customer's self-deletion while they are a live tenant on some
+-- plot right now. 'approved' only -- a merely pending request is not a
+-- tenancy and should not block deletion; it can simply lapse or be declined.
+SELECT EXISTS (
+    SELECT 1 FROM rental r
+    WHERE r.customer = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
+) AS has_active;
+
+-- name: HasActiveRentalAsFarmer :one
+-- Blocks a farmer's self-deletion while any plot of theirs is rented right
+-- now. Same 'approved'-only reasoning as HasActiveRentalAsCustomer.
+SELECT EXISTS (
+    SELECT 1 FROM rental r
+    JOIN plot p ON p.id = r.plot
+    JOIN field f ON f.id = p.field
+    JOIN farm ON farm.id = f.farm
+    WHERE farm.farmer_id = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
+) AS has_active;

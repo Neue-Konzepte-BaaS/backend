@@ -161,6 +161,31 @@ func (r *accountRepository) GetCustomersOfFarmerForFieldAndCrop(ctx context.Cont
 	return recipients, nil
 }
 
+func (r *accountRepository) SoftDeleteAccount(ctx context.Context, id uuid.UUID, firstName, lastName, scrubbedEmail, scrubbedPasswordHash string) error {
+	affected, err := r.queries.SoftDeleteAccount(ctx, database.SoftDeleteAccountParams{
+		ID:           id,
+		FirstName:    firstName,
+		LastName:     lastName,
+		Email:        scrubbedEmail,
+		PasswordHash: scrubbedPasswordHash,
+	})
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return services.ErrNotFound
+	}
+	return nil
+}
+
+func (r *accountRepository) HasActiveRentalAsCustomer(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	return r.queries.HasActiveRentalAsCustomer(ctx, accountID)
+}
+
+func (r *accountRepository) HasActiveRentalAsFarmer(ctx context.Context, farmerID uuid.UUID) (bool, error) {
+	return r.queries.HasActiveRentalAsFarmer(ctx, farmerID)
+}
+
 func (r *accountRepository) CreateAdmin(ctx context.Context, account models.Account) (models.Account, error) {
 	return r.createAccountWithSubtype(ctx, account, models.RoleAdmin, func(ctx context.Context, q *database.Queries, id uuid.UUID) error {
 		return q.InsertAdmin(ctx, database.InsertAdminParams{AccountID: id, Role: 1})

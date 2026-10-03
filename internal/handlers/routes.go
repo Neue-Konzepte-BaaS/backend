@@ -45,6 +45,15 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		})
 	})
 
+	// A farmer or customer's own account. Admin accounts are out of scope
+	// for self-service deletion -- see AccountService.DeleteMyAccount.
+	r.Route("/api/accounts", func(r chi.Router) {
+		r.Use(appmiddleware.RequireAuth(authService))
+		r.Use(appmiddleware.RequireAnyRole(models.RoleFarmer, models.RoleCustomer))
+
+		r.Delete("/me", accountHandler.DeleteMyAccount)
+	})
+
 	// Everything an admin reaches that is not an admin-only variant of an
 	// existing route lives here, under one gate. The farm listing is here
 	// rather than under /api/farms because it is a back-office view: it

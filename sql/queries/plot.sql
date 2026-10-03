@@ -45,6 +45,11 @@ SELECT
     )::float8 AS distance_meters
 FROM plot
 JOIN field ON field.id = plot.field
+-- Joined up to the owning farmer's account so a deleted farmer's plots can
+-- be excluded below. Every plot's field has a farm with a farmer account by
+-- schema guarantee, so these stay INNER JOINs -- no legitimate plot is lost.
+JOIN farm ON farm.id = field.farm
+JOIN account farmer_account ON farmer_account.id = farm.farmer_id
 -- Only plots that are free right now; a rental that has run out stops
 -- hiding its plot. A still-undecided request hides the plot too, same as
 -- the rental_no_overlap exclusion constraint -- only a declined request
@@ -53,6 +58,8 @@ WHERE NOT EXISTS (
     SELECT 1 FROM rental r
     WHERE r.plot = plot.id AND r.period @> CURRENT_TIMESTAMP AND r.status <> 'declined'
 )
+-- A deleted farmer no longer offers any of their plots.
+AND farmer_account.deleted_at IS NULL
 -- Optional: only this farm's plots (its detail page), instead of whichever
 -- farms happen to fill the nearest-N.
 AND (sqlc.narg(farm)::uuid IS NULL OR field.farm = sqlc.narg(farm)::uuid)
