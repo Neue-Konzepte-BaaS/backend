@@ -185,11 +185,47 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	webutils.WriteJSON(w, http.StatusOK, toMeResponse(account))
 }
 
-// Logout clears the auth cookies. The tokens are HttpOnly, so the browser can't
-// clear them itself; expiring them here is the only way to actually end the
-// session. Safe to call when not logged in (it just re-clears empty cookies).
+// Logout revokes the refresh token's DB row, so it cannot be replayed even
+// though the JWT itself has not expired yet, and clears the auth cookies.
+// The tokens are HttpOnly, so the browser can't clear them itself; expiring
+// them here is the only way to actually end the session. Safe to call when
+// not logged in (there is no cookie to revoke, and it just re-clears empty
+// cookies).
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(middleware.RefreshCookieName); err == nil {
+		if err := h.authService.Logout(r.Context(), cookie.Value); err != nil {
+			slog.Error("revoking refresh token on logout", "error", err)
+		}
+	}
+
 	clearAuthCookies(w, h.cfg)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Refresh exchanges a still-valid, not-yet-revoked refresh token for a brand
+// new access/refresh pair, rotating the refresh token in the process. Must
+// not be mounted behind RequireAuth -- the whole point is to work once the
+// access token has already expired.
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(middleware.RefreshCookieName)
+	if err != nil || cookie.Value == "" {
+		webutils.WriteError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+
+	pair, err := h.authService.Refresh(r.Context(), cookie.Value)
+	if errors.Is(err, services.ErrInvalidCredentials) {
+		webutils.WriteError(w, http.StatusUnauthorized, "not authenticated")
+		return
+	}
+	if err != nil {
+		slog.Error("refresh failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	h.setCookie(w, middleware.AccessCookieName, pair.Access, "/", credentials.AccessTTL)
+	h.setCookie(w, middleware.RefreshCookieName, pair.Refresh, "/api/auth/refresh", credentials.RefreshTTL)
 	w.WriteHeader(http.StatusNoContent)
 }
 

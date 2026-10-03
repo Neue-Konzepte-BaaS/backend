@@ -148,6 +148,43 @@ func (f *fakePendingRegistrationRepo) DeletePendingRegistration(_ context.Contex
 	return nil
 }
 
+// fakeRefreshTokenRepo is an in-memory RefreshTokenRepository.
+type fakeRefreshTokenRepo struct {
+	byHash map[string]models.RefreshToken
+}
+
+func newFakeRefreshTokenRepo() *fakeRefreshTokenRepo {
+	return &fakeRefreshTokenRepo{byHash: map[string]models.RefreshToken{}}
+}
+
+func (f *fakeRefreshTokenRepo) InsertRefreshToken(_ context.Context, accountID uuid.UUID, tokenHash string, expiresAt time.Time) error {
+	f.byHash[tokenHash] = models.RefreshToken{
+		AccountID: accountID,
+		TokenHash: tokenHash,
+		ExpiresAt: expiresAt,
+	}
+	return nil
+}
+
+func (f *fakeRefreshTokenRepo) GetActiveRefreshTokenByHash(_ context.Context, tokenHash string) (models.RefreshToken, error) {
+	token, ok := f.byHash[tokenHash]
+	if !ok || token.RevokedAt != nil || token.ExpiresAt.Before(time.Now()) {
+		return models.RefreshToken{}, ErrNotFound
+	}
+	return token, nil
+}
+
+func (f *fakeRefreshTokenRepo) RevokeRefreshTokenByHash(_ context.Context, tokenHash string) error {
+	token, ok := f.byHash[tokenHash]
+	if !ok {
+		return nil
+	}
+	now := time.Now()
+	token.RevokedAt = &now
+	f.byHash[tokenHash] = token
+	return nil
+}
+
 // fakeNotificationService is a spy NotificationService: it records the last
 // SendMailFromTemplate call so tests can assert a verification email was
 // sent, without any real template rendering or delivery.
@@ -192,12 +229,13 @@ func (f *fakeNotificationService) NotifyRipeness(context.Context, uuid.UUID, uui
 // returned alongside it so tests can inspect what was stored and sent.
 func newTestService(repo AccountRepository) (AuthService, *fakePendingRegistrationRepo, *fakeNotificationService) {
 	pending := newFakePendingRegistrationRepo()
+	refreshTokens := newFakeRefreshTokenRepo()
 	notifier := &fakeNotificationService{}
 	// Concurrency 1 is enough; Dispatcher.Wait below makes the background
 	// send synchronous from the test's point of view regardless.
 	dispatcher := NewDispatcher(1)
 	// A 32+ char secret satisfies the issuer; the value is irrelevant to tests.
-	svc := NewAuthService(repo, pending, credentials.NewIssuer("test-secret-test-secret-test-secret"), notifier, dispatcher, "https://example.com")
+	svc := NewAuthService(repo, pending, refreshTokens, credentials.NewIssuer("test-secret-test-secret-test-secret"), notifier, dispatcher, "https://example.com")
 	return svc, pending, notifier
 }
 

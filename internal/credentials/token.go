@@ -1,6 +1,8 @@
 package credentials
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -52,6 +54,10 @@ func (i *Issuer) Issue(userID uuid.UUID, role models.Role, tokenType string, ttl
 		Role:   role,
 		Type:   tokenType,
 		RegisteredClaims: jwt.RegisteredClaims{
+			// ID (jti) is set on every token, not just refresh ones: it costs
+			// nothing here and lets a refresh token's row in the DB be looked
+			// up by this value rather than the raw token -- see HashJTI.
+			ID:        uuid.NewString(),
 			Subject:   userID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
@@ -84,4 +90,12 @@ func (i *Issuer) Parse(raw, expectedType string) (Claims, error) {
 	}
 
 	return claims, nil
+}
+
+// HashJTI returns the SHA-256 hex digest of a token's jti claim, for storing
+// and looking up a refresh token's DB row without ever persisting the raw
+// token -- a DB leak must not hand out usable sessions.
+func HashJTI(jti string) string {
+	sum := sha256.Sum256([]byte(jti))
+	return hex.EncodeToString(sum[:])
 }

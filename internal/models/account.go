@@ -70,3 +70,15 @@ type PendingRegistration struct {
 	Description  string
 	PostalCode   int32
 }
+
+// RefreshToken is one issued refresh token's server-side record, keyed by a
+// hash of its jti claim rather than the raw token -- see the migration's
+// comment for why. RevokedAt is nil while the token is still usable.
+type RefreshToken struct {
+	ID        uuid.UUID
+	AccountID uuid.UUID
+	TokenHash string
+	ExpiresAt time.Time
+	RevokedAt *time.Time
+	CreatedAt time.Time
+}

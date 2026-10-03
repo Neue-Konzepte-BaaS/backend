@@ -155,6 +155,21 @@ type PendingRegistrationRepository interface {
 	DeletePendingRegistration(ctx context.Context, id uuid.UUID) error
 }
 
+// RefreshTokenRepository persists issued refresh tokens so a single session
+// can be revoked server-side (rotation, logout, account deletion) without
+// waiting for the JWT itself to expire.
+type RefreshTokenRepository interface {
+	InsertRefreshToken(ctx context.Context, accountID uuid.UUID, tokenHash string, expiresAt time.Time) error
+	// GetActiveRefreshTokenByHash returns ErrNotFound if the hash is
+	// unknown, expired, or already revoked.
+	GetActiveRefreshTokenByHash(ctx context.Context, tokenHash string) (models.RefreshToken, error)
+	// RevokeRefreshTokenByHash marks the token revoked. A hash that is
+	// unknown or already revoked is not an error -- revocation is
+	// idempotent, since both Logout and a failed refresh attempt may try to
+	// revoke the same token.
+	RevokeRefreshTokenByHash(ctx context.Context, tokenHash string) error
+}
+
 type BroadcastNotificationRepository interface {
 	// CreateBroadcastNotification stores one platform-wide notice.
 	CreateBroadcastNotification(ctx context.Context, subject, body string) (models.BroadcastNotification, error)
