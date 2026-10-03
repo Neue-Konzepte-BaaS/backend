@@ -23,7 +23,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 	if cfg.CORSEnabled {
 		r.Use(cors.Handler(cors.Options{
 			AllowedOrigins:   []string{cfg.FrontendURL},
-			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+			AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
 			AllowedHeaders:   []string{"Content-Type"},
 			AllowCredentials: true,
 			MaxAge:           300,
