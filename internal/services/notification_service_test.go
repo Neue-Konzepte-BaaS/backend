@@ -127,6 +127,18 @@ func (f *fakeRecipientRepo) CreateCustomer(context.Context, models.Account, int3
 	panic("notification service does not create accounts")
 }
 
+func (f *fakeRecipientRepo) SoftDeleteAccount(context.Context, uuid.UUID, string, string, string, string) error {
+	panic("notification service does not delete accounts")
+}
+
+func (f *fakeRecipientRepo) HasActiveRentalAsCustomer(context.Context, uuid.UUID) (bool, error) {
+	panic("notification service does not check rentals")
+}
+
+func (f *fakeRecipientRepo) HasActiveRentalAsFarmer(context.Context, uuid.UUID) (bool, error) {
+	panic("notification service does not check rentals")
+}
+
 // fakeBroadcastRepo records what was stored and can fail on demand.
 type fakeBroadcastRepo struct {
 	stored    []models.BroadcastNotification

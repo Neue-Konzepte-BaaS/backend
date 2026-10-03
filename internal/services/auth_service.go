@@ -90,6 +90,10 @@ var (
 	// ErrNotAnUpgrade is returned when a farmer tries to "upgrade" to a plan
 	// priced the same as or lower than their current one.
 	ErrNotAnUpgrade = errors.New("chosen plan is not an upgrade")
+	// ErrAccountHasActiveRentals is returned when deleting an account would
+	// orphan a live rental: a customer currently renting a plot, or a farmer
+	// whose plot is currently rented by someone.
+	ErrAccountHasActiveRentals = errors.New("account has active rentals")
 )
 
 // dummyHash is verified against when no account matches, so a request for an

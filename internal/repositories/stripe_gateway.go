@@ -156,6 +156,14 @@ func (g *stripeGateway) UpdateSubscriptionPrice(ctx context.Context, stripeSubsc
 	return time.Unix(updated.Items.Data[0].CurrentPeriodEnd, 0), nil
 }
 
+func (g *stripeGateway) CancelSubscription(ctx context.Context, stripeSubscriptionID string) error {
+	_, err := g.client.V1Subscriptions.Cancel(ctx, stripeSubscriptionID, nil)
+	if err != nil {
+		return fmt.Errorf("canceling stripe subscription: %w", err)
+	}
+	return nil
+}
+
 func (g *stripeGateway) RefundCheckoutSession(ctx context.Context, sessionID string) error {
 	session, err := g.client.V1CheckoutSessions.Retrieve(ctx, sessionID, nil)
 	if err != nil {

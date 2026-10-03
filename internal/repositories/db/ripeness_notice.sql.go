@@ -19,6 +19,7 @@ JOIN customer c ON c.account_id = a.id
 JOIN rental r ON r.customer = c.account_id
 JOIN plot p ON p.id = r.plot
 WHERE p.field = $1 AND r.crop = $2 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
+  AND a.deleted_at IS NULL
 ORDER BY a.email
 `
 

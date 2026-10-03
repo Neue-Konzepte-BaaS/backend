@@ -68,6 +68,18 @@ func (f *fakeAccountRepo) GetCustomersOfFarmerForFieldAndCrop(context.Context, u
 	panic("auth service does not send notifications")
 }
 
+func (f *fakeAccountRepo) SoftDeleteAccount(context.Context, uuid.UUID, string, string, string, string) error {
+	panic("auth service does not delete accounts")
+}
+
+func (f *fakeAccountRepo) HasActiveRentalAsCustomer(context.Context, uuid.UUID) (bool, error) {
+	panic("auth service does not check rentals")
+}
+
+func (f *fakeAccountRepo) HasActiveRentalAsFarmer(context.Context, uuid.UUID) (bool, error) {
+	panic("auth service does not check rentals")
+}
+
 func (f *fakeAccountRepo) CreateFarmer(_ context.Context, account models.Account, farmName string, postalCode int32, address string, description string) (models.Account, error) {
 	if f.createFarmerErr != nil {
 		return models.Account{}, f.createFarmerErr

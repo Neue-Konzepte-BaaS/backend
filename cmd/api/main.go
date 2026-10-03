@@ -220,7 +220,7 @@ func main() {
 
 	dispatcher := services.NewDispatcher(notificationConcurrency)
 
-	accountService := services.NewAccountService(accountRepo)
+	accountService := services.NewAccountService(accountRepo, farmerSubscriptionRepo, paymentGateway)
 	farmService := services.NewFarmService(farmRepo)
 	notificationService := services.NewNotificationService(newEmailSender(c), accountRepo, broadcastNotificationRepo, emailtemplates.FS, dispatcher)
 	authService := services.NewAuthService(accountRepo, pendingRegistrationRepo, credentials.NewIssuer(c.JWTSecret), notificationService, dispatcher, c.FrontendURL)
@@ -238,7 +238,7 @@ func main() {
 	statisticsService := services.NewStatisticsService(farmRepo, statisticsRepo)
 	paymentService := services.NewPaymentService(rentalService, rentalRepo, rentalCheckoutRepo, paymentGateway, plotRepo, cropRepo, fieldRepo, farmRepo, seasonRepo, c.FrontendURL)
 
-	accountHandler := handlers.NewAccountHandler(accountService)
+	accountHandler := handlers.NewAccountHandler(accountService, c)
 	authHandler := handlers.NewAuthHandler(authService, c)
 	farmHandler := handlers.NewFarmHandler(farmService)
 	fieldHandler := handlers.NewFieldHandler(fieldService, plotService)

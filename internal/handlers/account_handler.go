@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Neue-Konzepte-BaaS/backend/internal/config"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/middleware"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/models"
 	"github.com/Neue-Konzepte-BaaS/backend/internal/services"
@@ -15,10 +16,11 @@ import (
 
 type AccountHandler struct {
 	accountService services.AccountService
+	cfg            config.Config
 }
 
-func NewAccountHandler(accountService services.AccountService) *AccountHandler {
-	return &AccountHandler{accountService: accountService}
+func NewAccountHandler(accountService services.AccountService, cfg config.Config) *AccountHandler {
+	return &AccountHandler{accountService: accountService, cfg: cfg}
 }
 
 type accountListingResponse struct {
@@ -78,6 +80,30 @@ func (h *AccountHandler) ListAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	webutils.WriteJSON(w, http.StatusOK, toAccountPageResponse(page))
+}
+
+// DeleteMyAccount soft-deletes the calling account. It must be mounted
+// behind RequireAuth and RequireAnyRole(models.RoleFarmer, models.RoleCustomer).
+func (h *AccountHandler) DeleteMyAccount(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.MustClaimsFromContext(r.Context())
+
+	err := h.accountService.DeleteMyAccount(r.Context(), claims.UserID, claims.Role)
+	if errors.Is(err, services.ErrAccountHasActiveRentals) {
+		webutils.WriteError(w, http.StatusConflict, "cannot delete account while a rental is active")
+		return
+	}
+	if errors.Is(err, services.ErrForbidden) {
+		webutils.WriteError(w, http.StatusForbidden, "insufficient permissions")
+		return
+	}
+	if err != nil {
+		slog.Error("deleting account failed", "error", err)
+		webutils.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	clearAuthCookies(w, h.cfg)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func toAccountPageResponse(page models.Page[models.AccountListing]) accountPageResponse {

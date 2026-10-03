@@ -43,10 +43,13 @@ SELECT
     )::float8 AS distance_meters
 FROM plot
 JOIN field ON field.id = plot.field
+JOIN farm ON farm.id = field.farm
+JOIN account farmer_account ON farmer_account.id = farm.farmer_id
 WHERE NOT EXISTS (
     SELECT 1 FROM rental r
     WHERE r.plot = plot.id AND r.period @> CURRENT_TIMESTAMP AND r.status <> 'declined'
 )
+AND farmer_account.deleted_at IS NULL
 AND ($3::uuid IS NULL OR field.farm = $3::uuid)
 ORDER BY plot.coordinates <-> ST_SetSRID(ST_MakePoint($1::float8, $2::float8), 4326)
 LIMIT $4
@@ -69,10 +72,14 @@ type GetNearestPlotsRow struct {
 	DistanceMeters   float64
 }
 
+// Joined up to the owning farmer's account so a deleted farmer's plots can
+// be excluded below. Every plot's field has a farm with a farmer account by
+// schema guarantee, so these stay INNER JOINs -- no legitimate plot is lost.
 // Only plots that are free right now; a rental that has run out stops
 // hiding its plot. A still-undecided request hides the plot too, same as
 // the rental_no_overlap exclusion constraint -- only a declined request
 // frees it.
+// A deleted farmer no longer offers any of their plots.
 // Optional: only this farm's plots (its detail page), instead of whichever
 // farms happen to fill the nearest-N.
 func (q *Queries) GetNearestPlots(ctx context.Context, arg GetNearestPlotsParams) ([]GetNearestPlotsRow, error) {
