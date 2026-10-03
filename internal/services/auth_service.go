@@ -403,7 +403,7 @@ func (s *authService) Refresh(ctx context.Context, refreshToken string) (TokenPa
 		return TokenPair{}, ErrInvalidCredentials
 	}
 
-	hash := credentials.HashJTI(claims.RegisteredClaims.ID)
+	hash := credentials.HashJTI(claims.ID)
 	if _, err := s.refreshTokenRepo.GetActiveRefreshTokenByHash(ctx, hash); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return TokenPair{}, ErrInvalidCredentials
@@ -434,7 +434,7 @@ func (s *authService) Logout(ctx context.Context, refreshToken string) error {
 	if err != nil {
 		return nil
 	}
-	return s.refreshTokenRepo.RevokeRefreshTokenByHash(ctx, credentials.HashJTI(claims.RegisteredClaims.ID))
+	return s.refreshTokenRepo.RevokeRefreshTokenByHash(ctx, credentials.HashJTI(claims.ID))
 }
 
 func (s *authService) issueTokens(ctx context.Context, account models.Account) (TokenPair, error) {
@@ -456,8 +456,8 @@ func (s *authService) issueTokens(ctx context.Context, account models.Account) (
 	if err := s.refreshTokenRepo.InsertRefreshToken(
 		ctx,
 		account.ID,
-		credentials.HashJTI(refreshClaims.RegisteredClaims.ID),
-		refreshClaims.RegisteredClaims.ExpiresAt.Time,
+		credentials.HashJTI(refreshClaims.ID),
+		refreshClaims.ExpiresAt.Time,
 	); err != nil {
 		return TokenPair{}, fmt.Errorf("storing refresh token: %w", err)
 	}
