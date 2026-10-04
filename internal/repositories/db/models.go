@@ -188,7 +188,7 @@ type RentalCheckout struct {
 type RipenessNotice struct {
 	ID        uuid.UUID
 	Farmer    uuid.UUID
-	Field     uuid.UUID
+	Plot      uuid.UUID
 	Crop      uuid.UUID
 	CreatedAt pgtype.Timestamptz
 }

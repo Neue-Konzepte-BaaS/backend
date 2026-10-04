@@ -28,7 +28,8 @@ type InboxItem struct {
 	Subject   string
 	Body      string
 	FarmName  string // empty for broadcasts and care instructions
-	FieldName string // set only for ripeness notices and care instructions
+	FieldName string // set only for care instructions
+	PlotName  string // set only for ripeness notices
 	CropName  string // set only for ripeness notices and care instructions
 	CreatedAt time.Time
 }

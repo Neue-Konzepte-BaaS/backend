@@ -40,9 +40,9 @@ type NotificationService interface {
 	// and the count is how many were queued.
 	NotifyFarmerCustomers(ctx context.Context, farmer uuid.UUID, field, plot *uuid.UUID, farmName, subject, body string) (int, error)
 	// NotifyRipeness delivers a ripeness notice to the customers currently
-	// growing the given crop on a plot of the given field. It behaves like
+	// growing the given crop on the given plot. It behaves like
 	// NotifyAllUsers.
-	NotifyRipeness(ctx context.Context, field, crop uuid.UUID, farmName, fieldName, cropName string) (int, error)
+	NotifyRipeness(ctx context.Context, plot, crop uuid.UUID, farmName, plotName, cropName string) (int, error)
 }
 
 // RecipientData is what a notification template is executed against: the
@@ -68,13 +68,13 @@ type announcementData struct {
 	Body     string
 }
 
-// ripenessData is the payload for a ripeness notice. It carries the field
+// ripenessData is the payload for a ripeness notice. It carries the plot
 // name for the same reason announcementData carries the farm name: a
-// customer may rent several fields from the same farmer.
+// customer may rent several plots from the same farmer.
 type ripenessData struct {
-	FarmName  string
-	FieldName string
-	CropName  string
+	FarmName string
+	PlotName string
+	CropName string
 }
 
 const (
@@ -217,10 +217,10 @@ func (s *notificationService) NotifyFarmerCustomers(ctx context.Context, farmer 
 	return len(recipients), nil
 }
 
-func (s *notificationService) NotifyRipeness(ctx context.Context, field, crop uuid.UUID, farmName, fieldName, cropName string) (int, error) {
-	recipients, err := s.accountRepo.GetCustomersOfFarmerForFieldAndCrop(ctx, field, crop)
+func (s *notificationService) NotifyRipeness(ctx context.Context, plot, crop uuid.UUID, farmName, plotName, cropName string) (int, error) {
+	recipients, err := s.accountRepo.GetCustomersOfFarmerForPlotAndCrop(ctx, plot, crop)
 	if err != nil {
-		return 0, fmt.Errorf("loading customers for field %s crop %s: %w", field, crop, err)
+		return 0, fmt.Errorf("loading customers for plot %s crop %s: %w", plot, crop, err)
 	}
 	if len(recipients) == 0 {
 		return 0, nil
@@ -228,7 +228,7 @@ func (s *notificationService) NotifyRipeness(ctx context.Context, field, crop uu
 
 	subject := fmt.Sprintf("%s ist reif", cropName)
 	s.deliverInBackground(recipients, subject, ripenessTemplate,
-		ripenessData{FarmName: farmName, FieldName: fieldName, CropName: cropName}, "ripeness")
+		ripenessData{FarmName: farmName, PlotName: plotName, CropName: cropName}, "ripeness")
 
 	return len(recipients), nil
 }

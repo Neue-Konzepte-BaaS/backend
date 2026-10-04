@@ -38,7 +38,7 @@ tags:
   - name: announcements
     description: The Schwarzes Brett — notices a farmer posts for his current customers
   - name: ripeness
-    description: Ready-to-harvest notices a farmer posts for a field's current growers
+    description: Ready-to-harvest notices a farmer posts for a plot's current growers
   - name: inbox
     description: A customer's merged feed of platform broadcasts, announcements, ripeness notices, and care instructions
   - name: statistics
@@ -955,100 +955,6 @@ paths:
               example:
                 error: internal error
 
-  /api/fields/{fieldID}/ripeness:
-    post:
-      tags: [ripeness]
-      summary: Post a ripeness notice for a field
-      description: |
-        Stores the notice and emails it to the customers currently renting a
-        plot of this field with the given crop. The field must be owned by
-        the authenticated farmer. Requires the `farmer` role.
-
-        Unlike the announcement board, a ripeness notice has no separate
-        read endpoint of its own — it appears in the recipients'
-        `GET /api/inbox` feed as a `ripeness_notice` item, mail-only
-        otherwise.
-
-        `recipients` is how many customers the message was queued for, not
-        how many were reached, for the same reason as
-        `POST /api/announcements`: delivery happens after this response,
-        nothing is retried, and a customer growing this crop on several
-        matching plots is counted and mailed once.
-      operationId: createRipenessNotice
-      parameters:
-        - name: fieldID
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateRipenessNoticeRequest'
-      responses:
-        '201':
-          description: The ripeness notice was stored and queued for delivery.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreatedRipenessNotice'
-        '400':
-          description: Malformed body, invalid field id, or a missing/invalid `crop_id`.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                invalidFieldId:
-                  value:
-                    error: invalid field id
-                invalidBody:
-                  value:
-                    error: invalid request body
-                invalidCropId:
-                  value:
-                    error: crop_id is required and must be a valid id
-        '401':
-          description: Not authenticated.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: not authenticated
-        '403':
-          description: The authenticated account is not a farmer, or the field is not owned by this farmer.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              examples:
-                insufficientPermissions:
-                  value:
-                    error: insufficient permissions
-                notOwner:
-                  value:
-                    error: field is not owned by this farmer
-        '404':
-          description: Field or crop not found.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: field or crop not found
-        '500':
-          description: Internal error.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-              example:
-                error: internal error
-
   /api/plots/nearest:
     get:
       tags: [plots]
@@ -1235,6 +1141,99 @@ paths:
                     error: field is not owned by this farmer
         '404':
           description: The plot, or one of the given crop ids, does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: plot or crop not found
+        '500':
+          description: Internal error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: internal error
+
+  /api/plots/{plotID}/ripeness:
+    post:
+      tags: [ripeness]
+      summary: Post a ripeness notice for a plot
+      description: |
+        Stores the notice and emails it to the customers currently renting
+        this plot with the given crop. The plot's field must be owned by
+        the authenticated farmer. Requires the `farmer` role.
+
+        Unlike the announcement board, a ripeness notice has no separate
+        read endpoint of its own — it appears in the recipients'
+        `GET /api/inbox` feed as a `ripeness_notice` item, mail-only
+        otherwise.
+
+        `recipients` is how many customers the message was queued for, not
+        how many were reached, for the same reason as
+        `POST /api/announcements`: delivery happens after this response,
+        nothing is retried.
+      operationId: createRipenessNotice
+      parameters:
+        - name: plotID
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRipenessNoticeRequest'
+      responses:
+        '201':
+          description: The ripeness notice was stored and queued for delivery.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedRipenessNotice'
+        '400':
+          description: Malformed body, invalid plot id, or a missing/invalid `crop_id`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalidPlotId:
+                  value:
+                    error: invalid plot id
+                invalidBody:
+                  value:
+                    error: invalid request body
+                invalidCropId:
+                  value:
+                    error: crop_id is required and must be a valid id
+        '401':
+          description: Not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not authenticated
+        '403':
+          description: The authenticated account is not a farmer, or the plot is not owned by this farmer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                insufficientPermissions:
+                  value:
+                    error: insufficient permissions
+                notOwner:
+                  value:
+                    error: plot is not owned by this farmer
+        '404':
+          description: Plot or crop not found.
           content:
             application/json:
               schema:
@@ -3390,7 +3389,8 @@ paths:
         `ripeness_notice`, or `care`) so a client can render one feed instead
         of four. `farm_name` is present on announcement and ripeness items;
         broadcasts and care instructions have no farm to attribute.
-        `field_name`/`crop_name` are present on ripeness and care items.
+        `crop_name` is present on ripeness and care items; `plot_name` is
+        present only on ripeness items, `field_name` only on care items.
 
         A `care` item is one instruction from the crop's weekly care guide
         (see `GET /api/care-guide`), taken against the same active, approved
@@ -5015,8 +5015,12 @@ components:
           example: Hof Grünwald
         field_name:
           type: string
-          description: The field the notice is about. Present only on `ripeness_notice` and `care` items.
+          description: The field the care instruction is about. Present only on `care` items.
           example: Feld Nord
+        plot_name:
+          type: string
+          description: The plot the ripeness notice is about. Present only on `ripeness_notice` items.
+          example: Parzelle 3
         crop_name:
           type: string
           description: The crop that is ready, or the crop the care instruction is for. Present only on `ripeness_notice` and `care` items.
@@ -5036,7 +5040,7 @@ components:
 
     RipenessNotice:
       type: object
-      required: [id, farmer, farm_name, field, field_name, crop, crop_name, created_at]
+      required: [id, farmer, farm_name, plot, plot_name, crop, crop_name, created_at]
       properties:
         id:
           type: string
@@ -5048,10 +5052,10 @@ components:
         farm_name:
           type: string
           example: Hof Grünwald
-        field:
+        plot:
           type: string
           format: uuid
-        field_name:
+        plot_name:
           type: string
           example: Feld Nord
         crop:
@@ -5074,7 +5078,7 @@ components:
               type: integer
               format: int64
               description: |
-                How many customers currently growing this crop on this field
+                How many customers currently growing this crop on this plot
                 the notice was queued for. Delivery happens after this
                 response, so it is not a count of successful sends, and it is
                 `0` if the mail could not be queued at all — the notice is

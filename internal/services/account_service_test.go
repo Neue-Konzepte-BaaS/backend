@@ -64,7 +64,7 @@ func (f *fakeAccountListRepo) GetCustomersOfFarmerForPlot(context.Context, uuid.
 	panic("the account listing does not send notifications")
 }
 
-func (f *fakeAccountListRepo) GetCustomersOfFarmerForFieldAndCrop(context.Context, uuid.UUID, uuid.UUID) ([]models.Recipient, error) {
+func (f *fakeAccountListRepo) GetCustomersOfFarmerForPlotAndCrop(context.Context, uuid.UUID, uuid.UUID) ([]models.Recipient, error) {
 	panic("the account listing does not send notifications")
 }
 
@@ -305,7 +305,7 @@ func (f *fakeNotificationPrefsRepo) GetCustomersOfFarmerForPlot(context.Context,
 	panic("not exercised by notification preference tests")
 }
 
-func (f *fakeNotificationPrefsRepo) GetCustomersOfFarmerForFieldAndCrop(context.Context, uuid.UUID, uuid.UUID) ([]models.Recipient, error) {
+func (f *fakeNotificationPrefsRepo) GetCustomersOfFarmerForPlotAndCrop(context.Context, uuid.UUID, uuid.UUID) ([]models.Recipient, error) {
 	panic("not exercised by notification preference tests")
 }
 

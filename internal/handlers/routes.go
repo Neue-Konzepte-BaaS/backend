@@ -160,7 +160,6 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 		r.Post("/", fieldHandler.CreateField)
 		r.Get("/", fieldHandler.GetFields)
 		r.Post("/{fieldID}/plots", fieldHandler.CreatePlot)
-		r.Post("/{fieldID}/ripeness", ripenessNoticeHandler.Create)
 	})
 
 	r.Route("/api/notifications", func(r chi.Router) {
@@ -184,6 +183,7 @@ func NewRouter(accountHandler *AccountHandler, authHandler *AuthHandler, announc
 			r.Use(appmiddleware.RequireRole(models.RoleFarmer))
 			r.Use(appmiddleware.RequireActiveSubscription(subscriptionService))
 			r.Put("/{plotID}/crops", cropHandler.SetPlotCrops)
+			r.Post("/{plotID}/ripeness", ripenessNoticeHandler.Create)
 		})
 	})
 

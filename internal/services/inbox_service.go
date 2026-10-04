@@ -88,9 +88,9 @@ func (s *inboxService) GetInboxForCustomer(ctx context.Context, customer uuid.UU
 			Kind:      models.InboxItemRipenessNotice,
 			ID:        rn.ID,
 			Subject:   fmt.Sprintf("%s ist reif", rn.CropName),
-			Body:      fmt.Sprintf("%s auf %s ist bereit zur Ernte.", rn.CropName, rn.FieldName),
+			Body:      fmt.Sprintf("%s auf %s ist bereit zur Ernte.", rn.CropName, rn.PlotName),
 			FarmName:  rn.FarmName,
-			FieldName: rn.FieldName,
+			PlotName:  rn.PlotName,
 			CropName:  rn.CropName,
 			CreatedAt: rn.CreatedAt,
 		})

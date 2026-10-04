@@ -227,7 +227,7 @@ func main() {
 	authService := services.NewAuthService(accountRepo, pendingRegistrationRepo, refreshTokenRepo, credentials.NewIssuer(c.JWTSecret), notificationService, dispatcher, c.FrontendURL)
 	announcementService := services.NewAnnouncementService(farmRepo, fieldRepo, plotRepo, announcementRepo, notificationService)
 	careGuideService := services.NewCareGuideService(careInstructionRepo, rentalRepo, farmRepo)
-	ripenessNoticeService := services.NewRipenessNoticeService(farmRepo, fieldRepo, ripenessNoticeRepo, notificationService)
+	ripenessNoticeService := services.NewRipenessNoticeService(farmRepo, fieldRepo, plotRepo, ripenessNoticeRepo, notificationService)
 	inboxService := services.NewInboxService(broadcastNotificationRepo, announcementRepo, ripenessNoticeRepo, careGuideService)
 	subscriptionService := services.NewSubscriptionService(farmerSubscriptionRepo, subscriptionPlanRepo, paymentGateway, accountRepo, c.FrontendURL)
 	fieldService := services.NewFieldService(farmRepo, fieldRepo, plotRepo, cropRepo)

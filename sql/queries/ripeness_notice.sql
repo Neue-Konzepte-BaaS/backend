@@ -1,47 +1,43 @@
 -- name: InsertRipenessNotice :one
--- Farm, field and crop names are joined back in so the notice is immediately
+-- Farm, plot and crop names are joined back in so the notice is immediately
 -- returnable in the shape both the response and the inbox need, without a
 -- second round trip.
 WITH inserted AS (
-    INSERT INTO ripeness_notice (farmer, field, crop)
+    INSERT INTO ripeness_notice (farmer, plot, crop)
     VALUES ($1, $2, $3)
-    RETURNING id, farmer, field, crop, created_at
+    RETURNING id, farmer, plot, crop, created_at
 )
-SELECT i.id, i.farmer, i.field, i.crop, i.created_at,
-       farm.name AS farm_name, fi.name AS field_name, c.name_de AS crop_name
+SELECT i.id, i.farmer, i.plot, i.crop, i.created_at,
+       farm.name AS farm_name, pl.name AS plot_name, c.name_de AS crop_name
 FROM inserted i
 JOIN farm ON farm.farmer_id = i.farmer
-JOIN field fi ON fi.id = i.field
+JOIN plot pl ON pl.id = i.plot
 JOIN crop c ON c.id = i.crop;
 
 -- name: GetRipenessNoticesForCustomer :many
--- Notices for fields the customer currently rents a plot on, growing exactly
--- the notice's crop — the same audience the notice was mailed to in the
--- first place, so it also requires an approved rental: a pending or declined
--- request keeps a row whose period covers now. DISTINCT because renting
--- several matching plots on the same field must not repeat the notice.
-SELECT DISTINCT rn.id, rn.farmer, rn.field, rn.crop, rn.created_at,
-       farm.name AS farm_name, fi.name AS field_name, cr.name_de AS crop_name
+-- Notices for plots the customer currently rents, growing exactly the
+-- notice's crop — the same audience the notice was mailed to in the first
+-- place, so it also requires an approved rental: a pending or declined
+-- request keeps a row whose period covers now.
+SELECT DISTINCT rn.id, rn.farmer, rn.plot, rn.crop, rn.created_at,
+       farm.name AS farm_name, pl.name AS plot_name, cr.name_de AS crop_name
 FROM ripeness_notice rn
 JOIN farm ON farm.farmer_id = rn.farmer
-JOIN field fi ON fi.id = rn.field
+JOIN plot pl ON pl.id = rn.plot
 JOIN crop cr ON cr.id = rn.crop
-JOIN plot p ON p.field = fi.id
-JOIN rental r ON r.plot = p.id AND r.crop = rn.crop
+JOIN rental r ON r.plot = rn.plot AND r.crop = rn.crop
 WHERE r.customer = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
 ORDER BY rn.created_at DESC;
 
--- name: GetCustomersOfFarmerForFieldAndCrop :many
+-- name: GetCustomersOfFarmerForPlotAndCrop :many
 -- Everyone to notify about ripeness: customers with an active, approved
--- rental on a plot of this field, growing exactly this crop, who have not
--- opted out of email notifications. DISTINCT — a customer renting several
--- matching plots is mailed once.
+-- rental on this exact plot, growing exactly this crop, who have not opted
+-- out of email notifications.
 SELECT DISTINCT a.id, a.email, a.first_name, a.last_name
 FROM account a
 JOIN customer c ON c.account_id = a.id
 JOIN rental r ON r.customer = c.account_id
-JOIN plot p ON p.id = r.plot
-WHERE p.field = $1 AND r.crop = $2 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
+WHERE r.plot = $1 AND r.crop = $2 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
   AND a.deleted_at IS NULL
   AND c.notify_messages_by_email = true
 ORDER BY a.email;

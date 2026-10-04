@@ -31,8 +31,8 @@ type ripenessNoticeResponse struct {
 	ID        string    `json:"id"`
 	Farmer    string    `json:"farmer"`
 	FarmName  string    `json:"farm_name"`
-	Field     string    `json:"field"`
-	FieldName string    `json:"field_name"`
+	Plot      string    `json:"plot"`
+	PlotName  string    `json:"plot_name"`
 	Crop      string    `json:"crop"`
 	CropName  string    `json:"crop_name"`
 	CreatedAt time.Time `json:"created_at"`
@@ -48,21 +48,21 @@ func toRipenessNoticeResponse(notice models.RipenessNoticeWithDetails) ripenessN
 		ID:        notice.ID.String(),
 		Farmer:    notice.Farmer.String(),
 		FarmName:  notice.FarmName,
-		Field:     notice.Field.String(),
-		FieldName: notice.FieldName,
+		Plot:      notice.Plot.String(),
+		PlotName:  notice.PlotName,
 		Crop:      notice.Crop.String(),
 		CropName:  notice.CropName,
 		CreatedAt: notice.CreatedAt,
 	}
 }
 
-// Create posts a ripeness notice for a field owned by the authenticated
-// farmer and mails everyone currently renting a plot of it with that crop.
-// It must be mounted behind RequireAuth and RequireRole(models.RoleFarmer).
+// Create posts a ripeness notice for a plot owned by the authenticated
+// farmer and mails everyone currently renting that plot with that crop. It
+// must be mounted behind RequireAuth and RequireRole(models.RoleFarmer).
 func (h *RipenessNoticeHandler) Create(w http.ResponseWriter, r *http.Request) {
-	fieldID, err := uuid.Parse(chi.URLParam(r, "fieldID"))
+	plotID, err := uuid.Parse(chi.URLParam(r, "plotID"))
 	if err != nil {
-		webutils.WriteError(w, http.StatusBadRequest, "invalid field id")
+		webutils.WriteError(w, http.StatusBadRequest, "invalid plot id")
 		return
 	}
 
@@ -80,13 +80,13 @@ func (h *RipenessNoticeHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	claims := middleware.MustClaimsFromContext(r.Context())
 
-	notice, recipients, err := h.ripenessNoticeService.CreateRipenessNotice(r.Context(), claims.UserID, fieldID, cropID)
+	notice, recipients, err := h.ripenessNoticeService.CreateRipenessNotice(r.Context(), claims.UserID, plotID, cropID)
 	if errors.Is(err, services.ErrNotFound) {
-		webutils.WriteError(w, http.StatusNotFound, "field or crop not found")
+		webutils.WriteError(w, http.StatusNotFound, "plot or crop not found")
 		return
 	}
 	if errors.Is(err, services.ErrForbidden) {
-		webutils.WriteError(w, http.StatusForbidden, "field is not owned by this farmer")
+		webutils.WriteError(w, http.StatusForbidden, "plot is not owned by this farmer")
 		return
 	}
 	if err != nil {

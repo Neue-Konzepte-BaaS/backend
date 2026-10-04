@@ -14,11 +14,11 @@ import (
 // unchanged when the field lookup can't find it.
 //
 // Shared by every service that scopes a write to a field:
-// plotService.CreatePlot, announcementService.checkScopeOwnership (which
-// resolves a plot to its field first), and
-// ripenessNoticeService.CreateRipenessNotice. Before this was extracted, all
-// three hand-implemented the same three steps, and had already begun to
-// drift from one another.
+// plotService.CreatePlot, and announcementService.checkScopeOwnership and
+// ripenessNoticeService.CreateRipenessNotice (both of which resolve a plot
+// to its field first). Before this was extracted, all three
+// hand-implemented the same three steps, and had already begun to drift
+// from one another.
 func checkFieldOwnership(ctx context.Context, farmRepo FarmRepository, fieldRepo FieldRepository, farmer, field uuid.UUID) error {
 	callerFarm, err := farmRepo.GetFarmIDByFarmerID(ctx, farmer)
 	if err != nil {
