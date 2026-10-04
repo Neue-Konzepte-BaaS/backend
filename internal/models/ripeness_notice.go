@@ -7,20 +7,20 @@ import (
 )
 
 // RipenessNotice is a farmer's notice that a crop is ready to harvest on one
-// of his fields.
+// of his plots.
 type RipenessNotice struct {
 	ID        uuid.UUID
 	Farmer    uuid.UUID
-	Field     uuid.UUID
+	Plot      uuid.UUID
 	Crop      uuid.UUID
 	CreatedAt time.Time
 }
 
 // RipenessNoticeWithDetails is a ripeness notice as a customer or farmer sees
-// it, with the farm, field and crop names already resolved.
+// it, with the farm, plot and crop names already resolved.
 type RipenessNoticeWithDetails struct {
 	RipenessNotice
-	FarmName  string
-	FieldName string
-	CropName  string
+	FarmName string
+	PlotName string
+	CropName string
 }

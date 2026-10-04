@@ -123,10 +123,10 @@ type AccountRepository interface {
 	// GetCustomersOfFarmerForPlot narrows GetCustomersOfFarmer to the
 	// customer currently renting one specific plot.
 	GetCustomersOfFarmerForPlot(ctx context.Context, plot uuid.UUID) ([]models.Recipient, error)
-	// GetCustomersOfFarmerForFieldAndCrop is the audience for a ripeness
-	// notice: customers with an active rental on a plot of the given field,
-	// growing the given crop.
-	GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, field, crop uuid.UUID) ([]models.Recipient, error)
+	// GetCustomersOfFarmerForPlotAndCrop is the audience for a ripeness
+	// notice: customers with an active rental on the given plot, growing the
+	// given crop.
+	GetCustomersOfFarmerForPlotAndCrop(ctx context.Context, plot, crop uuid.UUID) ([]models.Recipient, error)
 	// SoftDeleteAccount scrubs the account's personal data and marks it
 	// deleted, so it can no longer log in, be messaged, or appear in any
 	// audience. Returns ErrNotFound if the id does not exist or is already
@@ -284,10 +284,10 @@ type SeasonRepository interface {
 
 type RipenessNoticeRepository interface {
 	// CreateRipenessNotice stores one notice by a farmer and returns it with
-	// the farm, field and crop names already resolved.
-	CreateRipenessNotice(ctx context.Context, farmer, field, crop uuid.UUID) (models.RipenessNoticeWithDetails, error)
-	// GetRipenessNoticesForCustomer returns the notices for fields the
-	// customer currently rents a matching plot on, newest first.
+	// the farm, plot and crop names already resolved.
+	CreateRipenessNotice(ctx context.Context, farmer, plot, crop uuid.UUID) (models.RipenessNoticeWithDetails, error)
+	// GetRipenessNoticesForCustomer returns the notices for plots the
+	// customer currently rents a matching one of, newest first.
 	GetRipenessNoticesForCustomer(ctx context.Context, customer uuid.UUID) ([]models.RipenessNoticeWithDetails, error)
 }
 

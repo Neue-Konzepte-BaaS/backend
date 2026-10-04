@@ -85,7 +85,7 @@ func TestGetInboxForCustomer_MergesAndSortsNewestFirst(t *testing.T) {
 		{
 			RipenessNotice: models.RipenessNotice{ID: uuid.New(), CreatedAt: now.Add(-1 * time.Hour)},
 			FarmName:       "Hof Grünwald",
-			FieldName:      "Feld Nord",
+			PlotName:       "Feld Nord",
 			CropName:       "Zucchini",
 		},
 	}}
@@ -107,8 +107,8 @@ func TestGetInboxForCustomer_MergesAndSortsNewestFirst(t *testing.T) {
 	if items[1].Kind != models.InboxItemRipenessNotice {
 		t.Errorf("second item = %+v, want the ripeness notice second", items[1])
 	}
-	if items[1].FieldName != "Feld Nord" || items[1].CropName != "Zucchini" {
-		t.Errorf("second item = %+v, want field and crop carried through", items[1])
+	if items[1].PlotName != "Feld Nord" || items[1].CropName != "Zucchini" {
+		t.Errorf("second item = %+v, want plot and crop carried through", items[1])
 	}
 	if items[2].Kind != models.InboxItemBroadcast || items[2].Subject != "Wartung" {
 		t.Errorf("third item = %+v, want the oldest broadcast last", items[2])

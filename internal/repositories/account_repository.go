@@ -140,10 +140,10 @@ func (r *accountRepository) GetCustomersOfFarmerForPlot(ctx context.Context, plo
 	return recipients, nil
 }
 
-func (r *accountRepository) GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, field, crop uuid.UUID) ([]models.Recipient, error) {
-	rows, err := r.queries.GetCustomersOfFarmerForFieldAndCrop(ctx, database.GetCustomersOfFarmerForFieldAndCropParams{
-		Field: field,
-		Crop:  crop,
+func (r *accountRepository) GetCustomersOfFarmerForPlotAndCrop(ctx context.Context, plot, crop uuid.UUID) ([]models.Recipient, error) {
+	rows, err := r.queries.GetCustomersOfFarmerForPlotAndCrop(ctx, database.GetCustomersOfFarmerForPlotAndCropParams{
+		Plot: plot,
+		Crop: crop,
 	})
 	if err != nil {
 		return nil, err

@@ -64,7 +64,7 @@ func (f *fakeAccountRepo) GetCustomersOfFarmerForPlot(context.Context, uuid.UUID
 	panic("auth service does not send notifications")
 }
 
-func (f *fakeAccountRepo) GetCustomersOfFarmerForFieldAndCrop(context.Context, uuid.UUID, uuid.UUID) ([]models.Recipient, error) {
+func (f *fakeAccountRepo) GetCustomersOfFarmerForPlotAndCrop(context.Context, uuid.UUID, uuid.UUID) ([]models.Recipient, error) {
 	panic("auth service does not send notifications")
 }
 

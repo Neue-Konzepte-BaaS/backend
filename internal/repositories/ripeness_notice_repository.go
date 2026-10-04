@@ -18,19 +18,19 @@ func NewRipenessNoticeRepository(queries *database.Queries) services.RipenessNot
 	return &ripenessNoticeRepository{queries: queries}
 }
 
-func (r *ripenessNoticeRepository) CreateRipenessNotice(ctx context.Context, farmer, field, crop uuid.UUID) (models.RipenessNoticeWithDetails, error) {
+func (r *ripenessNoticeRepository) CreateRipenessNotice(ctx context.Context, farmer, plot, crop uuid.UUID) (models.RipenessNoticeWithDetails, error) {
 	row, err := r.queries.InsertRipenessNotice(ctx, database.InsertRipenessNoticeParams{
 		Farmer: farmer,
-		Field:  field,
+		Plot:   plot,
 		Crop:   crop,
 	})
 	if err != nil {
-		// The caller already checked field ownership before reaching here, so
+		// The caller already checked plot ownership before reaching here, so
 		// a FK violation at this point means an unknown crop id.
 		return models.RipenessNoticeWithDetails{}, mapForeignKeyError(err)
 	}
 
-	return toModelRipenessNotice(row.ID, row.Farmer, row.Field, row.Crop, row.CreatedAt, row.FarmName, row.FieldName, row.CropName), nil
+	return toModelRipenessNotice(row.ID, row.Farmer, row.Plot, row.Crop, row.CreatedAt, row.FarmName, row.PlotName, row.CropName), nil
 }
 
 func (r *ripenessNoticeRepository) GetRipenessNoticesForCustomer(ctx context.Context, customer uuid.UUID) ([]models.RipenessNoticeWithDetails, error) {
@@ -41,22 +41,22 @@ func (r *ripenessNoticeRepository) GetRipenessNoticesForCustomer(ctx context.Con
 
 	notices := make([]models.RipenessNoticeWithDetails, len(rows))
 	for i, row := range rows {
-		notices[i] = toModelRipenessNotice(row.ID, row.Farmer, row.Field, row.Crop, row.CreatedAt, row.FarmName, row.FieldName, row.CropName)
+		notices[i] = toModelRipenessNotice(row.ID, row.Farmer, row.Plot, row.Crop, row.CreatedAt, row.FarmName, row.PlotName, row.CropName)
 	}
 	return notices, nil
 }
 
-func toModelRipenessNotice(id, farmer, field, crop uuid.UUID, createdAt pgtype.Timestamptz, farmName, fieldName, cropName string) models.RipenessNoticeWithDetails {
+func toModelRipenessNotice(id, farmer, plot, crop uuid.UUID, createdAt pgtype.Timestamptz, farmName, plotName, cropName string) models.RipenessNoticeWithDetails {
 	return models.RipenessNoticeWithDetails{
 		RipenessNotice: models.RipenessNotice{
 			ID:        id,
 			Farmer:    farmer,
-			Field:     field,
+			Plot:      plot,
 			Crop:      crop,
 			CreatedAt: createdAt.Time,
 		},
-		FarmName:  farmName,
-		FieldName: fieldName,
-		CropName:  cropName,
+		FarmName: farmName,
+		PlotName: plotName,
+		CropName: cropName,
 	}
 }

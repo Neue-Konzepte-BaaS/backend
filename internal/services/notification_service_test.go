@@ -42,23 +42,23 @@ func (f *fakeEmailSender) SendMail(email, displayName, subject, message string, 
 	return nil
 }
 
-// fieldAndCrop is the composite key fakeRecipientRepo uses to answer the
+// plotAndCrop is the composite key fakeRecipientRepo uses to answer the
 // ripeness audience lookup, which is scoped by both at once.
-type fieldAndCrop struct {
-	field uuid.UUID
-	crop  uuid.UUID
+type plotAndCrop struct {
+	plot uuid.UUID
+	crop uuid.UUID
 }
 
 // fakeRecipientRepo is an AccountRepository that only answers recipient
 // lookups; the rest of the interface is unreachable from this service.
 type fakeRecipientRepo struct {
-	recipients                       []models.Recipient
-	customersOfFarmer                map[uuid.UUID][]models.Recipient
-	customersOfFarmerForField        map[uuid.UUID][]models.Recipient
-	customersOfFarmerForPlot         map[uuid.UUID][]models.Recipient
-	customersOfFarmerForFieldAndCrop map[fieldAndCrop][]models.Recipient
-	err                              error
-	calls                            int
+	recipients                      []models.Recipient
+	customersOfFarmer               map[uuid.UUID][]models.Recipient
+	customersOfFarmerForField       map[uuid.UUID][]models.Recipient
+	customersOfFarmerForPlot        map[uuid.UUID][]models.Recipient
+	customersOfFarmerForPlotAndCrop map[plotAndCrop][]models.Recipient
+	err                             error
+	calls                           int
 }
 
 func (f *fakeRecipientRepo) ListAccounts(context.Context, models.AccountListFilter) (models.Page[models.AccountListing], error) {
@@ -99,12 +99,12 @@ func (f *fakeRecipientRepo) GetCustomersOfFarmerForPlot(_ context.Context, plot 
 	return f.customersOfFarmerForPlot[plot], nil
 }
 
-func (f *fakeRecipientRepo) GetCustomersOfFarmerForFieldAndCrop(_ context.Context, field, crop uuid.UUID) ([]models.Recipient, error) {
+func (f *fakeRecipientRepo) GetCustomersOfFarmerForPlotAndCrop(_ context.Context, plot, crop uuid.UUID) ([]models.Recipient, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
-	return f.customersOfFarmerForFieldAndCrop[fieldAndCrop{field: field, crop: crop}], nil
+	return f.customersOfFarmerForPlotAndCrop[plotAndCrop{plot: plot, crop: crop}], nil
 }
 
 func (f *fakeRecipientRepo) GetAccountByEmail(context.Context, string) (models.Account, error) {
@@ -485,12 +485,12 @@ func TestNotifyFarmerCustomers_ScopedToPlot_QueuesOnlyThatPlot(t *testing.T) {
 }
 
 func TestNotifyRipeness_QueuesMatchingCustomers(t *testing.T) {
-	field := uuid.New()
+	plot := uuid.New()
 	crop := uuid.New()
 	sender := &fakeEmailSender{}
 	repo := &fakeRecipientRepo{
-		customersOfFarmerForFieldAndCrop: map[fieldAndCrop][]models.Recipient{
-			{field: field, crop: crop}: {
+		customersOfFarmerForPlotAndCrop: map[plotAndCrop][]models.Recipient{
+			{plot: plot, crop: crop}: {
 				recipient("anna@example.com", "Anna", "Bauer"),
 				recipient("ben@example.com", "Ben", "Klein"),
 			},
@@ -499,7 +499,7 @@ func TestNotifyRipeness_QueuesMatchingCustomers(t *testing.T) {
 	dispatcher := NewDispatcher(1)
 	svc := NewNotificationService(sender, repo, &fakeBroadcastRepo{}, ripenessTestTemplates(), dispatcher)
 
-	queued, err := svc.NotifyRipeness(context.Background(), field, crop, "Hof Grünwald", "Feld Nord", "Zucchini")
+	queued, err := svc.NotifyRipeness(context.Background(), plot, crop, "Hof Grünwald", "Feld Nord", "Zucchini")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestNotifyRipeness_QueuesMatchingCustomers(t *testing.T) {
 		t.Errorf("message = %q, want it to name the crop", sender.sent[0].message)
 	}
 	if !strings.Contains(sender.sent[0].message, "Feld Nord") {
-		t.Errorf("message = %q, want it to name the field", sender.sent[0].message)
+		t.Errorf("message = %q, want it to name the plot", sender.sent[0].message)
 	}
 }
 
@@ -551,7 +551,7 @@ func TestNotifyRipeness_RepositoryFailureIsReturned(t *testing.T) {
 func ripenessTestTemplates() fstest.MapFS {
 	templates := testTemplates()
 	templates["ripeness.html"] = &fstest.MapFile{
-		Data: []byte("<p>Hallo {{ .Recipient.DisplayName }}</p><p>{{ .Data.FarmName }}</p><p>{{ .Data.FieldName }}</p><h1>{{ .Data.CropName }}</h1>"),
+		Data: []byte("<p>Hallo {{ .Recipient.DisplayName }}</p><p>{{ .Data.FarmName }}</p><p>{{ .Data.PlotName }}</p><h1>{{ .Data.CropName }}</h1>"),
 	}
 	return templates
 }

@@ -115,7 +115,7 @@ func TestScopedAudiencesReachOnlyApprovedRentals(t *testing.T) {
 	})
 
 	t.Run("ripeness notice mail", func(t *testing.T) {
-		recipients, err := accountRepo.GetCustomersOfFarmerForFieldAndCrop(ctx, a.field, a.crop)
+		recipients, err := accountRepo.GetCustomersOfFarmerForPlotAndCrop(ctx, a.plots[0], a.crop)
 		if err != nil {
 			t.Fatalf("getting recipients: %v", err)
 		}
@@ -126,7 +126,7 @@ func TestScopedAudiencesReachOnlyApprovedRentals(t *testing.T) {
 
 	t.Run("ripeness notice in the inbox", func(t *testing.T) {
 		ripenessRepo := repositories.NewRipenessNoticeRepository(queries)
-		if _, err := ripenessRepo.CreateRipenessNotice(ctx, a.farmer, a.field, a.crop); err != nil {
+		if _, err := ripenessRepo.CreateRipenessNotice(ctx, a.farmer, a.plots[0], a.crop); err != nil {
 			t.Fatalf("creating ripeness notice: %v", err)
 		}
 
@@ -161,7 +161,7 @@ func TestRecipientQueriesExcludeOptedOutCustomers(t *testing.T) {
 	}
 
 	t.Run("ripeness notice mail", func(t *testing.T) {
-		recipients, err := accountRepo.GetCustomersOfFarmerForFieldAndCrop(ctx, a.field, a.crop)
+		recipients, err := accountRepo.GetCustomersOfFarmerForPlotAndCrop(ctx, a.plots[0], a.crop)
 		if err != nil {
 			t.Fatalf("getting recipients: %v", err)
 		}
@@ -224,7 +224,7 @@ func TestRecipientQueriesExcludeOptedOutCustomers(t *testing.T) {
 
 	t.Run("inbox still shows the notice", func(t *testing.T) {
 		ripenessRepo := repositories.NewRipenessNoticeRepository(queries)
-		if _, err := ripenessRepo.CreateRipenessNotice(ctx, a.farmer, a.field, a.crop); err != nil {
+		if _, err := ripenessRepo.CreateRipenessNotice(ctx, a.farmer, a.plots[0], a.crop); err != nil {
 			t.Fatalf("creating ripeness notice: %v", err)
 		}
 

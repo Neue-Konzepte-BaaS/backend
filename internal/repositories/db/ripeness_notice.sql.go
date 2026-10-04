@@ -12,24 +12,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const getCustomersOfFarmerForFieldAndCrop = `-- name: GetCustomersOfFarmerForFieldAndCrop :many
+const getCustomersOfFarmerForPlotAndCrop = `-- name: GetCustomersOfFarmerForPlotAndCrop :many
 SELECT DISTINCT a.id, a.email, a.first_name, a.last_name
 FROM account a
 JOIN customer c ON c.account_id = a.id
 JOIN rental r ON r.customer = c.account_id
-JOIN plot p ON p.id = r.plot
-WHERE p.field = $1 AND r.crop = $2 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
+WHERE r.plot = $1 AND r.crop = $2 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
   AND a.deleted_at IS NULL
   AND c.notify_messages_by_email = true
 ORDER BY a.email
 `
 
-type GetCustomersOfFarmerForFieldAndCropParams struct {
-	Field uuid.UUID
-	Crop  uuid.UUID
+type GetCustomersOfFarmerForPlotAndCropParams struct {
+	Plot uuid.UUID
+	Crop uuid.UUID
 }
 
-type GetCustomersOfFarmerForFieldAndCropRow struct {
+type GetCustomersOfFarmerForPlotAndCropRow struct {
 	ID        uuid.UUID
 	Email     string
 	FirstName string
@@ -37,18 +36,17 @@ type GetCustomersOfFarmerForFieldAndCropRow struct {
 }
 
 // Everyone to notify about ripeness: customers with an active, approved
-// rental on a plot of this field, growing exactly this crop, who have not
-// opted out of email notifications. DISTINCT — a customer renting several
-// matching plots is mailed once.
-func (q *Queries) GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, arg GetCustomersOfFarmerForFieldAndCropParams) ([]GetCustomersOfFarmerForFieldAndCropRow, error) {
-	rows, err := q.db.Query(ctx, getCustomersOfFarmerForFieldAndCrop, arg.Field, arg.Crop)
+// rental on this exact plot, growing exactly this crop, who have not opted
+// out of email notifications.
+func (q *Queries) GetCustomersOfFarmerForPlotAndCrop(ctx context.Context, arg GetCustomersOfFarmerForPlotAndCropParams) ([]GetCustomersOfFarmerForPlotAndCropRow, error) {
+	rows, err := q.db.Query(ctx, getCustomersOfFarmerForPlotAndCrop, arg.Plot, arg.Crop)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetCustomersOfFarmerForFieldAndCropRow
+	var items []GetCustomersOfFarmerForPlotAndCropRow
 	for rows.Next() {
-		var i GetCustomersOfFarmerForFieldAndCropRow
+		var i GetCustomersOfFarmerForPlotAndCropRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Email,
@@ -66,14 +64,13 @@ func (q *Queries) GetCustomersOfFarmerForFieldAndCrop(ctx context.Context, arg G
 }
 
 const getRipenessNoticesForCustomer = `-- name: GetRipenessNoticesForCustomer :many
-SELECT DISTINCT rn.id, rn.farmer, rn.field, rn.crop, rn.created_at,
-       farm.name AS farm_name, fi.name AS field_name, cr.name_de AS crop_name
+SELECT DISTINCT rn.id, rn.farmer, rn.plot, rn.crop, rn.created_at,
+       farm.name AS farm_name, pl.name AS plot_name, cr.name_de AS crop_name
 FROM ripeness_notice rn
 JOIN farm ON farm.farmer_id = rn.farmer
-JOIN field fi ON fi.id = rn.field
+JOIN plot pl ON pl.id = rn.plot
 JOIN crop cr ON cr.id = rn.crop
-JOIN plot p ON p.field = fi.id
-JOIN rental r ON r.plot = p.id AND r.crop = rn.crop
+JOIN rental r ON r.plot = rn.plot AND r.crop = rn.crop
 WHERE r.customer = $1 AND r.period @> CURRENT_TIMESTAMP AND r.status = 'approved'
 ORDER BY rn.created_at DESC
 `
@@ -81,19 +78,18 @@ ORDER BY rn.created_at DESC
 type GetRipenessNoticesForCustomerRow struct {
 	ID        uuid.UUID
 	Farmer    uuid.UUID
-	Field     uuid.UUID
+	Plot      uuid.UUID
 	Crop      uuid.UUID
 	CreatedAt pgtype.Timestamptz
 	FarmName  string
-	FieldName string
+	PlotName  string
 	CropName  string
 }
 
-// Notices for fields the customer currently rents a plot on, growing exactly
-// the notice's crop — the same audience the notice was mailed to in the
-// first place, so it also requires an approved rental: a pending or declined
-// request keeps a row whose period covers now. DISTINCT because renting
-// several matching plots on the same field must not repeat the notice.
+// Notices for plots the customer currently rents, growing exactly the
+// notice's crop — the same audience the notice was mailed to in the first
+// place, so it also requires an approved rental: a pending or declined
+// request keeps a row whose period covers now.
 func (q *Queries) GetRipenessNoticesForCustomer(ctx context.Context, customer uuid.UUID) ([]GetRipenessNoticesForCustomerRow, error) {
 	rows, err := q.db.Query(ctx, getRipenessNoticesForCustomer, customer)
 	if err != nil {
@@ -106,11 +102,11 @@ func (q *Queries) GetRipenessNoticesForCustomer(ctx context.Context, customer uu
 		if err := rows.Scan(
 			&i.ID,
 			&i.Farmer,
-			&i.Field,
+			&i.Plot,
 			&i.Crop,
 			&i.CreatedAt,
 			&i.FarmName,
-			&i.FieldName,
+			&i.PlotName,
 			&i.CropName,
 		); err != nil {
 			return nil, err
@@ -125,49 +121,49 @@ func (q *Queries) GetRipenessNoticesForCustomer(ctx context.Context, customer uu
 
 const insertRipenessNotice = `-- name: InsertRipenessNotice :one
 WITH inserted AS (
-    INSERT INTO ripeness_notice (farmer, field, crop)
+    INSERT INTO ripeness_notice (farmer, plot, crop)
     VALUES ($1, $2, $3)
-    RETURNING id, farmer, field, crop, created_at
+    RETURNING id, farmer, plot, crop, created_at
 )
-SELECT i.id, i.farmer, i.field, i.crop, i.created_at,
-       farm.name AS farm_name, fi.name AS field_name, c.name_de AS crop_name
+SELECT i.id, i.farmer, i.plot, i.crop, i.created_at,
+       farm.name AS farm_name, pl.name AS plot_name, c.name_de AS crop_name
 FROM inserted i
 JOIN farm ON farm.farmer_id = i.farmer
-JOIN field fi ON fi.id = i.field
+JOIN plot pl ON pl.id = i.plot
 JOIN crop c ON c.id = i.crop
 `
 
 type InsertRipenessNoticeParams struct {
 	Farmer uuid.UUID
-	Field  uuid.UUID
+	Plot   uuid.UUID
 	Crop   uuid.UUID
 }
 
 type InsertRipenessNoticeRow struct {
 	ID        uuid.UUID
 	Farmer    uuid.UUID
-	Field     uuid.UUID
+	Plot      uuid.UUID
 	Crop      uuid.UUID
 	CreatedAt pgtype.Timestamptz
 	FarmName  string
-	FieldName string
+	PlotName  string
 	CropName  string
 }
 
-// Farm, field and crop names are joined back in so the notice is immediately
+// Farm, plot and crop names are joined back in so the notice is immediately
 // returnable in the shape both the response and the inbox need, without a
 // second round trip.
 func (q *Queries) InsertRipenessNotice(ctx context.Context, arg InsertRipenessNoticeParams) (InsertRipenessNoticeRow, error) {
-	row := q.db.QueryRow(ctx, insertRipenessNotice, arg.Farmer, arg.Field, arg.Crop)
+	row := q.db.QueryRow(ctx, insertRipenessNotice, arg.Farmer, arg.Plot, arg.Crop)
 	var i InsertRipenessNoticeRow
 	err := row.Scan(
 		&i.ID,
 		&i.Farmer,
-		&i.Field,
+		&i.Plot,
 		&i.Crop,
 		&i.CreatedAt,
 		&i.FarmName,
-		&i.FieldName,
+		&i.PlotName,
 		&i.CropName,
 	)
 	return i, err
