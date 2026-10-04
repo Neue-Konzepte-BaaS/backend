@@ -51,7 +51,7 @@ func TestGetCustomersOfFarmerForPlotAndCrop_MatchesPlotAndCropOnly(t *testing.T)
 	accountRepo := repositories.NewAccountRepository(pool, queries)
 	cropRepo := repositories.NewCropRepository(pool, queries)
 
-	_, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 2)
+	_, _, plots, cropID := seedFarmerWithPlots(t, ctx, pool, 3)
 
 	otherCropName := "Kohl-" + uuid.NewString()
 	otherCrop, err := cropRepo.CreateCrop(ctx, otherCropName, otherCropName, 4)
@@ -65,12 +65,10 @@ func TestGetCustomersOfFarmerForPlotAndCrop_MatchesPlotAndCropOnly(t *testing.T)
 
 	// Target plot, target crop: must be reached.
 	rentApprovedNow(t, ctx, rentalRepo, plots[0], matching, cropID)
-	// Target plot, different crop: must be excluded.
-	// (Can't also rent the target plot's crop on the same plot/period at the
-	// same time, so this uses the other plot to isolate the crop filter.)
+	// Target plot's sibling, different crop: must be excluded.
 	rentApprovedNow(t, ctx, rentalRepo, plots[1], wrongCrop, otherCrop.ID)
-	// Different plot, target crop: must be excluded.
-	rentApprovedNow(t, ctx, rentalRepo, plots[1], wrongPlot, cropID)
+	// A third plot, target crop: must be excluded — same crop, wrong plot.
+	rentApprovedNow(t, ctx, rentalRepo, plots[2], wrongPlot, cropID)
 
 	recipients, err := accountRepo.GetCustomersOfFarmerForPlotAndCrop(ctx, plots[0], cropID)
 	if err != nil {
